@@ -1,0 +1,4 @@
+usr/bin/python-coverage
+usr/bin/python2*-coverage
+resources/* usr/share/python-coverage
+usr/lib/python2.[1-7]/

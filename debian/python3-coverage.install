@@ -1,0 +1,3 @@
+usr/bin/python3*-coverage
+resources/* usr/share/python3-coverage
+usr/lib/python3/

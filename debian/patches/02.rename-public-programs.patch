@@ -1,0 +1,50 @@
+Description: Rename public programs to be clear what they're for.
+ .
+ The upstream choice of ‘coverage’ is too broad a command name for a
+ Python-specific programmer tool.
+ .
+ Created to work with “entry points” feature of Python's Distribute.
+Bug: https://bitbucket.org/ned/coveragepy/issue/272/
+Author: Ben Finney <ben+debian@benfinney.id.au>
+Last-Update: 2013-10-16
+
+--- old/setup.py	2013-10-07 07:40:00.000000000 +1100
++++ new/setup.py	2013-10-08 10:21:00.000000000 +1100
+@@ -1,3 +1,4 @@
++# coding: utf-8
+ # setup.py for coverage.py
+ 
+ """Code coverage measurement for Python
+@@ -71,13 +72,15 @@
+     devstat = "5 - Production/Stable"
+ classifier_list.append("Development Status :: " + devstat)
+ 
+-# Install a script as "coverage", and as "coverage[23]", and as
+-# "coverage-2.7" (or whatever).
++# Install a default ‘python-coverage’ program, and versioned as
++# ‘python2.7-coverage’, ‘python3-coverage’, etc.
+ scripts = [
+-    'coverage = coverage:main',
+-    'coverage%d = coverage:main' % sys.version_info[:1],
+-    'coverage-%d.%d = coverage:main' % sys.version_info[:2],
+-    ]
++        "python-coverage = coverage:main",
++        "python{version[0]}-coverage = coverage:main".format(
++            version=sys.version_info),
++        "python{version[0]}.{version[1]}-coverage = coverage:main".format(
++            version=sys.version_info),
++        ]
+ 
+ # Create the keyword arguments for setup()
+ 
+
+
+Local variables:
+coding: utf-8
+mode: diff
+time-stamp-format: "%:y-%02m-%02d"
+time-stamp-start: "^Last-Update:[         ]+"
+time-stamp-end: "$"
+time-stamp-line-limit: 20
+End:
+vim: fileencoding=utf-8 filetype=diff :

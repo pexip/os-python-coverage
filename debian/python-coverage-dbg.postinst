@@ -1,0 +1,54 @@
+#! /bin/sh
+# Post-install script for ‘python-coverage-dbg’.
+#
+# Manpage: ‘dh_installdeb(1)’
+
+set -e
+
+# Summary of ways this script can be called:
+#   * <postinst> configure <most-recently-configured-version>
+#   * <old-postinst> abort-upgrade <new-version>
+#   * <conflictor's-postinst> abort-remove in-favour <package>
+#     <new-version>
+#   * <postinst> abort-remove
+#   * <deconfigured's-postinst> abort-deconfigure in-favour
+#     <failed-install-package> <version>
+#     [removing <conflicting-package> <version>]
+# For details, see the Debian Policy §6.5 in the ‘debian-policy’ package
+# or on the web at <URL:http://www.debian.org/doc/debian-policy/>.
+
+action="$1"
+
+main_package_name=python-coverage
+debug_package_name=${main_package_name}-dbg
+doc_root_dir="/usr/share/doc"
+main_doc_dir="${doc_root_dir}/${main_package_name}"
+debug_doc_dir="${doc_root_dir}/${debug_package_name}"
+
+case "$action" in
+    configure)
+        most_recent_version="$2"
+        if dpkg --compare-versions "$most_recent_version" lt-nl "3.6-1"; then
+            # Replace debug package doc directory with symlink to
+            # main doc directory.
+            if [ ! -L "$debug_doc_dir" ] && [ -d "$debug_doc_dir" ]; then
+                if rmdir "$debug_doc_dir" 2>/dev/null; then
+                    ln -sf $main_package_name "$debug_doc_dir"
+                fi
+            fi
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        printf "postinst called with unknown action ‘%s’\n" "$action" >&2
+        exit 1
+        ;;
+
+esac
+
+#DEBHELPER#
+
+exit 0

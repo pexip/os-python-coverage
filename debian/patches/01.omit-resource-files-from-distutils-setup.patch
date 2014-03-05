@@ -1,0 +1,45 @@
+Description: Omit the resource data files from Python packaging config.
+ .
+ Created to avoid Python's Distutils insistence on install of
+ arch-independent ‘package_data’ files in ‘/usr/lib/…’. This is a violation
+ of FHS, and these files should instead go to ‘/usr/share/…’.
+Bug-Debian: http://bugs.debian.org/721676
+Author: Ben Finney <ben+debian@benfinney.id.au>
+Last-Update: 2013-09-08
+
+diff -ruN old/MANIFEST.in new/MANIFEST.in
+--- old/MANIFEST.in	2012-11-18 15:32:29.000000000 +1100
++++ new/MANIFEST.in	2013-09-08 17:09:54.683655749 +1000
+@@ -1,5 +1,4 @@
+ # MANIFEST.in file for coverage.py
+-recursive-include coverage/htmlfiles *
+ recursive-include coverage/fullcoverage *
+ 
+ include coverage.egg-info/*.*
+diff -ruN old/setup.py new/setup.py
+--- old/setup.py	2013-01-06 10:00:22.000000000 +1100
++++ new/setup.py	2013-09-08 18:09:04.506127384 +1000
+@@ -88,12 +88,6 @@
+     packages = [
+         'coverage',
+         ],
+-
+-    package_data = {
+-        'coverage': [
+-            'htmlfiles/*.*',
+-            ]
+-        },
+ 
+     entry_points = {'console_scripts': scripts},
+ 
+
+
+Local variables:
+coding: utf-8
+mode: diff
+time-stamp-format: "%:y-%02m-%02d"
+time-stamp-start: "^Last-Update:[         ]+"
+time-stamp-end: "$"
+time-stamp-line-limit: 20
+End:
+vim: fileencoding=utf-8 filetype=diff :

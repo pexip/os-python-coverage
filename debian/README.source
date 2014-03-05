@@ -1,0 +1,17 @@
+Building the Debian source package for python-coverage
+======================================================
+
+Pristine upstream source contains non-DFSG-free files
+-----------------------------------------------------
+
+The pristine upstream source contains obfuscated files, that are thereby
+not appropriate for use as source files. This violates DFSG §2.
+
+The ‘debian/repack’ program removes those files to create the Debian
+upstream source tarball.
+
+The ‘debian/watch’ configuration specifies that ‘uscan --download’ will
+re-pack the pristine upstream tarball by running ‘debian/repack’.
+
+
+ -- Ben Finney <ben+debian@benfinney.id.au>, Fri, 11 Oct 2013 23:12:21 +1100

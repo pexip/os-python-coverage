@@ -1,0 +1,87 @@
+#! /bin/bash
+# debian/repack
+# Re-build the pristine upstream source to serve as the Debian upstream source.
+
+set -o errexit
+set -o errtrace
+set -o nounset
+
+function usage() {
+    progname="$(basename "$0")"
+    printf "$progname --upstream-version VERSION FILENAME\n"
+}
+
+if [ $# -ne 3 ] ; then
+    usage
+    exit 1
+fi
+
+upstream_version="$2"
+downloaded_file="$3"
+
+working_dir="$(mktemp -d -t)"
+
+function cleanup_exit() {
+    exit_status=$?
+    trap - ERR EXIT SIGTERM SIGHUP SIGINT SIGQUIT
+
+    rm -rf "${working_dir}"
+
+    exit $exit_status
+}
+trap "cleanup_exit" ERR EXIT SIGTERM SIGHUP SIGINT SIGQUIT
+
+package_name=$(dpkg-parsechangelog | sed -n -e 's/^Source: //p')
+release_version=$(dpkg-parsechangelog | sed -n -e 's/^Version: //p')
+upstream_version=$(printf "${release_version}" \
+	| sed -e 's/^[[:digit:]]\+://' -e 's/[-][^-]\+$//')
+upstream_dirname="${package_name}-${upstream_version}.orig"
+
+target_filename="${package_name}_${upstream_version}.orig.tar.gz"
+target_working_file="${working_dir}/${target_filename}"
+target_file="$(dirname "${downloaded_file}")/${target_filename}"
+
+repack_dir="${working_dir}/${upstream_dirname}"
+
+printf "Unpacking pristine upstream source ‘${downloaded_file}’:\n"
+
+tar -xzf "${downloaded_file}" --directory "${working_dir}"
+
+upstream_source_dirname=$(ls -1 "${working_dir}")
+upstream_source_dir="${working_dir}/${upstream_source_dirname}"
+
+printf "Repackaging upstream source from ‘${upstream_source_dir}’ to ‘${repack_dir}’:\n"
+
+mv "${upstream_source_dir}" "${repack_dir}"
+
+printf "Removing non-DFSG-free files:\n"
+
+nonfree_files=(
+        coverage/htmlfiles/jquery.min.js
+        coverage/htmlfiles/jquery.tablesorter.min.js
+        tests/farm/html/src/htmlcov/jquery-1.4.3.min.js
+        tests/farm/html/src/htmlcov/jquery.tablesorter.min.js
+        tests/qunit/jquery.tmpl.min.js
+        )
+
+for f in "${nonfree_files[@]}" ; do
+    rm -v "${repack_dir}/$f"
+done
+
+printf "Rebuilding DFSG-free upstream source tarball:\n"
+
+GZIP="--best" tar --directory "${working_dir}" -czf "${target_working_file}" "${upstream_dirname}"
+
+printf "Moving completed upstream tarball to ‘${target_file}’:\n"
+
+rm -v "${downloaded_file}"
+mv "${target_working_file}" "${target_file}"
+
+printf "Done.\n"
+
+
+# Local variables:
+# coding: utf-8
+# mode: sh
+# End:
+# vim: fileencoding=utf-8 filetype=sh :
