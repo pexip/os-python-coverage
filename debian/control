@@ -1,5 +1,6 @@
 Source: python-coverage
-Maintainer: Ben Finney <ben+debian@benfinney.id.au>
+Maintainer: Pexip AS <packaging@pexip.com>
+XSBC-Pexip-Original-Maintainer: Ben Finney <ben+debian@benfinney.id.au>
 Section: python
 Priority: optional
 Standards-Version: 3.9.5
@@ -19,6 +20,7 @@ VCS-bzr: http://anonscm.debian.org/bzr/collab-maint/python-coverage/python-cover
 VCS-Browser: http://anonscm.debian.org/loggerhead/collab-maint/python-coverage/python-coverage.debian/
 X-Python-Version: >= 2.6
 X-Python3-Version: >= 3.2
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ jessie
 
 Package: python-coverage
 Architecture: any
