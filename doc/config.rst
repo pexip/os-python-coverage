@@ -1,19 +1,26 @@
+.. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 .. _config:
 
 ===================
 Configuration files
 ===================
 
-:history: 20100223T201600, new for 3.3
-:history: 20100725T211700, updated for 3.4.
-:history: 20100824T092900, added ``precision``.
-:history: 20110604T184400, updated for 3.5.
-:history: 20110827T212700, updated for 3.5.1
-:history: 20130926T222300, updated for 3.6.1
+.. :history: 20100223T201600, new for 3.3
+.. :history: 20100725T211700, updated for 3.4.
+.. :history: 20100824T092900, added ``precision``.
+.. :history: 20110604T184400, updated for 3.5.
+.. :history: 20110827T212700, updated for 3.5.1
+.. :history: 20130926T222300, updated for 3.6.1
+.. :history: 20140925T064700, updated for 4.0a1
+.. :history: 20150124T173400, updated for 4.0a4
+.. :history: 20150802T174600, updated for 4.0b1
 
+.. module:: coverage
 
 Coverage.py options can be specified in a configuration file.  This makes it
-easier to re-run coverage with consistent settings, and also allows for
+easier to re-run coverage.py with consistent settings, and also allows for
 specification of options that are otherwise only available in the
 :ref:`API <api>`.
 
@@ -25,6 +32,14 @@ directory coverage.py is being run in.  Most of the settings in the
 configuration file are tied to your source code and how it should be measured,
 so it should be stored with your source, and checked into source control,
 rather than put in your home directory.
+
+A different name for the configuration file can be specified with the
+``--rcfile=FILE`` command line option.
+
+Coverage.py will read settings from a ``setup.cfg`` file if no other
+configuration file is used.  In this case, the section names have "coverage:"
+prefixed, so the ``[run]`` options described below will be found in the
+``[coverage:run]`` section of ``setup.cfg``.
 
 
 Syntax
@@ -41,7 +56,7 @@ Boolean values can be specified as ``on``, ``off``, ``true``, ``false``, ``1``,
 or ``0`` and are case-insensitive.
 
 Environment variables can be substituted in by using dollar signs: ``$WORD``
-``${WORD}`` will be replaced with the value of ``WORD`` in the environment.
+or ``${WORD}`` will be replaced with the value of ``WORD`` in the environment.
 A dollar sign can be inserted with ``$$``.  Missing environment variables
 will result in empty strings with no error.
 
@@ -78,6 +93,8 @@ Here's a sample configuration file::
     directory = coverage_html_report
 
 
+.. _config_run:
+
 [run]
 -----
 
@@ -90,21 +107,43 @@ to more than one command.
 ``cover_pylib`` (boolean, default False): whether to measure the Python
 standard library.
 
+``concurrency`` (multi-string, default "thread"): the name concurrency
+libraries in use by the product code.  If your program uses `multiprocessing`_,
+`gevent`_, `greenlet`_, or `eventlet`_, you must name that library in this
+option, or coverage.py will produce very wrong results.
+
+.. _multiprocessing: https://docs.python.org/2/library/multiprocessing.html
+.. _greenlet: http://greenlet.readthedocs.org/en/latest/
+.. _gevent: http://www.gevent.org/
+.. _eventlet: http://eventlet.net/
+
+Before version 4.2, this option only accepted a single string.
+
+.. versionadded:: 4.0
+
 ``data_file`` (string, default ".coverage"): the name of the data file to use
-for storing or reporting coverage.
+for storing or reporting coverage. This value can include a path to another
+directory.
 
 ``debug`` (multi-string): a list of debug options.  See :ref:`the run
 --debug option <cmd_run_debug>` for details.
 
-``include`` (multi-string): a list of filename patterns, the files to include
+``include`` (multi-string): a list of file name patterns, the files to include
 in measurement or reporting.  See :ref:`source` for details.
 
-``omit`` (multi-string): a list of filename patterns, the files to leave out
+``note`` (string): an arbitrary string that will be written to the data file.
+You can use the :meth:`CoverageData.run_infos` method to retrieve this string
+from a data file.
+
+``omit`` (multi-string): a list of file name patterns, the files to leave out
 of measurement or reporting.  See :ref:`source` for details.
 
 ``parallel`` (boolean, default False): append the machine name, process
 id and random number to the data file name to simplify collecting data from
 many processes.  See :ref:`cmd_combining` for more information.
+
+``plugins`` (multi-string): a list of plugin package names. See :ref:`plugins`
+for more information.
 
 ``source`` (multi-string): a list of packages or directories, the source to
 measure during execution.  See :ref:`source` for details.
@@ -140,6 +179,8 @@ or relative file paths on the current machine.
 See :ref:`cmd_combining` for more information.
 
 
+.. _config_report:
+
 [report]
 --------
 
@@ -151,13 +192,16 @@ reported as missing.  More details are in :ref:`excluding`.  If you use this
 option, you are replacing all the exclude regexes, so you'll need to also
 supply the "pragma: no cover" regex if you still want to use it.
 
-``ignore_errors`` (boolean, default False): ignore source code that can't be
-found.
+``fail_under`` (integer): a target coverage percentage. If the total coverage
+measurement is under this value, then exit with a status code of 2.
 
-``include`` (multi-string): a list of filename patterns, the files to include
+``ignore_errors`` (boolean, default False): ignore source code that can't be
+found, emitting a warning instead of an exception.
+
+``include`` (multi-string): a list of file name patterns, the files to include
 in reporting.  See :ref:`source` for details.
 
-``omit`` (multi-string): a list of filename patterns, the files to leave out
+``omit`` (multi-string): a list of file name patterns, the files to leave out
 of reporting.  See :ref:`source` for details.
 
 ``partial_branches`` (multi-string): a list of regular expressions.  Any line
@@ -172,6 +216,12 @@ example "87%".  A value of 2 will display percentages like "87.32%".
 
 ``show_missing`` (boolean, default False): when running a summary report, show
 missing lines.  See :ref:`cmd_summary` for more information.
+
+``skip_covered`` (boolean, default False): Don't include files in the report
+that are 100% covered files. See :ref:`cmd_summary` for more information.
+
+``sort`` (string, default "Name"): Sort the text report by the named column.
+Allowed values are "Name", "Stmts", "Miss", "Branch", "BrPart", or "Cover".
 
 
 .. _config_html:
@@ -193,6 +243,8 @@ overwrite as many of the rules as you like.
 Note this is text, not HTML.
 
 
+.. _config_xml:
+
 [xml]
 -----
 
@@ -200,3 +252,8 @@ Values particular to XML reporting.  The values in the ``[report]`` section
 also apply to XML output, where appropriate.
 
 ``output`` (string, default "coverage.xml"): where to write the XML report.
+
+``package_depth`` (integer, default 99): controls which directories are
+identified as packages in the report.  Directories deeper than this depth are
+not reported as packages.  The default is that all directories are reported as
+packages.

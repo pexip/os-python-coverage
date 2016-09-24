@@ -1,10 +1,13 @@
+.. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 .. _source:
 
 =======================
 Specifying source files
 =======================
 
-:history: 20100725T172000, new in 3.4
+.. :history: 20100725T172000, new in 3.4
 
 
 When coverage.py is running your program and measuring its execution, it needs
@@ -26,25 +29,38 @@ When running your code, the ``coverage run`` command will by default measure
 all code, unless it is part of the Python standard library.
 
 You can specify source to measure with the ``--source`` command-line switch, or
-the ``[run] source`` configuration value.  The value is a list of directories
-or package names.  If specified, only source inside these directories or
-packages will be measured.  Specifying the source option also enables
-coverage.py to report on unexecuted files, since it can search the source tree
-for files that haven't been measured at all.
+the ``[run] source`` configuration value.  The value is a comma- or
+newline-separated list of directories or package names.  If specified, only
+source inside these directories or packages will be measured.  Specifying the
+source option also enables coverage.py to report on unexecuted files, since it
+can search the source tree for files that haven't been measured at all.  Only
+importable files (ones at the root of the tree, or in directories with a
+``__init__.py`` file) will be considered, and files with unusual punctuation in
+their names will be skipped (they are assumed to be scratch files written by
+text editors).
 
 You can further fine-tune coverage.py's attention with the ``--include`` and
 ``--omit`` switches (or ``[run] include`` and ``[run] omit`` configuration
-values). ``--include`` is a list of filename patterns. If specified, only files
-matching those patterns will be measured. ``--omit`` is also a list of filename
-patterns, specifying files not to measure.  If both ``include`` and ``omit``
-are specified, first the set of files is reduced to only those that match the
-include patterns, then any files that match the omit pattern are removed from
-the set.
+values). ``--include`` is a list of file name patterns. If specified, only
+files matching those patterns will be measured. ``--omit`` is also a list of
+file name patterns, specifying files not to measure.  If both ``include`` and
+``omit`` are specified, first the set of files is reduced to only those that
+match the include patterns, then any files that match the omit pattern are
+removed from the set.
 
-The ``include`` and ``omit`` filename patterns follow typical shell syntax:
+The ``include`` and ``omit`` file name patterns follow typical shell syntax:
 ``*`` matches any number of characters and ``?`` matches a single character.
 Patterns that start with a wildcard character are used as-is, other patterns
-are interpreted relative to the current directory.
+are interpreted relative to the current directory::
+
+    [run]
+    omit =
+        # omit anything in a .local directory anywhere
+        */.local/*
+        # omit everything in /usr
+        /usr/*
+        # omit this single file
+        utils/tirefire.py
 
 The ``source``, ``include``, and ``omit`` values all work together to determine
 the source that will be measured.
@@ -63,7 +79,7 @@ parts.
 The report commands (``report``, ``html``, ``annotate``, and ``xml``) all take
 optional ``modules`` arguments, and ``--include`` and ``--omit`` switches. The
 ``modules`` arguments specify particular modules to report on.  The ``include``
-and ``omit`` values are lists of filename patterns, just as with the ``run``
+and ``omit`` values are lists of file name patterns, just as with the ``run``
 command.
 
 Remember that the reporting commands can only report on the data that has been

@@ -1,45 +1,26 @@
 Source: python-coverage
-Maintainer: Ben Finney <ben+debian@benfinney.id.au>
+Maintainer: Ben Finney <bignose@debian.org>
 Section: python
 Priority: optional
-Standards-Version: 3.9.5
 Build-Depends:
-    debhelper (>= 9~),
+    dh-python,
+    python3-sphinx,
+    python3-sphinx-rtd-theme,
+    python3-sphinxcontrib.spelling,
     python-docutils,
     python-setuptools,
     python-all-dev (>= 2.6.6-3~),
-    python-all-dbg,
     python (>= 2.6.6-3~),
     python3-setuptools,
     python3-all-dev,
-    python3-all-dbg,
-    python3
+    python3,
+    debhelper (>= 9~)
+Standards-Version: 3.9.8
 Homepage: http://nedbatchelder.com/code/coverage/
-VCS-bzr: http://anonscm.debian.org/bzr/collab-maint/python-coverage/python-coverage.debian/
-VCS-Browser: http://anonscm.debian.org/loggerhead/collab-maint/python-coverage/python-coverage.debian/
+VCS-Git: https://notabug.org/bignose/debian_python-coverage.git
+VCS-Browser: https://notabug.org/bignose/debian_python-coverage/
 X-Python-Version: >= 2.6
-X-Python3-Version: >= 3.2
-
-Package: python-coverage
-Architecture: any
-Depends:
-    python-pkg-resources,
-    ${python:Depends},
-    ${shlibs:Depends},
-    ${misc:Depends}
-Recommends:
-    libjs-jquery-hotkeys,
-    libjs-jquery-isonscreen,
-    libjs-jquery-tablesorter,
-    libjs-jquery
-Description: code coverage tool for Python 2
- The ‘coverage’ library measures which parts (statements) of a Python
- program are executed while it is run. This is useful for testing:
- those parts of a program that are not executed by the tests have not
- been tested.
- .
- This package contains the Python version 2 ‘coverage’ library, and the
- ‘python-coverage’ program to perform and report coverage tests.
+X-Python3-Version: >= 3.3
 
 Package: python3-coverage
 Architecture: any
@@ -52,50 +33,61 @@ Recommends:
     libjs-jquery-hotkeys,
     libjs-jquery-isonscreen,
     libjs-jquery-tablesorter,
+    libjs-jquery-throttle-debounce,
     libjs-jquery
+Suggests:
+    python-coverage-doc
 Description: code coverage tool for Python 3
- The ‘coverage’ library measures which parts (statements) of a Python
- program are executed while it is run. This is useful for testing:
- those parts of a program that are not executed by the tests have not
- been tested.
+ Coverage.py is a tool for measuring code coverage of Python programs.
+ It monitors your program, noting which parts of the code have been
+ executed, then analyzes the source to identify code that could have
+ been executed but was not.
  .
- This package contains the Python version 3 ‘coverage’ library, and the
+ Coverage measurement is typically used to gauge the effectiveness of
+ tests. It can show which parts of your code are being exercised by
+ tests, and which are not.
+ .
+ This package installs the Python version 3 ‘coverage’ library, and the
  ‘python3-coverage’ program to perform and report coverage tests.
 
-Package: python-coverage-dbg
+Package: python-coverage
 Architecture: any
-Section: debug
-Priority: extra
 Depends:
-    python-coverage (= ${binary:Version}),
+    python-pkg-resources,
+    ${python:Depends},
     ${shlibs:Depends},
     ${misc:Depends}
 Recommends:
-    python-dbg
-Description: code coverage tool for Python 2 – debug library
- The ‘coverage’ library measures which parts (statements) of a Python
- program are executed while it is run. This is useful for testing:
- those parts of a program that are not executed by the tests have not
- been tested.
+    libjs-jquery-hotkeys,
+    libjs-jquery-isonscreen,
+    libjs-jquery-tablesorter,
+    libjs-jquery-throttle-debounce,
+    libjs-jquery
+Suggests:
+    python-coverage-doc
+Description: code coverage tool for Python 2
+ Coverage.py is a tool for measuring code coverage of Python programs.
+ It monitors your program, noting which parts of the code have been
+ executed, then analyzes the source to identify code that could have
+ been executed but was not.
  .
- This package contains the debugging symbols and debug build for the C
- extension libraries in ‘python-coverage’.
+ Coverage measurement is typically used to gauge the effectiveness of
+ tests. It can show which parts of your code are being exercised by
+ tests, and which are not.
+ .
+ This package installs the Python version 2 ‘coverage’ library, and the
+ ‘python2-coverage’ program to perform and report coverage tests.
 
-Package: python3-coverage-dbg
-Architecture: any
-Section: debug
-Priority: extra
+Package: python-coverage-doc
+Architecture: all
+Section: doc
 Depends:
-    python3-coverage (= ${binary:Version}),
-    ${shlibs:Depends},
+    ${sphinxdoc:Depends},
     ${misc:Depends}
-Recommends:
-    python3-dbg
-Description: code coverage tool for Python 3 – debug library
- The ‘coverage’ library measures which parts (statements) of a Python
- program are executed while it is run. This is useful for testing:
- those parts of a program that are not executed by the tests have not
- been tested.
+Description: code coverage tool for Python — documentation
+ Coverage.py is a tool for measuring code coverage of Python programs.
+ It monitors your program, noting which parts of the code have been
+ executed, then analyzes the source to identify code that could have
+ been executed but was not.
  .
- This package contains the debugging symbols and debug build for the C
- extension libraries in ‘python3-coverage’.
+ This package installs the HTML documentation for Coverage.py.

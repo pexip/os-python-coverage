@@ -1,13 +1,30 @@
 #! /bin/bash
+#
 # debian/repack
-# Re-build the pristine upstream source to serve as the Debian upstream source.
+# Part of the Debian package ‘python-coverage’.
+#
+# Copyright © 2010–2016 Ben Finney <bignose@debian.org>
+#
+# This is free software; you may copy, modify, and/or distribute this
+# work under the terms of the Apache License, version 2.0 as published
+# by the Apache Software Foundation. No warranty expressed or implied.
+# See the file ‘/usr/share/common-licenses/Apache-2.0’ for details.
+
+# Convert the pristine upstream source to the Debian upstream source.
+#
+# This program is designed for use with the ‘uscan(1)’ tool, as the
+# “action” parameter for the ‘debian/watch’ configuration file.
 
 set -o errexit
 set -o errtrace
+set -o pipefail
 set -o nounset
 
+program_dir="$(dirname "$(realpath --strip "$0")")"
+source "${program_dir}"/source_package_build.bash
+
 function usage() {
-    progname="$(basename "$0")"
+    local progname=$(basename $0)
     printf "$progname --upstream-version VERSION FILENAME\n"
 }
 
@@ -19,60 +36,43 @@ fi
 upstream_version="$2"
 downloaded_file="$3"
 
-working_dir="$(mktemp -d -t)"
-
-function cleanup_exit() {
-    exit_status=$?
-    trap - ERR EXIT SIGTERM SIGHUP SIGINT SIGQUIT
-
-    rm -rf "${working_dir}"
-
-    exit $exit_status
-}
-trap "cleanup_exit" ERR EXIT SIGTERM SIGHUP SIGINT SIGQUIT
-
-package_name=$(dpkg-parsechangelog | sed -n -e 's/^Source: //p')
-release_version=$(dpkg-parsechangelog | sed -n -e 's/^Version: //p')
-upstream_version=$(printf "${release_version}" \
-	| sed -e 's/^[[:digit:]]\+://' -e 's/[-][^-]\+$//')
-upstream_dirname="${package_name}-${upstream_version}.orig"
-
-target_filename="${package_name}_${upstream_version}.orig.tar.gz"
+target_filename="${upstream_tarball_basename}.tar.gz"
 target_working_file="${working_dir}/${target_filename}"
 target_file="$(dirname "${downloaded_file}")/${target_filename}"
 
 repack_dir="${working_dir}/${upstream_dirname}"
 
-printf "Unpacking pristine upstream source ‘${downloaded_file}’:\n"
+printf "Unpacking pristine upstream source ‘%s’:\n" "${downloaded_file}"
 
-tar -xzf "${downloaded_file}" --directory "${working_dir}"
+extract_tarball_to_working_dir "${downloaded_file}"
 
 upstream_source_dirname=$(ls -1 "${working_dir}")
 upstream_source_dir="${working_dir}/${upstream_source_dirname}"
 
-printf "Repackaging upstream source from ‘${upstream_source_dir}’ to ‘${repack_dir}’:\n"
+printf "Repackaging upstream source from ‘%s’ to ‘%s’:\n" \
+       "${upstream_source_dir}" "${repack_dir}"
 
 mv "${upstream_source_dir}" "${repack_dir}"
 
-printf "Removing non-DFSG-free files:\n"
+printf "Removing non-source files:\n"
 
-nonfree_files=(
+nonsource_files=(
+        # Compiled JavaScript files without corresponding source.
         coverage/htmlfiles/jquery.min.js
+        coverage/htmlfiles/jquery.debounce.min.js
         coverage/htmlfiles/jquery.tablesorter.min.js
-        tests/farm/html/src/htmlcov/jquery-1.4.3.min.js
-        tests/farm/html/src/htmlcov/jquery.tablesorter.min.js
         tests/qunit/jquery.tmpl.min.js
         )
 
-for f in "${nonfree_files[@]}" ; do
-    rm -v "${repack_dir}/$f"
+for f in "${nonsource_files[@]}" ; do
+    rm -rv "${repack_dir}/$f"
 done
 
 printf "Rebuilding DFSG-free upstream source tarball:\n"
 
-GZIP="--best" tar --directory "${working_dir}" -czf "${target_working_file}" "${upstream_dirname}"
+archive_working_dir_to_tarball "${upstream_dirname}" "${target_working_file}"
 
-printf "Moving completed upstream tarball to ‘${target_file}’:\n"
+printf "Moving completed upstream tarball to ‘%s’:\n" "${target_file}"
 
 rm -v "${downloaded_file}"
 mv "${target_working_file}" "${target_file}"
@@ -82,6 +82,7 @@ printf "Done.\n"
 
 # Local variables:
 # coding: utf-8
-# mode: sh
+# mode: shell-script
+# indent-tabs-mode: nil
 # End:
-# vim: fileencoding=utf-8 filetype=sh :
+# vim: fileencoding=utf-8 filetype=bash expandtab :

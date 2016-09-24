@@ -1,0 +1,42 @@
+# debian/tests/control
+# Control file for Debian ‘autopkgtests’.
+# Documentation: ‘/usr/share/doc/autopkgtest/README.package-tests.rst.gz’
+
+Tests: smoke-python2
+Depends:
+    python-pkg-resources,
+    python-coverage
+
+Tests: smoke-python3
+Depends:
+    python3-pkg-resources,
+    python3-coverage
+
+Test-Command:
+    links -dump /usr/share/doc/python-coverage-doc/html/index.html > /dev/null
+Depends:
+    python-coverage-doc,
+    links
+
+Test-Command:
+    file /usr/share/doc/python-coverage-doc/html/index.html | grep -q 'HTML document'
+Depends:
+    python-coverage-doc,
+    file
+
+Tests: entry-point-scripts
+Depends:
+    python3-coverage,
+    python-coverage
+
+Tests: module-scripts
+Depends:
+    python3-coverage,
+    python-coverage
+
+
+# Local variables:
+# coding: utf-8
+# mode: conf
+# End:
+# vim: fileencoding=utf-8 filetype=conf :

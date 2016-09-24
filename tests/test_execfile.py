@@ -1,6 +1,14 @@
+# Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 """Tests for coverage.execfile"""
 
-import compileall, os, re, sys
+import compileall
+import json
+import os
+import os.path
+import re
+import sys
 
 from coverage.backward import binary_bytes
 from coverage.execfile import run_python_file, run_python_module
@@ -8,15 +16,15 @@ from coverage.misc import NoCode, NoSource
 
 from tests.coveragetest import CoverageTest
 
-here = os.path.dirname(__file__)
+TRY_EXECFILE = os.path.join(os.path.dirname(__file__), "modules/process_test/try_execfile.py")
+
 
 class RunFileTest(CoverageTest):
     """Test cases for `run_python_file`."""
 
     def test_run_python_file(self):
-        tryfile = os.path.join(here, "try_execfile.py")
-        run_python_file(tryfile, [tryfile, "arg1", "arg2"])
-        mod_globs = eval(self.stdout())
+        run_python_file(TRY_EXECFILE, [TRY_EXECFILE, "arg1", "arg2"])
+        mod_globs = json.loads(self.stdout())
 
         # The file should think it is __main__
         self.assertEqual(mod_globs['__name__'], "__main__")
@@ -26,7 +34,7 @@ class RunFileTest(CoverageTest):
         self.assertEqual(dunder_file, "try_execfile.py")
 
         # It should have its correct module data.
-        self.assertEqual(mod_globs['__doc__'],
+        self.assertEqual(mod_globs['__doc__'].splitlines()[0],
                             "Test file for run_python_file.")
         self.assertEqual(mod_globs['DATA'], "xyzzy")
         self.assertEqual(mod_globs['FN_VAL'], "my_fn('fooey')")
@@ -35,7 +43,7 @@ class RunFileTest(CoverageTest):
         self.assertEqual(mod_globs['__main__.DATA'], "xyzzy")
 
         # Argv should have the proper values.
-        self.assertEqual(mod_globs['argv'], [tryfile, "arg1", "arg2"])
+        self.assertEqual(mod_globs['argv'], [TRY_EXECFILE, "arg1", "arg2"])
 
         # __builtins__ should have the right values, like open().
         self.assertEqual(mod_globs['__builtins__.has_open'], True)
@@ -54,11 +62,8 @@ class RunFileTest(CoverageTest):
         # Make sure we can read any sort of line ending.
         pylines = """# try newlines|print('Hello, world!')|""".split('|')
         for nl in ('\n', '\r\n', '\r'):
-            fpy = open('nl.py', 'wb')
-            try:
+            with open('nl.py', 'wb') as fpy:
                 fpy.write(nl.join(pylines).encode('utf-8'))
-            finally:
-                fpy.close()
             run_python_file('nl.py', ['nl.py'])
         self.assertEqual(self.stdout(), "Hello, world!\n"*3)
 
@@ -69,13 +74,27 @@ class RunFileTest(CoverageTest):
                 a = 1
                 print("a is %r" % a)
                 #""")
-        abrupt = open("abrupt.py").read()
+        with open("abrupt.py") as f:
+            abrupt = f.read()
         self.assertEqual(abrupt[-1], '#')
         run_python_file("abrupt.py", ["abrupt.py"])
         self.assertEqual(self.stdout(), "a is 1\n")
 
     def test_no_such_file(self):
-        self.assertRaises(NoSource, run_python_file, "xyzzy.py", [])
+        with self.assertRaises(NoSource):
+            run_python_file("xyzzy.py", [])
+
+    def test_directory_with_main(self):
+        self.make_file("with_main/__main__.py", """\
+            print("I am __main__")
+            """)
+        run_python_file("with_main", ["with_main"])
+        self.assertEqual(self.stdout(), "I am __main__\n")
+
+    def test_directory_without_main(self):
+        self.make_file("without_main/__init__.py", "")
+        with self.assertRaisesRegex(NoSource, "Can't find '__main__' module in 'without_main'"):
+            run_python_file("without_main", ["without_main"])
 
 
 class RunPycFileTest(CoverageTest):
@@ -93,9 +112,9 @@ class RunPycFileTest(CoverageTest):
         os.remove("compiled.py")
 
         # Find the .pyc file!
-        for there, _, files in os.walk("."):
+        for there, _, files in os.walk("."):            # pragma: part covered
             for f in files:
-                if f.endswith(".pyc"):
+                if f.endswith(".pyc"):                  # pragma: part covered
                     return os.path.join(there, f)
 
     def test_running_pyc(self):
@@ -115,21 +134,16 @@ class RunPycFileTest(CoverageTest):
         pycfile = self.make_pyc()
 
         # Jam Python 2.1 magic number into the .pyc file.
-        fpyc = open(pycfile, "r+b")
-        fpyc.seek(0)
-        fpyc.write(binary_bytes([0x2a, 0xeb, 0x0d, 0x0a]))
-        fpyc.close()
+        with open(pycfile, "r+b") as fpyc:
+            fpyc.seek(0)
+            fpyc.write(binary_bytes([0x2a, 0xeb, 0x0d, 0x0a]))
 
-        self.assertRaisesRegexp(
-            NoCode, "Bad magic number in .pyc file",
-            run_python_file, pycfile, [pycfile]
-        )
+        with self.assertRaisesRegex(NoCode, "Bad magic number in .pyc file"):
+            run_python_file(pycfile, [pycfile])
 
     def test_no_such_pyc_file(self):
-        self.assertRaisesRegexp(
-            NoCode, "No file to run: 'xyzzy.pyc'",
-            run_python_file, "xyzzy.pyc", []
-        )
+        with self.assertRaisesRegex(NoCode, "No file to run: 'xyzzy.pyc'"):
+            run_python_file("xyzzy.pyc", [])
 
 
 class RunModuleTest(CoverageTest):
@@ -144,28 +158,42 @@ class RunModuleTest(CoverageTest):
 
     def test_runmod1(self):
         run_python_module("runmod1", ["runmod1", "hello"])
+        self.assertEqual(self.stderr(), "")
         self.assertEqual(self.stdout(), "runmod1: passed hello\n")
 
     def test_runmod2(self):
         run_python_module("pkg1.runmod2", ["runmod2", "hello"])
-        self.assertEqual(self.stdout(), "runmod2: passed hello\n")
+        self.assertEqual(self.stderr(), "")
+        self.assertEqual(self.stdout(), "pkg1.__init__: pkg1\nrunmod2: passed hello\n")
 
     def test_runmod3(self):
         run_python_module("pkg1.sub.runmod3", ["runmod3", "hello"])
-        self.assertEqual(self.stdout(), "runmod3: passed hello\n")
+        self.assertEqual(self.stderr(), "")
+        self.assertEqual(self.stdout(), "pkg1.__init__: pkg1\nrunmod3: passed hello\n")
 
     def test_pkg1_main(self):
         run_python_module("pkg1", ["pkg1", "hello"])
-        self.assertEqual(self.stdout(), "pkg1.__main__: passed hello\n")
+        self.assertEqual(self.stderr(), "")
+        self.assertEqual(self.stdout(), "pkg1.__init__: pkg1\npkg1.__main__: passed hello\n")
 
     def test_pkg1_sub_main(self):
         run_python_module("pkg1.sub", ["pkg1.sub", "hello"])
-        self.assertEqual(self.stdout(), "pkg1.sub.__main__: passed hello\n")
+        self.assertEqual(self.stderr(), "")
+        self.assertEqual(self.stdout(), "pkg1.__init__: pkg1\npkg1.sub.__main__: passed hello\n")
+
+    def test_pkg1_init(self):
+        run_python_module("pkg1.__init__", ["pkg1.__init__", "wut?"])
+        self.assertEqual(self.stderr(), "")
+        self.assertEqual(self.stdout(), "pkg1.__init__: pkg1\npkg1.__init__: __main__\n")
 
     def test_no_such_module(self):
-        self.assertRaises(NoSource, run_python_module, "i_dont_exist", [])
-        self.assertRaises(NoSource, run_python_module, "i.dont_exist", [])
-        self.assertRaises(NoSource, run_python_module, "i.dont.exist", [])
+        with self.assertRaises(NoSource):
+            run_python_module("i_dont_exist", [])
+        with self.assertRaises(NoSource):
+            run_python_module("i.dont_exist", [])
+        with self.assertRaises(NoSource):
+            run_python_module("i.dont.exist", [])
 
     def test_no_main(self):
-        self.assertRaises(NoSource, run_python_module, "pkg2", ["pkg2", "hi"])
+        with self.assertRaises(NoSource):
+            run_python_module("pkg2", ["pkg2", "hi"])

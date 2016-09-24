@@ -7,12 +7,16 @@ measure code coverage of Python program execution
 -------------------------------------------------
 
 :Author: |author|
-:Date: 2013-10-07
-:Copyright: BSD license, attribution and disclaimer required.
+:Date: 2016-07-12
+:Copyright:
+    Copyright © 2010–2016 Ben Finney <bignose@debian.org>
 :Manual section: 1
 :Manual group: Coverage
 
 ..  |command| replace:: **python-coverage**
+..  |license| replace::
+    `Apache license, version 2.0
+    <http://www.apache.org/licenses/LICENSE-2.0>`__
 
 
 SYNOPSIS
@@ -20,7 +24,6 @@ SYNOPSIS
 
 | |command| `command` [ `option` ... ]
 | |command| **help** [ `command` ]
-| |command| **help** **classic**
 
 
 DESCRIPTION
@@ -38,6 +41,10 @@ COMMAND OVERVIEW
 
 |command| **combine**
     Combine a number of data files.
+
+|command| **debug**
+    Display diagnostic information about the internals of this
+    program.
 
 |command| **erase**
     Erase previously collected coverage data.
@@ -89,11 +96,21 @@ COMMAND REFERENCE
     \-i, --ignore-errors
         Ignore errors while reading source files.
 
-**combine**
+**combine** `PATH` `PATH` [ ... ]
 
-    Combine data from multiple coverage files collected with ``run -p``.
-    The combined results are written to a single file representing the
-    union of the data.
+    Combine data from multiple coverage files `PATH`, collected with
+    ``run -p``. The combined results are written to a single file
+    representing the union of the data.
+
+**debug** `topic`
+
+    Display information on the internals of coverage.py, for
+    diagnosing problems.
+
+    Topics are:
+
+    * `data`, to show a summary of the collected data.
+    * `sys`, to show installation information.
 
 **erase**
 
@@ -102,10 +119,6 @@ COMMAND REFERENCE
 **help** [ `command` ]
 
     Describe how to use Coverage.
-
-**help** **classic**
-
-    Describe help on older command syntax.
 
 **html** [ `option` ... ] [ `MODULE` ... ]
 
@@ -214,7 +227,13 @@ Python library to do all the work.
 The library was originally developed by Gareth Rees, and is now developed
 by Ned Batchelder.
 
-This manual page was written by |author|.
+This manual page was written to document the |command| command for
+Debian. This is free software: you may copy, modify and/or distribute
+this work under the terms of the |license| as published by the Apache
+Software Foundation. No warranty expressed or implied.
+
+On Debian systems, the complete text of version 2.0 of the Apache
+License can be found in `/usr/share/common-licenses/Apache-2.0`.
 
 ..  |author| replace:: |authorname| |authoremail|
 ..  |authorname| replace:: Ben Finney
@@ -223,11 +242,12 @@ This manual page was written by |author|.
 
 ..
     Local variables:
-    mode: rst
     coding: utf-8
+    mode: text
+    mode: rst
     time-stamp-format: "%:y-%02m-%02d"
     time-stamp-start: "^:Date:[         ]+"
     time-stamp-end: "$"
     time-stamp-line-limit: 20
     End:
-    vim: filetype=rst fileencoding=utf-8 :
+    vim: fileencoding=utf-8 filetype=rst :

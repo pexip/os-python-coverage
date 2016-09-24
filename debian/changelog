@@ -1,3 +1,143 @@
+python-coverage (4.2+dfsg.1-2) unstable; urgency=medium
+
+  * The “Niloy Neel” release.
+  * debian/*:
+    * Update my email address for Debian work.
+  * debian/README.source:
+    * Much more detail about how to build the source package from VCS.
+  * Specify current VCS for Debian packaging work.
+  * Convert UScan configuration to format version 4.
+  * Add invocations of command-line programs to autopkgtests.
+    Closes: bug#827464. Thanks to Barry Warsaw for the report.
+  * Configure Sphinx build system to allow import of code during build.
+    This allows the ‘autodoc’ extension to generate API documentation.
+
+ -- Ben Finney <bignose@debian.org>  Sat, 24 Sep 2016 15:03:52 +1000
+
+python-coverage (4.2+dfsg.1-1) unstable; urgency=medium
+
+  * The “Ananta Bijoy Das” release.
+  * New upstream version.
+    Highlights since previous release:
+    * The ‘coverage combine’ command now ignores an existing ‘.coverage’
+      data file.
+    * Now it is an error to use ‘--concurrency=multiprocessing’ and other
+      run-affecting options on the command line. (Previously, the options
+      didn’t apply to the subprocesses, but there was no indication.)
+    * Better support for multiprocessing and combining data.
+  * debian/*.lintian-overrides:
+    * Override false-positive Lintian warnings about Coverage.py being an
+      application.
+  * debian/control:
+    * Declare the package for upstream documentation.
+    * Add dependencies on the documentation package.
+  * debian/control, debian/rules:
+    * Enable build of upstream documentation using Sphinx.
+  * debian/python-coverage-doc.{docs, doc-base}:
+    * Install the upstream documentation.
+  * debian/tests/control:
+    * Test that the documentation is correctly installed as HTML.
+
+ -- Ben Finney <ben+debian@benfinney.id.au>  Tue, 09 Aug 2016 06:05:28 +1000
+
+python-coverage (4.1+dfsg.1-3) unstable; urgency=medium
+
+  * The “Washikur Rahman” release.
+  * debian/python-coverage.1.txt:
+    * Remove mention of “classic” command line arguments.
+      Closes: bug#829556. Thanks to Jakub Wilk for the bug report.
+    * Correctly document the ‘combine’ and ‘debug’ sub-commands.
+  * debian/control:
+    * Declare new run-time dependency on “debounce” JavaScript library.
+      Closes: bug#828094. Thanks to Barry Warsaw for the bug report.
+  * debian/patches/03.rename-debounce-library.patch, debian/patches/series:
+    * Rename the “debounce” library to that installed by Debian.
+
+ -- Ben Finney <ben+debian@benfinney.id.au>  Tue, 12 Jul 2016 20:53:39 +1000
+
+python-coverage (4.1+dfsg.1-2) unstable; urgency=medium
+
+  * The “Humayun Azad” release.
+  * debian/README.Debian, debian/python-coverage.1.txt:
+    * Correct editor hints.
+      Closes: bug#827599. Thanks to Jakub Wilk for the bug report.
+  * debian/patches/02.rename-public-programs.patch:
+    * Correct entry point to match upstream change.
+      Closes: bug#827600. Thanks to Jakub Wilk for the bug report.
+
+ -- Ben Finney <ben+debian@benfinney.id.au>  Sat, 18 Jun 2016 23:56:07 +1000
+
+python-coverage (4.1+dfsg.1-1) unstable; urgency=medium
+
+  * The “Mohsen Amir Aslani” release.
+  * New upstream version (Closes: bug#797267, bug#799629).
+    Highlights since previous release:
+    * Now licensed to recipients under Apache License 2.0.
+    * Plugin support for measuring non-Python files.
+    * Coverage measurement of code that uses concurrency libraries.
+    * Branch coverage much improved, rewritten using AST analysis.
+    * Live filtering in the HTML report.
+    Upstream test runner is also re-worked.
+    (Closes: bug#802916)
+  * debian/copyright:
+    * Update copyright information for upstream work.
+    * Add editor hints.
+  * debian/copyright, debian/rules, debian/repack:
+    * Update copyright information for Debian packaging.
+    * Grant license in Debian packaging work under Apache License 2.0.
+  * debian/python-coverage.1.txt
+    * Grant license in manual page under Apache License 2.0.
+  * debian/control:
+    * Declare “Standards-Version: 3.9.8”. No additional changes required.
+    * Add explicit “Build-Depends: dh-python”.
+    * Update supported Python versions.
+    * Update package descriptions to better match current behaviour.
+  * debian/rules:
+    * Add ‘get-packaged-orig-source’ target to fetch upstream source for
+      declared package version.
+    * Upstream tarball currently omits documentation directory; create it.
+    * Update name of upstream changelog file.
+    * Disable upstream test suite run.
+      (Closes: bug#826758)
+    * Install manpage aliases as normal files.
+    * Add hardening build flags for ELF binaries.
+  * debian/rules, debian/*.install, debian/*.links:
+    * Migrate Python packaging tool to Pybuild.
+      (Closes: bug#735373)
+    * Remove ‘dh_install’ and ‘dh_link’ configuration files. File paths
+      now depend on Pybuild actions in ‘debian/rules’.
+  * debian/watch:
+    * Switch from defunct source API to Debian-maintained mirror.
+    * Refine regex to more tightly match a version string.
+    * Add editor hints.
+  * debian/repack:
+    * Use GNU tar feature to auto-detect compression type.
+    * Update set of non-free source files.
+  * debian/patches:
+    * Update patches for new upstream code base.
+  * debian/control, debian/bzr-buildpackage.conf, debian/gbp.conf:
+    * Migrate to Git VCS for packaging.
+    * Remove superfluous configuration for Bzr-buildpackage.
+    * Add configuration for Git-buildpackage.
+  * debian/README.source:
+    * Document how the source package is built.
+  * debian/clean:
+    * Remove Setuptools build artefacts.
+  * debian/control, debian/rules, debian/*-dbg.postinst:
+    * Remove explicit debug symbol packages, now implicit for all
+      architecture-dependent packages in Debian.
+    * Remove special handling for documentation for debug packages.
+  * debian/rules, debian/control, debian/README.Debian:
+    * Remove the ‘python-coverage’ command from Python 3 package.
+      This resolves a conflict between the Python 2 and Python 3 packages.
+    * Document that the ‘python-coverage’ command is only for Python 2.
+  * debian/tests/control,
+    debian/tests/smoke-python{2,3}, debian/tests/smoke_test.py:
+    * Add smoke test suite to verify distribution is installed.
+      (Closes: bug#729703)
+
+ -- Ben Finney <ben+debian@benfinney.id.au>  Wed, 15 Jun 2016 22:35:46 +1000
+
 python-coverage (3.7.1+dfsg.1-1) unstable; urgency=medium
 
   * The “Ziauddin Yousafzai” release.
@@ -68,7 +208,7 @@ python-coverage (3.7+dfsg.1-1) unstable; urgency=low
   [ Piotr Ożarowski ]
   * debian/*.install:
     + Install files separately for Python 2 and Python 3 packages.
-  
+
   [ Ben Finney ]
   * New upstream version (Closes: bug#635476).
   * debian/control:
@@ -257,7 +397,7 @@ python-coverage (3.0-1) unstable; urgency=low
  -- Ben Finney <ben+debian@benfinney.id.au>  Sun, 05 Jul 2009 09:06:58 +1000
 
 python-coverage (2.85-1) unstable; urgency=low
-  
+
   [ Lars Wirzenius ]
   * debian/control: Added missing DM-Upload-Allowed field.
 
