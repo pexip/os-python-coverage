@@ -1,13 +1,18 @@
+.. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 .. _trouble:
 
 =========================
 Things that cause trouble
 =========================
 
-:history: 20121231T085200, brand new docs.
+.. :history: 20121231T085200, brand new docs.
+.. :history: 20150124T160800, remove obsolete stuff.
 
-Coverage works well, and I want it to properly measure any Python program, but
-there are some situations it can't cope with.  This page details some known
+
+Coverage.py works well, and I want it to properly measure any Python program,
+but there are some situations it can't cope with.  This page details some known
 problems, with possible courses of action, and links to coverage.py bug reports
 with more information.
 
@@ -32,14 +37,6 @@ coverage.py from working properly:
   program that calls execv will not be fully measured.  A patch for coverage.py
   is in `issue 43`_.
 
-* `multiprocessing`_ launches processes to provide parallelism.  These
-  processes don't get measured by coverage.py.  Some possible fixes are
-  discussed or linked to in `issue 117`_.
-
-* `gevent`_, which is based on `greenlet`_, and is similar to `eventlet`_. All
-  of these manipulate the C stack, and therefore confuse coverage.py.
-  `Issue 149`_ has some pointers to more information.
-
 * `thread`_, in the Python standard library, is the low-level threading
   interface.  Threads created with this module will not be traced.  Use the
   higher-level `threading`_ module instead.
@@ -50,16 +47,10 @@ coverage.py from working properly:
   measured properly.
 
 .. _execv: http://docs.python.org/library/os#os.execl
-.. _multiprocessing: http://docs.python.org/library/multiprocessing.html
-.. _gevent: http://www.gevent.org/
-.. _greenlet: http://greenlet.readthedocs.org/
-.. _eventlet: http://eventlet.net/
 .. _sys.settrace: http://docs.python.org/library/sys.html#sys.settrace
-.. _thread: http://docs.python.org/library/thread.html
+.. _thread: https://docs.python.org/2/library/thread.html
 .. _threading: http://docs.python.org/library/threading.html
 .. _issue 43: https://bitbucket.org/ned/coveragepy/issue/43/coverage-measurement-fails-on-code
-.. _issue 117: https://bitbucket.org/ned/coveragepy/issue/117/enable-coverage-measurement-of-code-run-by
-.. _issue 149: https://bitbucket.org/ned/coveragepy/issue/149/coverage-gevent-looks-broken
 
 
 Things that require --timid
@@ -75,17 +66,6 @@ timid=True`` configuration option.
 
 .. _DecoratorTools: http://pypi.python.org/pypi/DecoratorTools
 .. _TurboGears: http://turbogears.org/
-
-
-Really obscure things
----------------------
-
-* Python 2.5 had a bug (`1569356`_) that could make your program behave
-  differently when being measured with coverage.  This is diagnosed in
-  `issue 51`_.
-
-.. _issue 51: http://bitbucket.org/ned/coveragepy/issue/51/turbogears-15-test-failing-with-coverage
-.. _1569356: http://bugs.python.org/issue1569356
 
 
 Still having trouble?

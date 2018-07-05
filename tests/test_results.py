@@ -1,11 +1,14 @@
-"""Tests for Coverage.py's results analysis."""
+# Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
+"""Tests for coverage.py's results analysis."""
 
 from coverage.results import Numbers
 from tests.coveragetest import CoverageTest
 
 
 class NumbersTest(CoverageTest):
-    """Tests for Coverage.py's numeric measurement summaries."""
+    """Tests for coverage.py's numeric measurement summaries."""
 
     run_in_temp_dir = False
 
@@ -58,3 +61,13 @@ class NumbersTest(CoverageTest):
         self.assertEqual(n9999.pc_covered_str, "0.1")
         self.assertEqual(n10000.pc_covered_str, "0.0")
         Numbers.set_precision(0)
+
+    def test_covered_ratio(self):
+        n = Numbers(n_files=1, n_statements=200, n_missing=47)
+        self.assertEqual(n.ratio_covered, (153, 200))
+
+        n = Numbers(
+            n_files=1, n_statements=200, n_missing=47,
+            n_branches=10, n_missing_branches=3, n_partial_branches=1000,
+        )
+        self.assertEqual(n.ratio_covered, (160, 210))

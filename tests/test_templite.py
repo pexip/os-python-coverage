@@ -1,11 +1,16 @@
+# -*- coding: utf8 -*-
+# Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 """Tests for coverage.templite."""
 
-from coverage.templite import Templite
+import re
+
+from coverage.templite import Templite, TempliteSyntaxError, TempliteValueError
+
 from tests.coveragetest import CoverageTest
 
-# pylint: disable=W0612,E1101
-# Disable W0612 (Unused variable) and
-# E1101 (Instance of 'foo' has no 'bar' member)
+# pylint: disable=unused-variable
 
 class AnyOldObject(object):
     """Simple testing object.
@@ -23,9 +28,27 @@ class TempliteTest(CoverageTest):
 
     run_in_temp_dir = False
 
-    def try_render(self, text, ctx, result):
-        """Render `text` through `ctx`, and it had better be `result`."""
-        self.assertEqual(Templite(text).render(ctx), result)
+    def try_render(self, text, ctx=None, result=None):
+        """Render `text` through `ctx`, and it had better be `result`.
+
+        Result defaults to None so we can shorten the calls where we expect
+        an exception and never get to the result comparison.
+
+        """
+        actual = Templite(text).render(ctx or {})
+        # If result is None, then an exception should have prevented us getting
+        # to here.
+        assert result is not None
+        self.assertEqual(actual, result)
+
+    def assertSynErr(self, msg):
+        """Assert that a `TempliteSyntaxError` will happen.
+
+        A context manager, and the message should be `msg`.
+
+        """
+        pat = "^" + re.escape(msg) + "$"
+        return self.assertRaisesRegex(TempliteSyntaxError, pat)
 
     def test_passthrough(self):
         # Strings without variables are passed through unchanged.
@@ -41,11 +64,8 @@ class TempliteTest(CoverageTest):
 
     def test_undefined_variables(self):
         # Using undefined names is an error.
-        self.assertRaises(
-            Exception,
-            self.try_render,
-            "Hi, {{name}}!", {}, "xyz"
-        )
+        with self.assertRaises(Exception):
+            self.try_render("Hi, {{name}}!")
 
     def test_pipes(self):
         # Variables can be filtered with pipes.
@@ -220,28 +240,77 @@ class TempliteTest(CoverageTest):
             "@a0b0c0a1b1c1a2b2c2!"
             )
 
+    def test_whitespace_handling(self):
+        self.try_render(
+            "@{% for n in nums %}\n"
+            " {% for a in abc %}{{a}}{{n}}{% endfor %}\n"
+            "{% endfor %}!\n",
+            {'nums': [0, 1, 2], 'abc': ['a', 'b', 'c']},
+            "@\n a0b0c0\n\n a1b1c1\n\n a2b2c2\n!\n"
+            )
+        self.try_render(
+            "@{% for n in nums -%}\n"
+            " {% for a in abc -%}\n"
+            "  {# this disappears completely -#}\n"
+            "  {{a -}}\n"
+            "  {{n -}}\n"
+            " {% endfor %}\n"
+            "{% endfor %}!\n",
+            {'nums': [0, 1, 2], 'abc': ['a', 'b', 'c']},
+            "@a0b0c0\na1b1c1\na2b2c2\n!\n"
+            )
+
+    def test_non_ascii(self):
+        self.try_render(
+            u"{{where}} ollǝɥ",
+            { 'where': u'ǝɹǝɥʇ' },
+            u"ǝɹǝɥʇ ollǝɥ"
+        )
+
     def test_exception_during_evaluation(self):
         # TypeError: Couldn't evaluate {{ foo.bar.baz }}:
-        # 'NoneType' object is unsubscriptable
-        self.assertRaises(TypeError, self.try_render,
-            "Hey {{foo.bar.baz}} there", {'foo': None}, "Hey ??? there"
+        msg = "Couldn't evaluate None.bar"
+        with self.assertRaisesRegex(TempliteValueError, msg):
+            self.try_render(
+                "Hey {{foo.bar.baz}} there", {'foo': None}, "Hey ??? there"
             )
+
+    def test_bad_names(self):
+        with self.assertSynErr("Not a valid name: 'var%&!@'"):
+            self.try_render("Wat: {{ var%&!@ }}")
+        with self.assertSynErr("Not a valid name: 'filter%&!@'"):
+            self.try_render("Wat: {{ foo|filter%&!@ }}")
+        with self.assertSynErr("Not a valid name: '@'"):
+            self.try_render("Wat: {% for @ in x %}{% endfor %}")
 
     def test_bogus_tag_syntax(self):
-        self.assertRaisesRegexp(
-            SyntaxError, "Don't understand tag: 'bogus'",
-            self.try_render,
-            "Huh: {% bogus %}!!{% endbogus %}??", {}, ""
-            )
+        with self.assertSynErr("Don't understand tag: 'bogus'"):
+            self.try_render("Huh: {% bogus %}!!{% endbogus %}??")
+
+    def test_malformed_if(self):
+        with self.assertSynErr("Don't understand if: '{% if %}'"):
+            self.try_render("Buh? {% if %}hi!{% endif %}")
+        with self.assertSynErr("Don't understand if: '{% if this or that %}'"):
+            self.try_render("Buh? {% if this or that %}hi!{% endif %}")
+
+    def test_malformed_for(self):
+        with self.assertSynErr("Don't understand for: '{% for %}'"):
+            self.try_render("Weird: {% for %}loop{% endfor %}")
+        with self.assertSynErr("Don't understand for: '{% for x from y %}'"):
+            self.try_render("Weird: {% for x from y %}loop{% endfor %}")
+        with self.assertSynErr("Don't understand for: '{% for x, y in z %}'"):
+            self.try_render("Weird: {% for x, y in z %}loop{% endfor %}")
 
     def test_bad_nesting(self):
-        self.assertRaisesRegexp(
-            SyntaxError, "Unmatched action tag: 'if'",
-            self.try_render,
-            "{% if x %}X", {}, ""
-            )
-        self.assertRaisesRegexp(
-            SyntaxError, "Mismatched end tag: 'for'",
-            self.try_render,
-            "{% if x %}X{% endfor %}", {}, ""
-            )
+        with self.assertSynErr("Unmatched action tag: 'if'"):
+            self.try_render("{% if x %}X")
+        with self.assertSynErr("Mismatched end tag: 'for'"):
+            self.try_render("{% if x %}X{% endfor %}")
+        with self.assertSynErr("Too many ends: '{% endif %}'"):
+            self.try_render("{% if x %}{% endif %}{% endif %}")
+
+    def test_malformed_end(self):
+        with self.assertSynErr("Don't understand end: '{% end if %}'"):
+            self.try_render("{% if x %}X{% end if %}")
+        with self.assertSynErr("Don't understand end: '{% endif now %}'"):
+            self.try_render("{% if x %}X{% endif now %}")
