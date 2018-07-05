@@ -20,7 +20,7 @@ VCS-bzr: http://anonscm.debian.org/bzr/collab-maint/python-coverage/python-cover
 VCS-Browser: http://anonscm.debian.org/loggerhead/collab-maint/python-coverage/python-coverage.debian/
 X-Python-Version: >= 2.6
 X-Python3-Version: >= 3.2
-XS-Pexip-Upstream: http://ftp.debian.org/debian/ jessie
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ stretch
 
 Package: python-coverage
 Architecture: any
