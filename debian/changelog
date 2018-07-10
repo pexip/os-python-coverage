@@ -1,3 +1,9 @@
+python-coverage (4.2+dfsg.1-2pexip1) pexip; urgency=medium
+
+  * Migrate to Stretch
+
+ -- John-Mark Bell <jmb@pexip.com>  Tue, 10 Jul 2018 11:41:15 +0000
+
 python-coverage (4.2+dfsg.1-2) unstable; urgency=medium
 
   * The “Niloy Neel” release.
