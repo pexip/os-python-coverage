@@ -1,55 +1,107 @@
-"""Test cmdline.py for coverage."""
+# Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
-import pprint, re, shlex, sys, textwrap
+"""Test cmdline.py for coverage.py."""
+
+import pprint
+import re
+import shlex
+import sys
+import textwrap
+
 import mock
+
 import coverage
 import coverage.cmdline
+from coverage import env
+from coverage.config import CoverageConfig
+from coverage.data import CoverageData, CoverageDataFiles
 from coverage.misc import ExceptionDuringRun
 
 from tests.coveragetest import CoverageTest, OK, ERR
 
 
-class CmdLineTest(CoverageTest):
+class BaseCmdLineTest(CoverageTest):
     """Tests of execution paths through the command line interpreter."""
 
     run_in_temp_dir = False
 
-    INIT_LOAD = """\
-        .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=None, debug=None)
-        .load()\n"""
+    # Make a dict mapping function names to the default values that cmdline.py
+    # uses when calling the function.
+    defaults = mock.Mock()
+    defaults.coverage(
+        cover_pylib=None, data_suffix=None, timid=None, branch=None,
+        config_file=True, source=None, include=None, omit=None, debug=None,
+        concurrency=None,
+    )
+    defaults.annotate(
+        directory=None, ignore_errors=None, include=None, omit=None, morfs=[],
+    )
+    defaults.html_report(
+        directory=None, ignore_errors=None, include=None, omit=None, morfs=[],
+        title=None,
+    )
+    defaults.report(
+        ignore_errors=None, include=None, omit=None, morfs=[],
+        show_missing=None, skip_covered=None
+    )
+    defaults.xml_report(
+        ignore_errors=None, include=None, omit=None, morfs=[], outfile=None,
+    )
+
+    DEFAULT_KWARGS = dict((name, kw) for name, _, kw in defaults.mock_calls)
 
     def model_object(self):
         """Return a Mock suitable for use in CoverageScript."""
         mk = mock.Mock()
+        # We'll invoke .coverage as the constructor, and then keep using the
+        # same object as the resulting coverage object.
         mk.coverage.return_value = mk
+
+        # The mock needs to get options, but shouldn't need to set them.
+        config = CoverageConfig()
+        mk.get_option = config.get_option
+
         return mk
 
-    def mock_command_line(self, args):
+    def mock_command_line(self, args, path_exists=None):
         """Run `args` through the command line, with a Mock.
 
         Returns the Mock it used and the status code returned.
 
         """
         m = self.model_object()
-        ret = coverage.CoverageScript(
+        m.path_exists.return_value = path_exists
+
+        ret = coverage.cmdline.CoverageScript(
             _covpkg=m, _run_python_file=m.run_python_file,
-            _run_python_module=m.run_python_module, _help_fn=m.help_fn
+            _run_python_module=m.run_python_module, _help_fn=m.help_fn,
+            _path_exists=m.path_exists,
             ).command_line(shlex.split(args))
+
         return m, ret
 
-    def cmd_executes(self, args, code, ret=OK):
+    def cmd_executes(self, args, code, ret=OK, path_exists=None):
         """Assert that the `args` end up executing the sequence in `code`."""
-        m1, r1 = self.mock_command_line(args)
-        self.assertEqual(r1, ret,
-                "Wrong status: got %s, wanted %s" % (r1, ret)
-                )
+        m1, r1 = self.mock_command_line(args, path_exists=path_exists)
+        self.assertEqual(r1, ret, "Wrong status: got %r, wanted %r" % (r1, ret))
 
         # Remove all indentation, and change ".foo()" to "m2.foo()".
         code = re.sub(r"(?m)^\s+", "", code)
         code = re.sub(r"(?m)^\.", "m2.", code)
         m2 = self.model_object()
+        m2.path_exists.return_value = path_exists
         code_obj = compile(code, "<code>", "exec")
-        eval(code_obj, globals(), { 'm2': m2 })
+        eval(code_obj, globals(), {'m2': m2})       # pylint: disable=eval-used
+
+        # Many of our functions take a lot of arguments, and cmdline.py
+        # calls them with many.  But most of them are just the defaults, which
+        # we don't want to have to repeat in all tests.  For each call, apply
+        # the defaults.  This lets the tests just mention the interesting ones.
+        for name, args, kwargs in m2.method_calls:
+            for k, v in self.DEFAULT_KWARGS.get(name, {}).items():
+                if k not in kwargs:
+                    kwargs[k] = v
         self.assert_same_method_calls(m1, m2)
 
     def cmd_executes_same(self, args1, args2):
@@ -77,411 +129,273 @@ class CmdLineTest(CoverageTest):
 
         """
         m, r = self.mock_command_line(args)
-        self.assertEqual(r, ret,
-                "Wrong status: got %s, wanted %s" % (r, ret)
-                )
+        self.assertEqual(r, ret, "Wrong status: got %s, wanted %s" % (r, ret))
         if help_msg:
-            self.assertEqual(m.method_calls[-1],
-                ('help_fn', (help_msg,), {})
-                )
+            self.assertEqual(m.method_calls[-1], ('help_fn', (help_msg,), {}))
         else:
-            self.assertEqual(m.method_calls[-1],
-                ('help_fn', (), {'topic':topic})
-                )
+            self.assertEqual(m.method_calls[-1], ('help_fn', (), {'topic': topic}))
 
 
-class CmdLineTestTest(CmdLineTest):
-    """Tests that our CmdLineTest helpers work."""
+class BaseCmdLineTestTest(BaseCmdLineTest):
+    """Tests that our BaseCmdLineTest helpers work."""
     def test_assert_same_method_calls(self):
         # All the other tests here use self.cmd_executes_same in successful
         # ways, so here we just check that it fails.
-        self.assertRaises(AssertionError, self.cmd_executes_same, "-e", "-c")
+        with self.assertRaises(AssertionError):
+            self.cmd_executes_same("run", "debug")
 
 
-class ClassicCmdLineTest(CmdLineTest):
-    """Tests of the classic coverage.py command line."""
+class CmdLineTest(BaseCmdLineTest):
+    """Tests of the coverage.py command line."""
+
+    def test_annotate(self):
+        # coverage annotate [-d DIR] [-i] [--omit DIR,...] [FILE1 FILE2 ...]
+        self.cmd_executes("annotate", """\
+            .coverage()
+            .load()
+            .annotate()
+            """)
+        self.cmd_executes("annotate -d dir1", """\
+            .coverage()
+            .load()
+            .annotate(directory="dir1")
+            """)
+        self.cmd_executes("annotate -i", """\
+            .coverage()
+            .load()
+            .annotate(ignore_errors=True)
+            """)
+        self.cmd_executes("annotate --omit fooey", """\
+            .coverage(omit=["fooey"])
+            .load()
+            .annotate(omit=["fooey"])
+            """)
+        self.cmd_executes("annotate --omit fooey,booey", """\
+            .coverage(omit=["fooey", "booey"])
+            .load()
+            .annotate(omit=["fooey", "booey"])
+            """)
+        self.cmd_executes("annotate mod1", """\
+            .coverage()
+            .load()
+            .annotate(morfs=["mod1"])
+            """)
+        self.cmd_executes("annotate mod1 mod2 mod3", """\
+            .coverage()
+            .load()
+            .annotate(morfs=["mod1", "mod2", "mod3"])
+            """)
+
+    def test_combine(self):
+        # coverage combine with args
+        self.cmd_executes("combine datadir1", """\
+            .coverage()
+            .combine(["datadir1"])
+            .save()
+            """)
+        # coverage combine, appending
+        self.cmd_executes("combine --append datadir1", """\
+            .coverage()
+            .load()
+            .combine(["datadir1"])
+            .save()
+            """)
+        # coverage combine without args
+        self.cmd_executes("combine", """\
+            .coverage()
+            .combine(None)
+            .save()
+            """)
+
+    def test_combine_doesnt_confuse_options_with_args(self):
+        # https://bitbucket.org/ned/coveragepy/issues/385/coverage-combine-doesnt-work-with-rcfile
+        self.cmd_executes("combine --rcfile cov.ini", """\
+            .coverage(config_file='cov.ini')
+            .combine(None)
+            .save()
+            """)
+        self.cmd_executes("combine --rcfile cov.ini data1 data2/more", """\
+            .coverage(config_file='cov.ini')
+            .combine(["data1", "data2/more"])
+            .save()
+            """)
+
+    def test_debug(self):
+        self.cmd_help("debug", "What information would you like: config, data, sys?")
+        self.cmd_help("debug foo", "Don't know what you mean by 'foo'")
+
+    def test_debug_sys(self):
+        self.command_line("debug sys")
+        out = self.stdout()
+        self.assertIn("version:", out)
+        self.assertIn("data_path:", out)
+
+    def test_debug_config(self):
+        self.command_line("debug config")
+        out = self.stdout()
+        self.assertIn("cover_pylib:", out)
+        self.assertIn("skip_covered:", out)
 
     def test_erase(self):
-        # coverage -e
-        self.cmd_executes("-e", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=None, debug=None)
+        # coverage erase
+        self.cmd_executes("erase", """\
+            .coverage()
             .erase()
             """)
-        self.cmd_executes_same("-e", "--erase")
 
-    def test_execute(self):
-        # coverage -x [-p] [-L] [--timid] MODULE.py [ARG1 ARG2 ...]
+    def test_version(self):
+        # coverage --version
+        self.cmd_help("--version", topic="version", ret=OK)
 
-        # -x calls coverage.load first.
-        self.cmd_executes("-x foo.py", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=None, debug=None)
+    def test_help_option(self):
+        # coverage -h
+        self.cmd_help("-h", topic="help", ret=OK)
+        self.cmd_help("--help", topic="help", ret=OK)
+
+    def test_help_command(self):
+        self.cmd_executes("help", ".help_fn(topic='help')")
+
+    def test_cmd_help(self):
+        self.cmd_executes("run --help", ".help_fn(parser='<CmdOptionParser:run>')")
+        self.cmd_executes_same("help run", "run --help")
+
+    def test_html(self):
+        # coverage html -d DIR [-i] [--omit DIR,...] [FILE1 FILE2 ...]
+        self.cmd_executes("html", """\
+            .coverage()
             .load()
-            .start()
-            .run_python_file('foo.py', ['foo.py'])
-            .stop()
-            .save()
+            .html_report()
             """)
-        # -e -x calls coverage.erase first.
-        self.cmd_executes("-e -x foo.py", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=None, debug=None)
+        self.cmd_executes("html -d dir1", """\
+            .coverage()
+            .load()
+            .html_report(directory="dir1")
+            """)
+        self.cmd_executes("html -i", """\
+            .coverage()
+            .load()
+            .html_report(ignore_errors=True)
+            """)
+        self.cmd_executes("html --omit fooey", """\
+            .coverage(omit=["fooey"])
+            .load()
+            .html_report(omit=["fooey"])
+            """)
+        self.cmd_executes("html --omit fooey,booey", """\
+            .coverage(omit=["fooey", "booey"])
+            .load()
+            .html_report(omit=["fooey", "booey"])
+            """)
+        self.cmd_executes("html mod1", """\
+            .coverage()
+            .load()
+            .html_report(morfs=["mod1"])
+            """)
+        self.cmd_executes("html mod1 mod2 mod3", """\
+            .coverage()
+            .load()
+            .html_report(morfs=["mod1", "mod2", "mod3"])
+            """)
+        self.cmd_executes("html --title=Hello_there", """\
+            .coverage()
+            .load()
+            .html_report(title='Hello_there')
+            """)
+
+    def test_report(self):
+        # coverage report [-m] [-i] [-o DIR,...] [FILE1 FILE2 ...]
+        self.cmd_executes("report", """\
+            .coverage()
+            .load()
+            .report(show_missing=None)
+            """)
+        self.cmd_executes("report -i", """\
+            .coverage()
+            .load()
+            .report(ignore_errors=True)
+            """)
+        self.cmd_executes("report -m", """\
+            .coverage()
+            .load()
+            .report(show_missing=True)
+            """)
+        self.cmd_executes("report --omit fooey", """\
+            .coverage(omit=["fooey"])
+            .load()
+            .report(omit=["fooey"])
+            """)
+        self.cmd_executes("report --omit fooey,booey", """\
+            .coverage(omit=["fooey", "booey"])
+            .load()
+            .report(omit=["fooey", "booey"])
+            """)
+        self.cmd_executes("report mod1", """\
+            .coverage()
+            .load()
+            .report(morfs=["mod1"])
+            """)
+        self.cmd_executes("report mod1 mod2 mod3", """\
+            .coverage()
+            .load()
+            .report(morfs=["mod1", "mod2", "mod3"])
+            """)
+        self.cmd_executes("report --skip-covered", """\
+            .coverage()
+            .load()
+            .report(skip_covered=True)
+            """)
+
+    def test_run(self):
+        # coverage run [-p] [-L] [--timid] MODULE.py [ARG1 ARG2 ...]
+
+        # run calls coverage.erase first.
+        self.cmd_executes("run foo.py", """\
+            .coverage()
             .erase()
             .start()
             .run_python_file('foo.py', ['foo.py'])
             .stop()
             .save()
             """)
+        # run -a combines with an existing data file before saving.
+        self.cmd_executes("run -a foo.py", """\
+            .coverage()
+            .start()
+            .run_python_file('foo.py', ['foo.py'])
+            .stop()
+            .path_exists('.coverage')
+            .combine(data_paths=['.coverage'])
+            .save()
+            """, path_exists=True)
+        # run -a doesn't combine anything if the data file doesn't exist.
+        self.cmd_executes("run -a foo.py", """\
+            .coverage()
+            .start()
+            .run_python_file('foo.py', ['foo.py'])
+            .stop()
+            .path_exists('.coverage')
+            .save()
+            """, path_exists=False)
         # --timid sets a flag, and program arguments get passed through.
-        self.cmd_executes("-x --timid foo.py abc 123", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=True, branch=None, config_file=True, source=None, include=None, omit=None, debug=None)
-            .load()
+        self.cmd_executes("run --timid foo.py abc 123", """\
+            .coverage(timid=True)
+            .erase()
             .start()
             .run_python_file('foo.py', ['foo.py', 'abc', '123'])
             .stop()
             .save()
             """)
         # -L sets a flag, and flags for the program don't confuse us.
-        self.cmd_executes("-x -p -L foo.py -a -b", """\
-            .coverage(cover_pylib=True, data_suffix=True, timid=None, branch=None, config_file=True, source=None, include=None, omit=None, debug=None)
-            .load()
+        self.cmd_executes("run -p -L foo.py -a -b", """\
+            .coverage(cover_pylib=True, data_suffix=True)
+            .erase()
             .start()
             .run_python_file('foo.py', ['foo.py', '-a', '-b'])
             .stop()
             .save()
             """)
-
-        # Check that long forms of flags do the same thing as short forms.
-        self.cmd_executes_same("-x f.py", "--execute f.py")
-        self.cmd_executes_same("-e -x f.py", "--erase --execute f.py")
-        self.cmd_executes_same("-x -p f.py", "-x --parallel-mode f.py")
-        self.cmd_executes_same("-x -L f.py", "-x --pylib f.py")
-
-    def test_combine(self):
-        # coverage -c
-        self.cmd_executes("-c", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=None, debug=None)
-            .load()
-            .combine()
-            .save()
-            """)
-        self.cmd_executes_same("-c", "--combine")
-
-    def test_report(self):
-        # coverage -r [-m] [-i] [-o DIR,...] [FILE1 FILE2 ...]
-        self.cmd_executes("-r", self.INIT_LOAD + """\
-            .report(ignore_errors=None, omit=None, include=None, morfs=[],
-                    show_missing=None)
-            """)
-        self.cmd_executes("-r -i", self.INIT_LOAD + """\
-            .report(ignore_errors=True, omit=None, include=None, morfs=[],
-                    show_missing=None)
-            """)
-        self.cmd_executes("-r -m", self.INIT_LOAD + """\
-            .report(ignore_errors=None, omit=None, include=None, morfs=[],
-                    show_missing=True)
-            """)
-        self.cmd_executes("-r -o fooey", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=["fooey"], debug=None)
-            .load()
-            .report(ignore_errors=None, omit=["fooey"], include=None,
-                    morfs=[], show_missing=None)
-            """)
-        self.cmd_executes("-r -o fooey,booey", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=["fooey", "booey"], debug=None)
-            .load()
-            .report(ignore_errors=None, omit=["fooey", "booey"], include=None,
-                    morfs=[], show_missing=None)
-            """)
-        self.cmd_executes("-r mod1", self.INIT_LOAD + """\
-            .report(ignore_errors=None, omit=None, include=None,
-                    morfs=["mod1"], show_missing=None)
-            """)
-        self.cmd_executes("-r mod1 mod2 mod3", self.INIT_LOAD + """\
-            .report(ignore_errors=None, omit=None, include=None,
-                    morfs=["mod1", "mod2", "mod3"], show_missing=None)
-            """)
-
-        self.cmd_executes_same("-r", "--report")
-        self.cmd_executes_same("-r -i", "-r --ignore-errors")
-        self.cmd_executes_same("-r -m", "-r --show-missing")
-        self.cmd_executes_same("-r -o f", "-r --omit=f")
-        self.cmd_executes_same("-r -o f", "-r --omit f")
-        self.cmd_executes_same("-r -o f,b", "-r --omit=f,b")
-        self.cmd_executes_same("-r -o f,b", "-r --omit f,b")
-        self.cmd_executes_same("-r -of", "-r --omit=f")
-        self.cmd_executes_same("-r -of,b", "-r --omit=f,b")
-
-    def test_annotate(self):
-        # coverage -a [-d DIR] [-i] [-o DIR,...] [FILE1 FILE2 ...]
-        self.cmd_executes("-a", self.INIT_LOAD + """\
-            .annotate(directory=None, ignore_errors=None,
-                    omit=None, include=None, morfs=[])
-            """)
-        self.cmd_executes("-a -d dir1", self.INIT_LOAD + """\
-            .annotate(directory="dir1", ignore_errors=None,
-                    omit=None, include=None, morfs=[])
-            """)
-        self.cmd_executes("-a -i", self.INIT_LOAD + """\
-            .annotate(directory=None, ignore_errors=True,
-                    omit=None, include=None, morfs=[])
-            """)
-        self.cmd_executes("-a -o fooey", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=["fooey"], debug=None)
-            .load()
-            .annotate(directory=None, ignore_errors=None,
-                    omit=["fooey"], include=None, morfs=[])
-            """)
-        self.cmd_executes("-a -o fooey,booey", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=["fooey", "booey"], debug=None)
-            .load()
-            .annotate(directory=None, ignore_errors=None,
-                    omit=["fooey", "booey"], include=None, morfs=[])
-            """)
-        self.cmd_executes("-a mod1", self.INIT_LOAD + """\
-            .annotate(directory=None, ignore_errors=None,
-                    omit=None, include=None, morfs=["mod1"])
-            """)
-        self.cmd_executes("-a mod1 mod2 mod3", self.INIT_LOAD + """\
-            .annotate(directory=None, ignore_errors=None,
-                    omit=None, include=None, morfs=["mod1", "mod2", "mod3"])
-            """)
-
-        self.cmd_executes_same("-a", "--annotate")
-        self.cmd_executes_same("-a -d d1", "-a --directory=d1")
-        self.cmd_executes_same("-a -i", "-a --ignore-errors")
-        self.cmd_executes_same("-a -o f", "-a --omit=f")
-        self.cmd_executes_same("-a -o f", "-a --omit f")
-        self.cmd_executes_same("-a -o f,b", "-a --omit=f,b")
-        self.cmd_executes_same("-a -o f,b", "-a --omit f,b")
-        self.cmd_executes_same("-a -of", "-a --omit=f")
-        self.cmd_executes_same("-a -of,b", "-a --omit=f,b")
-
-    def test_html_report(self):
-        # coverage -b -d DIR [-i] [-o DIR,...] [FILE1 FILE2 ...]
-        self.cmd_executes("-b", self.INIT_LOAD + """\
-            .html_report(directory=None, ignore_errors=None, title=None,
-                    omit=None, include=None, morfs=[])
-            """)
-        self.cmd_executes("-b -d dir1", self.INIT_LOAD + """\
-            .html_report(directory="dir1", ignore_errors=None, title=None,
-                    omit=None, include=None, morfs=[])
-            """)
-        self.cmd_executes("-b -i", self.INIT_LOAD + """\
-            .html_report(directory=None, ignore_errors=True, title=None,
-                    omit=None, include=None, morfs=[])
-            """)
-        self.cmd_executes("-b -o fooey", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=["fooey"], debug=None)
-            .load()
-            .html_report(directory=None, ignore_errors=None, title=None,
-                    omit=["fooey"], include=None, morfs=[])
-            """)
-        self.cmd_executes("-b -o fooey,booey", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=["fooey", "booey"], debug=None)
-            .load()
-            .html_report(directory=None, ignore_errors=None, title=None,
-                    omit=["fooey", "booey"], include=None, morfs=[])
-            """)
-        self.cmd_executes("-b mod1", self.INIT_LOAD + """\
-            .html_report(directory=None, ignore_errors=None, title=None,
-                    omit=None, include=None, morfs=["mod1"])
-            """)
-        self.cmd_executes("-b mod1 mod2 mod3", self.INIT_LOAD + """\
-            .html_report(directory=None, ignore_errors=None, title=None,
-                    omit=None, include=None, morfs=["mod1", "mod2", "mod3"])
-            """)
-
-        self.cmd_executes_same("-b", "--html")
-        self.cmd_executes_same("-b -d d1", "-b --directory=d1")
-        self.cmd_executes_same("-b -i", "-b --ignore-errors")
-        self.cmd_executes_same("-b -o f", "-b --omit=f")
-        self.cmd_executes_same("-b -o f,b", "-b --omit=f,b")
-        self.cmd_executes_same("-b -of", "-b --omit=f")
-        self.cmd_executes_same("-b -of,b", "-b --omit=f,b")
-
-    def test_help(self):
-        # coverage -h
-        self.cmd_help("-h", topic="help", ret=OK)
-        self.cmd_help("--help", topic="help", ret=OK)
-
-    def test_version(self):
-        # coverage --version
-        self.cmd_help("--version", topic="version", ret=OK)
-
-    ## Error cases
-
-    def test_argless_actions(self):
-        self.cmd_help("-e foo bar", "Unexpected arguments: foo bar")
-        self.cmd_help("-c baz quux", "Unexpected arguments: baz quux")
-
-    def test_need_action(self):
-        self.cmd_help("-p", "You must specify at least one of "
-                                                "-e, -x, -c, -r, -a, or -b.")
-
-    def test_bad_action_combinations(self):
-        self.cmd_help('-e -a',
-            "You can't specify the 'erase' and 'annotate' "
-                "options at the same time."
-            )
-        self.cmd_help('-e -r',
-            "You can't specify the 'erase' and 'report' "
-                "options at the same time."
-            )
-        self.cmd_help('-e -b',
-            "You can't specify the 'erase' and 'html' "
-                "options at the same time."
-            )
-        self.cmd_help('-e -c',
-            "You can't specify the 'erase' and 'combine' "
-                "options at the same time."
-            )
-        self.cmd_help('-x -a',
-            "You can't specify the 'execute' and 'annotate' "
-                "options at the same time."
-            )
-        self.cmd_help('-x -r',
-            "You can't specify the 'execute' and 'report' "
-                "options at the same time."
-            )
-        self.cmd_help('-x -b',
-            "You can't specify the 'execute' and 'html' "
-                "options at the same time."
-            )
-        self.cmd_help('-x -c',
-            "You can't specify the 'execute' and 'combine' "
-                "options at the same time."
-            )
-
-    def test_nothing_to_do(self):
-        self.cmd_help("-x", "Nothing to do.")
-
-    def test_unknown_option(self):
-        self.cmd_help("-z", "no such option: -z")
-
-
-class FakeCoverageForDebugData(object):
-    """Just enough of a fake coverage package for the 'debug data' tests."""
-    def __init__(self, summary):
-        self._summary = summary
-        self.filename = "FILENAME"
-        self.data = self
-
-    # package members
-    def coverage(self, *unused_args, **unused_kwargs):
-        """The coverage class in the package."""
-        return self
-
-    # coverage methods
-    def load(self):
-        """Fake coverage().load()"""
-        pass
-
-    # data methods
-    def has_arcs(self):
-        """Fake coverage().data.has_arcs()"""
-        return False
-
-    def summary(self, fullpath):                    # pylint: disable=W0613
-        """Fake coverage().data.summary()"""
-        return self._summary
-
-
-class NewCmdLineTest(CmdLineTest):
-    """Tests of the coverage.py command line."""
-
-    def test_annotate(self):
-        self.cmd_executes_same("annotate", "-a")
-        self.cmd_executes_same("annotate -i", "-a -i")
-        self.cmd_executes_same("annotate -d d1", "-a -d d1")
-        self.cmd_executes_same("annotate --omit f", "-a --omit f")
-        self.cmd_executes_same("annotate --omit f,b", "-a --omit f,b")
-        self.cmd_executes_same("annotate m1", "-a m1")
-        self.cmd_executes_same("annotate m1 m2 m3", "-a m1 m2 m3")
-
-    def test_combine(self):
-        self.cmd_executes_same("combine", "-c")
-
-    def test_debug(self):
-        self.cmd_help("debug", "What information would you like: data, sys?")
-        self.cmd_help("debug foo", "Don't know what you mean by 'foo'")
-
-    def test_debug_data(self):
-        fake = FakeCoverageForDebugData({
-            'file1.py': 17, 'file2.py': 23,
-            })
-        self.command_line("debug data", _covpkg=fake)
-        self.assertMultiLineEqual(self.stdout(), textwrap.dedent("""\
-            -- data ---------------------------------------
-            path: FILENAME
-            has_arcs: False
-
-            2 files:
-            file1.py: 17 lines
-            file2.py: 23 lines
-            """))
-
-    def test_debug_data_with_no_data(self):
-        fake = FakeCoverageForDebugData({})
-        self.command_line("debug data", _covpkg=fake)
-        self.assertMultiLineEqual(self.stdout(), textwrap.dedent("""\
-            -- data ---------------------------------------
-            path: FILENAME
-            has_arcs: False
-            No data collected
-            """))
-
-    def test_debug_sys(self):
-        self.command_line("debug sys")
-        out = self.stdout()
-        assert "version:" in out
-        assert "data_path:" in out
-
-    def test_erase(self):
-        self.cmd_executes_same("erase", "-e")
-
-    def test_help(self):
-        self.cmd_executes("help", ".help_fn(topic='help')")
-
-    def test_cmd_help(self):
-        self.cmd_executes("run --help",
-                                ".help_fn(parser='<CmdOptionParser:run>')")
-        self.cmd_executes_same("help run", "run --help")
-
-    def test_html(self):
-        self.cmd_executes_same("html", "-b")
-        self.cmd_executes_same("html -i", "-b -i")
-        self.cmd_executes_same("html -d d1", "-b -d d1")
-        self.cmd_executes_same("html --omit f", "-b --omit f")
-        self.cmd_executes_same("html --omit f,b", "-b --omit f,b")
-        self.cmd_executes_same("html m1", "-b m1")
-        self.cmd_executes_same("html m1 m2 m3", "-b m1 m2 m3")
-        self.cmd_executes("html", self.INIT_LOAD + """\
-            .html_report(ignore_errors=None, omit=None, include=None, morfs=[],
-                    directory=None, title=None)
-            """)
-        self.cmd_executes("html --title=Hello_there", self.INIT_LOAD + """\
-            .html_report(ignore_errors=None, omit=None, include=None, morfs=[],
-                    directory=None, title='Hello_there')
-            """)
-
-    def test_report(self):
-        self.cmd_executes_same("report", "-r")
-        self.cmd_executes_same("report -i", "-r -i")
-        self.cmd_executes_same("report -m", "-r -m")
-        self.cmd_executes_same("report --omit f", "-r --omit f")
-        self.cmd_executes_same("report --omit f,b", "-r --omit f,b")
-        self.cmd_executes_same("report m1", "-r m1")
-        self.cmd_executes_same("report m1 m2 m3", "-r m1 m2 m3")
-
-    def test_run(self):
-        self.cmd_executes_same("run f.py", "-e -x f.py")
-        self.cmd_executes_same("run f.py -a arg -z", "-e -x f.py -a arg -z")
-        self.cmd_executes_same("run -a f.py", "-x f.py")
-        self.cmd_executes_same("run -p f.py", "-e -x -p f.py")
-        self.cmd_executes_same("run -L f.py", "-e -x -L f.py")
-        self.cmd_executes_same("run --timid f.py", "-e -x --timid f.py")
-        self.cmd_executes_same("run", "-x")
         self.cmd_executes("run --branch foo.py", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=True, config_file=True, source=None, include=None, omit=None, debug=None)
+            .coverage(branch=True)
             .erase()
             .start()
             .run_python_file('foo.py', ['foo.py'])
@@ -489,7 +403,7 @@ class NewCmdLineTest(CmdLineTest):
             .save()
             """)
         self.cmd_executes("run --rcfile=myrc.rc foo.py", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file="myrc.rc", source=None, include=None, omit=None, debug=None)
+            .coverage(config_file="myrc.rc")
             .erase()
             .start()
             .run_python_file('foo.py', ['foo.py'])
@@ -497,7 +411,7 @@ class NewCmdLineTest(CmdLineTest):
             .save()
             """)
         self.cmd_executes("run --include=pre1,pre2 foo.py", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=["pre1", "pre2"], omit=None, debug=None)
+            .coverage(include=["pre1", "pre2"])
             .erase()
             .start()
             .run_python_file('foo.py', ['foo.py'])
@@ -505,35 +419,39 @@ class NewCmdLineTest(CmdLineTest):
             .save()
             """)
         self.cmd_executes("run --omit=opre1,opre2 foo.py", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=["opre1", "opre2"], debug=None)
+            .coverage(omit=["opre1", "opre2"])
             .erase()
             .start()
             .run_python_file('foo.py', ['foo.py'])
             .stop()
             .save()
             """)
-        self.cmd_executes("run --include=pre1,pre2 --omit=opre1,opre2 foo.py",
-            """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None,
-                branch=None, config_file=True, source=None,
-                include=["pre1", "pre2"],
-                omit=["opre1", "opre2"],
-                debug=None,
-            )
+        self.cmd_executes("run --include=pre1,pre2 --omit=opre1,opre2 foo.py", """\
+            .coverage(include=["pre1", "pre2"], omit=["opre1", "opre2"])
             .erase()
             .start()
             .run_python_file('foo.py', ['foo.py'])
             .stop()
             .save()
             """)
-        self.cmd_executes("run --source=quux,hi.there,/home/bar foo.py",
-            """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None,
-                branch=None, config_file=True,
-                source=["quux", "hi.there", "/home/bar"], include=None,
-                omit=None,
-                debug=None,
-            )
+        self.cmd_executes("run --source=quux,hi.there,/home/bar foo.py", """\
+            .coverage(source=["quux", "hi.there", "/home/bar"])
+            .erase()
+            .start()
+            .run_python_file('foo.py', ['foo.py'])
+            .stop()
+            .save()
+            """)
+        self.cmd_executes("run --concurrency=gevent foo.py", """\
+            .coverage(concurrency='gevent')
+            .erase()
+            .start()
+            .run_python_file('foo.py', ['foo.py'])
+            .stop()
+            .save()
+            """)
+        self.cmd_executes("run --concurrency=multiprocessing foo.py", """\
+            .coverage(concurrency='multiprocessing')
             .erase()
             .start()
             .run_python_file('foo.py', ['foo.py'])
@@ -541,14 +459,32 @@ class NewCmdLineTest(CmdLineTest):
             .save()
             """)
 
+    def test_bad_concurrency(self):
+        self.command_line("run --concurrency=nothing", ret=ERR)
+        out = self.stdout()
+        self.assertIn("option --concurrency: invalid choice: 'nothing'", out)
+
+    def test_no_multiple_concurrency(self):
+        # You can't use multiple concurrency values on the command line.
+        # I would like to have a better message about not allowing multiple
+        # values for this option, but optparse is not that flexible.
+        self.command_line("run --concurrency=multiprocessing,gevent foo.py", ret=ERR)
+        out = self.stdout()
+        self.assertIn("option --concurrency: invalid choice: 'multiprocessing,gevent'", out)
+
+    def test_multiprocessing_needs_config_file(self):
+        # You can't use command-line args to add options to multiprocessing
+        # runs, since they won't make it to the subprocesses. You need to use a
+        # config file.
+        self.command_line("run --concurrency=multiprocessing --branch foo.py", ret=ERR)
+        self.assertIn(
+            "Options affecting multiprocessing must be specified in a configuration file.",
+            self.stdout()
+        )
+
     def test_run_debug(self):
         self.cmd_executes("run --debug=opt1 foo.py", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None,
-                branch=None, config_file=True,
-                source=None, include=None,
-                omit=None,
-                debug=["opt1"],
-            )
+            .coverage(debug=["opt1"])
             .erase()
             .start()
             .run_python_file('foo.py', ['foo.py'])
@@ -556,12 +492,7 @@ class NewCmdLineTest(CmdLineTest):
             .save()
             """)
         self.cmd_executes("run --debug=opt1,opt2 foo.py", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None,
-                branch=None, config_file=True,
-                source=None, include=None,
-                omit=None,
-                debug=["opt1","opt2"],
-            )
+            .coverage(debug=["opt1","opt2"])
             .erase()
             .start()
             .run_python_file('foo.py', ['foo.py'])
@@ -571,7 +502,7 @@ class NewCmdLineTest(CmdLineTest):
 
     def test_run_module(self):
         self.cmd_executes("run -m mymodule", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=None, debug=None)
+            .coverage()
             .erase()
             .start()
             .run_python_module('mymodule', ['mymodule'])
@@ -579,7 +510,7 @@ class NewCmdLineTest(CmdLineTest):
             .save()
             """)
         self.cmd_executes("run -m mymodule -qq arg1 arg2", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=None, debug=None)
+            .coverage()
             .erase()
             .start()
             .run_python_module('mymodule', ['mymodule', '-qq', 'arg1', 'arg2'])
@@ -587,7 +518,7 @@ class NewCmdLineTest(CmdLineTest):
             .save()
             """)
         self.cmd_executes("run --branch -m mymodule", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=True, config_file=True, source=None, include=None, omit=None, debug=None)
+            .coverage(branch=True)
             .erase()
             .start()
             .run_python_module('mymodule', ['mymodule'])
@@ -596,43 +527,55 @@ class NewCmdLineTest(CmdLineTest):
             """)
         self.cmd_executes_same("run -m mymodule", "run --module mymodule")
 
+    def test_run_nothing(self):
+        self.command_line("run", ret=ERR)
+        self.assertIn("Nothing to do", self.stdout())
+
+    def test_cant_append_parallel(self):
+        self.command_line("run --append --parallel-mode foo.py", ret=ERR)
+        self.assertIn("Can't append to data files in parallel mode.", self.stdout())
+
     def test_xml(self):
         # coverage xml [-i] [--omit DIR,...] [FILE1 FILE2 ...]
-        self.cmd_executes("xml", self.INIT_LOAD + """\
-            .xml_report(ignore_errors=None, omit=None, include=None, morfs=[],
-                    outfile=None)
+        self.cmd_executes("xml", """\
+            .coverage()
+            .load()
+            .xml_report()
             """)
-        self.cmd_executes("xml -i", self.INIT_LOAD + """\
-            .xml_report(ignore_errors=True, omit=None, include=None, morfs=[],
-                    outfile=None)
+        self.cmd_executes("xml -i", """\
+            .coverage()
+            .load()
+            .xml_report(ignore_errors=True)
             """)
-        self.cmd_executes("xml -o myxml.foo", self.INIT_LOAD + """\
-            .xml_report(ignore_errors=None, omit=None, include=None, morfs=[],
-                    outfile="myxml.foo")
+        self.cmd_executes("xml -o myxml.foo", """\
+            .coverage()
+            .load()
+            .xml_report(outfile="myxml.foo")
             """)
-        self.cmd_executes("xml -o -", self.INIT_LOAD + """\
-            .xml_report(ignore_errors=None, omit=None, include=None, morfs=[],
-                    outfile="-")
+        self.cmd_executes("xml -o -", """\
+            .coverage()
+            .load()
+            .xml_report(outfile="-")
             """)
         self.cmd_executes("xml --omit fooey", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=["fooey"], debug=None)
+            .coverage(omit=["fooey"])
             .load()
-            .xml_report(ignore_errors=None, omit=["fooey"], include=None, morfs=[],
-                    outfile=None)
+            .xml_report(omit=["fooey"])
             """)
         self.cmd_executes("xml --omit fooey,booey", """\
-            .coverage(cover_pylib=None, data_suffix=None, timid=None, branch=None, config_file=True, source=None, include=None, omit=["fooey", "booey"], debug=None)
+            .coverage(omit=["fooey", "booey"])
             .load()
-            .xml_report(ignore_errors=None, omit=["fooey", "booey"], include=None,
-                    morfs=[], outfile=None)
+            .xml_report(omit=["fooey", "booey"])
             """)
-        self.cmd_executes("xml mod1", self.INIT_LOAD + """\
-            .xml_report(ignore_errors=None, omit=None, include=None, morfs=["mod1"],
-                    outfile=None)
+        self.cmd_executes("xml mod1", """\
+            .coverage()
+            .load()
+            .xml_report(morfs=["mod1"])
             """)
-        self.cmd_executes("xml mod1 mod2 mod3", self.INIT_LOAD + """\
-            .xml_report(ignore_errors=None, omit=None, include=None,
-                    morfs=["mod1", "mod2", "mod3"], outfile=None)
+        self.cmd_executes("xml mod1 mod2 mod3", """\
+            .coverage()
+            .load()
+            .xml_report(morfs=["mod1", "mod2", "mod3"])
             """)
 
     def test_no_arguments_at_all(self):
@@ -642,39 +585,85 @@ class NewCmdLineTest(CmdLineTest):
         self.cmd_help("xyzzy", "Unknown command: 'xyzzy'")
 
 
-class CmdLineStdoutTest(CmdLineTest):
+class CmdLineWithFilesTest(BaseCmdLineTest):
+    """Test the command line in ways that need temp files."""
+
+    run_in_temp_dir = True
+    no_files_in_temp_dir = True
+
+    def test_debug_data(self):
+        data = CoverageData()
+        data.add_lines({
+            "file1.py": dict.fromkeys(range(1, 18)),
+            "file2.py": dict.fromkeys(range(1, 24)),
+        })
+        data.add_file_tracers({"file1.py": "a_plugin"})
+        data_files = CoverageDataFiles()
+        data_files.write(data)
+
+        self.command_line("debug data")
+        self.assertMultiLineEqual(self.stdout(), textwrap.dedent("""\
+            -- data ------------------------------------------------------
+            path: FILENAME
+            has_arcs: False
+
+            2 files:
+            file1.py: 17 lines [a_plugin]
+            file2.py: 23 lines
+            """).replace("FILENAME", data_files.filename))
+
+    def test_debug_data_with_no_data(self):
+        data_files = CoverageDataFiles()
+        self.command_line("debug data")
+        self.assertMultiLineEqual(self.stdout(), textwrap.dedent("""\
+            -- data ------------------------------------------------------
+            path: FILENAME
+            No data collected
+            """).replace("FILENAME", data_files.filename))
+
+
+class CmdLineStdoutTest(BaseCmdLineTest):
     """Test the command line with real stdout output."""
 
     def test_minimum_help(self):
         self.command_line("")
         out = self.stdout()
-        assert "Code coverage for Python." in out
-        assert out.count("\n") < 4
+        self.assertIn("Code coverage for Python.", out)
+        self.assertLess(out.count("\n"), 4)
 
     def test_version(self):
         self.command_line("--version")
         out = self.stdout()
-        assert "ersion " in out
-        assert out.count("\n") < 4
+        self.assertIn("ersion ", out)
+        if env.C_TRACER:
+            self.assertIn("with C extension", out)
+        else:
+            self.assertIn("without C extension", out)
+        self.assertLess(out.count("\n"), 4)
 
     def test_help(self):
         self.command_line("help")
         out = self.stdout()
-        assert "nedbatchelder.com" in out
-        assert out.count("\n") > 10
+        self.assertIn("readthedocs.io", out)
+        self.assertGreater(out.count("\n"), 10)
 
     def test_cmd_help(self):
         self.command_line("help run")
         out = self.stdout()
-        assert "<pyfile>" in out
-        assert "--timid" in out
-        assert out.count("\n") > 10
+        self.assertIn("<pyfile>", out)
+        self.assertIn("--timid", out)
+        self.assertGreater(out.count("\n"), 10)
+
+    def test_unknown_topic(self):
+        # Should probably be an ERR return, but meh.
+        self.command_line("help foobar")
+        self.assertEqual(self.stdout(), "Don't know topic 'foobar'\n")
 
     def test_error(self):
         self.command_line("fooey kablooey", ret=ERR)
         out = self.stdout()
-        assert "fooey" in out
-        assert "help" in out
+        self.assertIn("fooey", out)
+        self.assertIn("help", out)
 
 
 class CmdMainTest(CoverageTest):
@@ -699,17 +688,18 @@ class CmdMainTest(CoverageTest):
             elif argv[0] == 'exit':
                 sys.exit(23)
             else:
-                raise AssertionError("Bad CoverageScriptStub: %r"% (argv,))
+                raise AssertionError("Bad CoverageScriptStub: %r" % (argv,))
             return 0
 
     def setUp(self):
         super(CmdMainTest, self).setUp()
         self.old_CoverageScript = coverage.cmdline.CoverageScript
         coverage.cmdline.CoverageScript = self.CoverageScriptStub
+        self.addCleanup(self.cleanup_coverage_script)
 
-    def tearDown(self):
+    def cleanup_coverage_script(self):
+        """Restore CoverageScript when the test is done."""
         coverage.cmdline.CoverageScript = self.old_CoverageScript
-        super(CmdMainTest, self).tearDown()
 
     def test_normal(self):
         ret = coverage.cmdline.main(['hello'])
@@ -726,10 +716,8 @@ class CmdMainTest(CoverageTest):
         self.assertEqual(err[-2], 'Exception: oh noes!')
 
     def test_internalraise(self):
-        self.assertRaisesRegexp(ValueError,
-            "coverage is broken",
-            coverage.cmdline.main, ['internalraise']
-            )
+        with self.assertRaisesRegex(ValueError, "coverage is broken"):
+            coverage.cmdline.main(['internalraise'])
 
     def test_exit(self):
         ret = coverage.cmdline.main(['exit'])

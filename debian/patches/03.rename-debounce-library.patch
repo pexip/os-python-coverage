@@ -1,0 +1,43 @@
+Description: Rename the “debounce” library to that installed by Debian.
+ .
+ The canonical name of the library is the “jQuery throttle debounce”
+ library. This is installed by Debian with the official filename from
+ its developers.
+Author: Ben Finney <bignose@debian.org>
+Last-Update: 2016-07-12
+
+diff -r 33b98a3743ac coverage/html.py
+--- a/coverage/html.py	Wed Oct 28 16:23:40 2015 +1100
++++ b/coverage/html.py	Tue Jul 12 20:45:13 2016 +1000
+@@ -73,7 +73,7 @@
+     STATIC_FILES = [
+         ("style.css", ""),
+         ("jquery.min.js", "jquery"),
+-        ("jquery.debounce.min.js", "jquery-debounce"),
++        ("jquery.ba-throttle-debounce.min.js", "jquery-throttle-debounce"),
+         ("jquery.hotkeys.js", "jquery-hotkeys"),
+         ("jquery.isonscreen.js", "jquery-isonscreen"),
+         ("jquery.tablesorter.min.js", "jquery-tablesorter"),
+diff -r 33b98a3743ac coverage/htmlfiles/index.html
+--- a/coverage/htmlfiles/index.html	Wed Oct 28 16:23:40 2015 +1100
++++ b/coverage/htmlfiles/index.html	Tue Jul 12 20:45:13 2016 +1000
+@@ -11,7 +11,7 @@
+         <link rel="stylesheet" href="{{ extra_css }}" type="text/css">
+     {% endif %}
+     <script type="text/javascript" src="jquery.min.js"></script>
+-    <script type="text/javascript" src="jquery.debounce.min.js"></script>
++    <script type="text/javascript" src="jquery.ba-throttle-debounce.min.js"></script>
+     <script type="text/javascript" src="jquery.tablesorter.min.js"></script>
+     <script type="text/javascript" src="jquery.hotkeys.js"></script>
+     <script type="text/javascript" src="coverage_html.js"></script>
+
+
+Local variables:
+coding: utf-8
+mode: diff
+time-stamp-format: "%:y-%02m-%02d"
+time-stamp-start: "^Last-Update:[ 	]+"
+time-stamp-end: "$"
+time-stamp-line-limit: 20
+End:
+vim: fileencoding=utf-8 filetype=diff :

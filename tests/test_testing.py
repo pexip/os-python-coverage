@@ -1,174 +1,122 @@
 # -*- coding: utf-8 -*-
+# Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 """Tests that our test infrastructure is really working!"""
 
-import os, sys
-from coverage.backward import to_bytes, rpartition
-from tests.backunittest import TestCase
+import datetime
+import os
+import sys
+
+import coverage
+from coverage.backunittest import TestCase
+from coverage.files import actual_path
+
 from tests.coveragetest import CoverageTest
 
-from coverage.backward import set                   # pylint: disable=W0622
 
 class TestingTest(TestCase):
     """Tests of helper methods on `backunittest.TestCase`."""
 
-    run_in_temp_dir = False
-
-    def please_raise(self, exc, msg):
-        """Raise an exception for testing assertRaisesRegexp."""
-        raise exc(msg)
-
-    def please_succeed(self):
-        """A simple successful method for testing assertRaisesRegexp."""
-        return "All is well"
-
-    def test_assert_same_elements(self):
-        self.assertSameElements(set(), set())
-        self.assertSameElements(set([1,2,3]), set([3,1,2]))
-        self.assertRaises(AssertionError, self.assertSameElements,
-            set([1,2,3]), set()
-            )
-        self.assertRaises(AssertionError, self.assertSameElements,
-            set([1,2,3]), set([4,5,6])
-            )
-
-    def test_assert_regexp_matches(self):
-        self.assertRegexpMatches("hello", "hel*o")
-        self.assertRegexpMatches("Oh, hello there!", "hel*o")
-        self.assertRaises(AssertionError, self.assertRegexpMatches,
-            "hello there", "^hello$"
-            )
-
-    def test_assert_multiline_equal(self):
-        self.assertMultiLineEqual("hello", "hello")
-        self.assertRaises(AssertionError, self.assertMultiLineEqual,
-            "hello there", "Hello there"
-            )
-        self.assertRaises(AssertionError, self.assertMultiLineEqual,
-            "hello\nthere", "hello\nThere"
-            )
-        # With messages also.
-        self.assertMultiLineEqual("hi", "hi", "it's ok")
-        self.assertRaisesRegexp(
-            AssertionError, "my message",
-            self.assertMultiLineEqual, "xyz", "abc", "my message"
-        )
-
-    def test_assert_raises_regexp(self):
-        # Raising the right error with the right message passes.
-        self.assertRaisesRegexp(
-            ZeroDivisionError, "Wow! Zero!",
-            self.please_raise, ZeroDivisionError, "Wow! Zero!"
-            )
-        # Raising the right error with a match passes.
-        self.assertRaisesRegexp(
-            ZeroDivisionError, "Zero",
-            self.please_raise, ZeroDivisionError, "Wow! Zero!"
-            )
-        # Raising the right error with a mismatch fails.
-        self.assertRaises(AssertionError,
-            self.assertRaisesRegexp, ZeroDivisionError, "XYZ",
-            self.please_raise, ZeroDivisionError, "Wow! Zero!"
-            )
-        # Raising the right error with a mismatch fails.
-        self.assertRaises(AssertionError,
-            self.assertRaisesRegexp, ZeroDivisionError, "XYZ",
-            self.please_raise, ZeroDivisionError, "Wow! Zero!"
-            )
-        # Raising the wrong error raises the error itself.
-        self.assertRaises(ZeroDivisionError,
-            self.assertRaisesRegexp, IOError, "Wow! Zero!",
-            self.please_raise, ZeroDivisionError, "Wow! Zero!"
-            )
-        # Raising no error fails.
-        self.assertRaises(AssertionError,
-            self.assertRaisesRegexp, ZeroDivisionError, "XYZ",
-            self.please_succeed
-            )
-
-    def test_assert_true(self):
-        self.assertTrue(True)
-        self.assertRaises(AssertionError, self.assertTrue, False)
-
-    def test_assert_false(self):
-        self.assertFalse(False)
-        self.assertRaises(AssertionError, self.assertFalse, True)
-
-    def test_assert_in(self):
-        self.assertIn("abc", "hello abc")
-        self.assertIn("abc", ["xyz", "abc", "foo"])
-        self.assertIn("abc", {'abc': 1, 'xyz': 2})
-        self.assertRaises(AssertionError, self.assertIn, "abc", "xyz")
-        self.assertRaises(AssertionError, self.assertIn, "abc", ["x", "xabc"])
-        self.assertRaises(AssertionError, self.assertIn, "abc", {'x':'abc'})
-
-    def test_assert_not_in(self):
-        self.assertRaises(AssertionError, self.assertNotIn, "abc", "hello abc")
-        self.assertRaises(AssertionError,
-            self.assertNotIn, "abc", ["xyz", "abc", "foo"]
-            )
-        self.assertRaises(AssertionError,
-            self.assertNotIn, "abc", {'abc': 1, 'xyz': 2}
-            )
-        self.assertNotIn("abc", "xyz")
-        self.assertNotIn("abc", ["x", "xabc"])
-        self.assertNotIn("abc", {'x':'abc'})
-
-    def test_assert_greater(self):
-        self.assertGreater(10, 9)
-        self.assertGreater("xyz", "abc")
-        self.assertRaises(AssertionError, self.assertGreater, 9, 10)
-        self.assertRaises(AssertionError, self.assertGreater, 10, 10)
-        self.assertRaises(AssertionError, self.assertGreater, "abc", "xyz")
-        self.assertRaises(AssertionError, self.assertGreater, "xyz", "xyz")
+    def test_assert_count_equal(self):
+        self.assertCountEqual(set(), set())
+        self.assertCountEqual(set([1,2,3]), set([3,1,2]))
+        with self.assertRaises(AssertionError):
+            self.assertCountEqual(set([1,2,3]), set())
+        with self.assertRaises(AssertionError):
+            self.assertCountEqual(set([1,2,3]), set([4,5,6]))
 
 
 class CoverageTestTest(CoverageTest):
     """Test the methods in `CoverageTest`."""
 
-    def file_text(self, fname):
-        """Return the text read from a file."""
-        return open(fname, "rb").read().decode('ascii')
-
-    def test_make_file(self):
-        # A simple file.
-        self.make_file("fooey.boo", "Hello there")
-        self.assertEqual(open("fooey.boo").read(), "Hello there")
-        # A file in a sub-directory
-        self.make_file("sub/another.txt", "Another")
-        self.assertEqual(open("sub/another.txt").read(), "Another")
-        # A second file in that sub-directory
-        self.make_file("sub/second.txt", "Second")
-        self.assertEqual(open("sub/second.txt").read(), "Second")
-        # A deeper directory
-        self.make_file("sub/deeper/evenmore/third.txt")
-        self.assertEqual(open("sub/deeper/evenmore/third.txt").read(), "")
-
-    def test_make_file_newline(self):
-        self.make_file("unix.txt", "Hello\n")
-        self.assertEqual(self.file_text("unix.txt"), "Hello\n")
-        self.make_file("dos.txt", "Hello\n", newline="\r\n")
-        self.assertEqual(self.file_text("dos.txt"), "Hello\r\n")
-        self.make_file("mac.txt", "Hello\n", newline="\r")
-        self.assertEqual(self.file_text("mac.txt"), "Hello\r")
-
-    def test_make_file_non_ascii(self):
-        self.make_file("unicode.txt", "tabblo: «ταБЬℓσ»")
+    def test_arcz_to_arcs(self):
+        self.assertEqual(self.arcz_to_arcs(".1 12 2."), [(-1, 1), (1, 2), (2, -1)])
+        self.assertEqual(self.arcz_to_arcs("-11 12 2-5"), [(-1, 1), (1, 2), (2, -5)])
         self.assertEqual(
-            open("unicode.txt", "rb").read(),
-            to_bytes("tabblo: «ταБЬℓσ»")
-            )
+            self.arcz_to_arcs("-QA CB IT Z-A"),
+            [(-26, 10), (12, 11), (18, 29), (35, -10)]
+        )
 
     def test_file_exists(self):
         self.make_file("whoville.txt", "We are here!")
         self.assert_exists("whoville.txt")
         self.assert_doesnt_exist("shadow.txt")
-        self.assertRaises(
-            AssertionError, self.assert_doesnt_exist, "whoville.txt"
-            )
-        self.assertRaises(AssertionError, self.assert_exists, "shadow.txt")
+        with self.assertRaises(AssertionError):
+            self.assert_doesnt_exist("whoville.txt")
+        with self.assertRaises(AssertionError):
+            self.assert_exists("shadow.txt")
+
+    def test_assert_startwith(self):
+        self.assert_starts_with("xyzzy", "xy")
+        self.assert_starts_with("xyz\nabc", "xy")
+        self.assert_starts_with("xyzzy", ("x", "z"))
+        with self.assertRaises(AssertionError):
+            self.assert_starts_with("xyz", "a")
+        with self.assertRaises(AssertionError):
+            self.assert_starts_with("xyz\nabc", "a")
+
+    def test_assert_recent_datetime(self):
+        def now_delta(seconds):
+            """Make a datetime `seconds` seconds from now."""
+            return datetime.datetime.now() + datetime.timedelta(seconds=seconds)
+
+        # Default delta is 10 seconds.
+        self.assert_recent_datetime(now_delta(0))
+        self.assert_recent_datetime(now_delta(-9))
+        with self.assertRaises(AssertionError):
+            self.assert_recent_datetime(now_delta(-11))
+        with self.assertRaises(AssertionError):
+            self.assert_recent_datetime(now_delta(1))
+
+        # Delta is settable.
+        self.assert_recent_datetime(now_delta(0), seconds=120)
+        self.assert_recent_datetime(now_delta(-100), seconds=120)
+        with self.assertRaises(AssertionError):
+            self.assert_recent_datetime(now_delta(-1000), seconds=120)
+        with self.assertRaises(AssertionError):
+            self.assert_recent_datetime(now_delta(1), seconds=120)
+
+    def test_assert_warnings(self):
+        cov = coverage.Coverage()
+
+        # Make a warning, it should catch it properly.
+        with self.assert_warnings(cov, ["Hello there!"]):
+            cov._warn("Hello there!")
+
+        # The expected warnings are regexes.
+        with self.assert_warnings(cov, ["Hello.*!"]):
+            cov._warn("Hello there!")
+
+        # There can be a bunch of actual warnings.
+        with self.assert_warnings(cov, ["Hello.*!"]):
+            cov._warn("You there?")
+            cov._warn("Hello there!")
+
+        # There can be a bunch of expected warnings.
+        with self.assert_warnings(cov, ["Hello.*!", "You"]):
+            cov._warn("You there?")
+            cov._warn("Hello there!")
+
+        # But if there are a bunch of expected warnings, they have to all happen.
+        warn_regex = r"Didn't find warning 'You' in \['Hello there!'\]"
+        with self.assertRaisesRegex(AssertionError, warn_regex):
+            with self.assert_warnings(cov, ["Hello.*!", "You"]):
+                cov._warn("Hello there!")
+
+        # Make a different warning than expected, it should raise an assertion.
+        warn_regex = r"Didn't find warning 'Not me' in \['Hello there!'\]"
+        with self.assertRaisesRegex(AssertionError, warn_regex):
+            with self.assert_warnings(cov, ["Not me"]):
+                cov._warn("Hello there!")
+
+        # assert_warnings shouldn't hide a real exception.
+        with self.assertRaises(ZeroDivisionError):
+            with self.assert_warnings(cov, ["Hello there!"]):
+                raise ZeroDivisionError("oops")
 
     def test_sub_python_is_this_python(self):
-        # Try it with a python command.
+        # Try it with a Python command.
         os.environ['COV_FOOBAR'] = 'XYZZY'
         self.make_file("showme.py", """\
             import os, sys
@@ -177,18 +125,18 @@ class CoverageTestTest(CoverageTest):
             print(os.environ['COV_FOOBAR'])
             """)
         out = self.run_command("python showme.py").splitlines()
-        self.assertEqual(out[0], sys.executable)
+        self.assertEqual(actual_path(out[0]), actual_path(sys.executable))
         self.assertEqual(out[1], os.__file__)
         self.assertEqual(out[2], 'XYZZY')
 
         # Try it with a "coverage debug sys" command.
         out = self.run_command("coverage debug sys").splitlines()
         # "environment: COV_FOOBAR = XYZZY" or "COV_FOOBAR = XYZZY"
-        executable = [l for l in out if "executable:" in l][0]
+        executable = next(l for l in out if "executable:" in l)     # pragma: part covered
         executable = executable.split(":", 1)[1].strip()
         self.assertTrue(same_python_executable(executable, sys.executable))
-        environ = [l for l in out if "COV_FOOBAR" in l][0]
-        _, _, environ = rpartition(environ, ":")
+        environ = next(l for l in out if "COV_FOOBAR" in l)         # pragma: part covered
+        _, _, environ = environ.rpartition(":")
         self.assertEqual(environ.strip(), "COV_FOOBAR = XYZZY")
 
 
@@ -204,16 +152,16 @@ def same_python_executable(e1, e2):
     e2 = os.path.abspath(os.path.realpath(e2))
 
     if os.path.dirname(e1) != os.path.dirname(e2):
-        return False
+        return False                                    # pragma: only failure
 
     e1 = os.path.basename(e1)
     e2 = os.path.basename(e2)
 
     if e1 == "python" or e2 == "python" or e1 == e2:
-        # python and python2.3: ok
-        # python2.3 and python: ok
-        # python and python: ok
-        # python2.3 and python2.3: ok
+        # Python and Python2.3: OK
+        # Python2.3 and Python: OK
+        # Python and Python: OK
+        # Python2.3 and Python2.3: OK
         return True
 
-    return False
+    return False                                        # pragma: only failure

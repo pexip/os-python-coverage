@@ -1,11 +1,18 @@
 # debian/watch
-# Debian uscan file for ‘python-coverage’ package.
-# Manpage: ‘uscan(1)’
+# Debian UScan configuration for ‘python-coverage’ package.
+# Manual page: ‘uscan(1)’.
 
-# Compulsory line, this is a version 3 file.
-version=3
+# Version of UScan configuration format.
+version = 4
 
-# Current version from Cheese Shop.
-opts="uversionmangle=s/(\d)([a-z]\d+)$/$1~$2/,dversionmangle=s/\+dfsg\.\d+$//" \
-    http://pypi.python.org/packages/source/c/coverage/coverage-(.+).tar.gz \
+# Current version from Python Package Index.
+opts = "uversionmangle=s/(\d)((?:a|b|c|rc)\d*)$/$1~$2/,dversionmangle=s/\+dfsg\.\d+$//" \
+    http://pypi.debian.net/coverage/coverage-(\S+)\.tar\.(?:gz|bz2|xz) \
     debian debian/repack
+
+
+# Local variables:
+# coding: utf-8
+# mode: conf
+# End:
+# vim: fileencoding=utf-8 filetype=conf :

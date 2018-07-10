@@ -1,3 +1,6 @@
+# Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 """Tests of coverage/debug.py"""
 
 import os
@@ -5,7 +8,7 @@ import re
 
 import coverage
 from coverage.backward import StringIO
-from coverage.debug import info_formatter
+from coverage.debug import info_formatter, info_header
 from tests.coveragetest import CoverageTest
 
 
@@ -31,6 +34,20 @@ class InfoFormatterTest(CoverageTest):
             '        nothing: -none-',
         ])
 
+    def test_info_formatter_with_generator(self):
+        lines = list(info_formatter(('info%d' % i, i) for i in range(3)))
+        self.assertEqual(lines, ['info0: 0', 'info1: 1', 'info2: 2'])
+
+    def test_info_header(self):
+        self.assertEqual(
+            info_header("x"),
+            "-- x ---------------------------------------------------------"
+        )
+        self.assertEqual(
+            info_header("hello there"),
+            "-- hello there -----------------------------------------------"
+        )
+
 
 class DebugTraceTest(CoverageTest):
     """Tests of debug output."""
@@ -47,7 +64,8 @@ class DebugTraceTest(CoverageTest):
             """)
 
         debug_out = StringIO()
-        cov = coverage.coverage(debug=debug, debug_file=debug_out)
+        cov = coverage.Coverage(debug=debug)
+        cov._debug_file = debug_out
         self.start_import_stop(cov, "f1")
 
         out_lines = debug_out.getvalue().splitlines()
@@ -65,7 +83,7 @@ class DebugTraceTest(CoverageTest):
         # We should have a line like "Tracing 'f1.py'"
         self.assertIn("Tracing 'f1.py'", out_lines)
 
-        # We should lines like "Not tracing 'collector.py'..."
+        # We should have lines like "Not tracing 'collector.py'..."
         coverage_lines = lines_matching(
             out_lines,
             r"^Not tracing .*: is part of coverage.py$"
@@ -101,13 +119,17 @@ class DebugTraceTest(CoverageTest):
         out_lines = self.f1_debug_output(["sys"])
 
         labels = """
-            version coverage cover_dir pylib_dirs tracer config_files
+            version coverage cover_dirs pylib_dirs tracer config_files
             configs_read data_path python platform implementation executable
             cwd path environment command_line cover_match pylib_match
             """.split()
         for label in labels:
             label_pat = r"^\s*%s: " % label
-            self.assertEqual(len(lines_matching(out_lines, label_pat)), 1)
+            self.assertEqual(
+                len(lines_matching(out_lines, label_pat)),
+                1,
+                msg="Incorrect lines for %r" % label,
+            )
 
 
 def lines_matching(lines, pat):

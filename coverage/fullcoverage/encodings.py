@@ -1,3 +1,6 @@
+# Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 """Imposter encodings module that installs a coverage-style tracer.
 
 This is NOT the encodings module; it is an imposter that sets up tracing
@@ -6,10 +9,10 @@ instrumentation and then replaces itself with the real encodings module.
 If the directory that holds this file is placed first in the PYTHONPATH when
 using "coverage" to run Python's tests, then this file will become the very
 first module imported by the internals of Python 3.  It installs a
-coverage-compatible trace function that can watch Standard Library modules
+coverage.py-compatible trace function that can watch Standard Library modules
 execute from the very earliest stages of Python's own boot process.  This fixes
-a problem with coverage - that it starts too late to trace the coverage of many
-of the most fundamental modules in the Standard Library.
+a problem with coverage.py - that it starts too late to trace the coverage of
+many of the most fundamental modules in the Standard Library.
 
 """
 

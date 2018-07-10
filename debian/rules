@@ -1,50 +1,28 @@
 #! /usr/bin/make -f
 #
 # debian/rules
-# Part of Debian ‘python-coverage’ package.
+# Part of the Debian ‘python-coverage’ package.
 #
-# Copyright © 2010–2014 Ben Finney <ben+debian@benfinney.id.au>
-# This is free software; you may copy, modify and/or distribute this work
-# under the terms of the BSD 2-clause license.
-# No warranty expressed or implied.
-# See the file ‘coverage/__init__.py’ for details.
+# Copyright © 2010–2016 Ben Finney <bignose@debian.org>
+#
+# This is free software; you may copy, modify, and/or distribute this
+# work under the terms of the Apache License, version 2.0 as published
+# by the Apache Software Foundation. No warranty expressed or implied.
+# See the file ‘/usr/share/common-licenses/Apache-2.0’ for details.
 
-SOURCE_PACKAGE_NAME = python-coverage
-PYTHON2_PACKAGE_NAME = python-coverage
-PYTHON3_PACKAGE_NAME = python3-coverage
-python2_debug_package_name = ${PYTHON2_PACKAGE_NAME}-dbg
-python3_debug_package_name = ${PYTHON3_PACKAGE_NAME}-dbg
+export DEB_BUILD_MAINT_OPTIONS = hardening=+bindnow
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/buildflags.mk
+
+export PYBUILD_NAME = coverage
+export PYBUILD_DISABLE = test
+
+PYTHON2_PACKAGE_NAME = python-${PYBUILD_NAME}
+PYTHON3_PACKAGE_NAME = python3-${PYBUILD_NAME}
 package_working_root = debian
-package_install_root = ${package_working_root}/tmp
-package_install_bin_dir = ${package_install_root}/usr/bin
-
-PYTHON2_VERSIONS = $(shell pyversions -vr)
-PYTHON3_VERSIONS = $(shell py3versions -vr)
-PYTHON_VERSIONS = ${PYTHON2_VERSIONS} ${PYTHON3_VERSIONS}
-
-# For some ‘/usr/bin/*-coverage’ programs (and not others), we need the
-# default, not current, Python interpreter in the shebang. The ‘dh-python’
-# helpers can re-write shebangs, but they are too eager, converting every
-# program's shebang without allowing us to specify different interpreters
-# per program. We resort to ‘sed’.
-python3_program = ${package_install_bin_dir}/python3-coverage
-shebang_line_regex = ^\#!.*$$
-python3_shebang_interpreter = /usr/bin/python3
-
-debug_object_exclude += _d.so
-
-# Unfortunately, ‘dh_install --exclude’ requires a substring, and a glob
-# wildcard will *not* work. So we need to specify the exact substring for
-# the Python 3 debug module filenames.
-python3_objcode_versions = $(shell \
-	printf "%s\n" ${PYTHON3_VERSIONS} | sed -e 's/\.//g')
-DEB_HOST_MULTIARCH = $(shell dpkg-architecture -qDEB_HOST_MULTIARCH)
-debug_object_exclude += $(foreach ver,${python3_objcode_versions}, \
-	.cpython-${ver}dm-${DEB_HOST_MULTIARCH}.so)
+package_install_root = debian/{package}
 
 DISTRIBUTION_NAME = coverage
-egg_info_dir = ${DISTRIBUTION_NAME}.egg-info
-GENERATED_FILES += ${egg_info_dir}/PKG-INFO ${egg_info_dir}/SOURCES.txt
 
 HTMLFILES_DIR = ${DISTRIBUTION_NAME}/htmlfiles
 htmlfiles_dirname = $(notdir ${HTMLFILES_DIR})
@@ -53,22 +31,28 @@ bundled_libraries += $(addprefix ${HTMLFILES_DIR}/, \
 	jquery.isonscreen.js \
 	)
 
-RESOURCES_DIR = resources
+RESOURCES_DIR = usr/share/{package}
 package_install_resources_root = ${package_install_root}/${RESOURCES_DIR}
 
 DOCUMENTATION_DIR = doc
 MANPAGE_SUFFIX = .1
 manpage_tempfile_suffix = ${MANPAGE_SUFFIX}.tmp
 default_manpage_name = python-coverage${MANPAGE_SUFFIX}
-python2_manpage_names = $(addsuffix ${MANPAGE_SUFFIX}, \
-	$(notdir $(wildcard ${package_install_bin_dir}/python2*-coverage)))
-python3_manpage_names = $(addsuffix ${MANPAGE_SUFFIX}, \
-	$(notdir $(wildcard ${package_install_bin_dir}/python3*-coverage)))
-versioned_manpage_names = ${python2_manpage_names} ${python3_manpage_names}
+python2_command_names = $(sort $(notdir $(wildcard \
+	${package_working_root}/*/usr/bin/python2*-coverage)))
+python3_command_names = $(sort $(notdir $(wildcard \
+	${package_working_root}/*/usr/bin/python3*-coverage)))
+versioned_command_names = ${python2_command_names} ${python3_command_names}
+versioned_manpage_names = $(addsuffix ${MANPAGE_SUFFIX}, \
+	${versioned_command_names})
 versioned_manpage_paths = $(addprefix ${DOCUMENTATION_DIR}/, \
 	${versioned_manpage_names})
 GENERATED_FILES += ${DOCUMENTATION_DIR}/*${MANPAGE_SUFFIX}
 GENERATED_FILES += ${DOCUMENTATION_DIR}/*${manpage_tempfile_suffix}
+
+DOCUMENTATION_BUILD_DIR = ${DOCUMENTATION_DIR}/_build
+DOCUMENTATION_BUILD_HTML_DIR = ${DOCUMENTATION_BUILD_DIR}/html
+GENERATED_FILES += ${DOCUMENTATION_BUILD_DIR}
 
 INSTALL = install
 
@@ -80,166 +64,102 @@ RST_SUFFIX = .txt
 
 RST2MAN = rst2man
 
-
-ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-.PHONY: test-python%
-test-python%:
-	python$* setup.py test -vv
-
-.PHONY: override_dh_auto_test
-override_dh_auto_test: $(foreach pyversion,${PYTHON_VERSIONS},$(pyversion:%=test-python%))
-endif
+SPHINX = sphinx-build
+SPHINX_OPTS = -N
 
 
-.PHONY: build
-build: build-arch build-indep
-build: remove-bundled-libraries
-build: ${MANPAGES} manpage-symlinks
-	dh $@ --with python2,python3
+%:
+	dh $@ --with python2,python3,sphinxdoc --buildsystem=pybuild
 
-.PHONY: build-arch
-build-arch: build-stamp
-	dh $@ --with python2,python3
-
-.PHONY: build-indep
-build-indep: build-stamp
-	dh $@ --with python2,python3
-
-build-stamp:
-	touch $@
-
-.PHONY: build-python%
-build-python%:
-	python$*-dbg setup.py build
-	python$* setup.py build
-
+
 .PHONY: remove-bundled-libraries
 remove-bundled-libraries:
 	$(RM) ${bundled_libraries}
 
-.PHONY: manpage-symlinks
-manpage-symlinks: ${versioned_manpage_paths}
+.PHONY: manpage-aliases
+manpage-aliases: ${versioned_manpage_paths}
 
+${DOCUMENTATION_DIR}:
+	$(INSTALL) --directory "$@"
+
+${DOCUMENTATION_DIR}/${default_manpage_name}: ${DOCUMENTATION_DIR}
 ${DOCUMENTATION_DIR}/${default_manpage_name}: ${package_working_root}/${default_manpage_name}
 	$(INSTALL) --mode=u=rw,go=r "$<" "$@"
 
 ${DOCUMENTATION_DIR}/%${MANPAGE_SUFFIX}: ${DOCUMENTATION_DIR}/${default_manpage_name}
-	ln -s ${default_manpage_name} "$@"
+	$(INSTALL) --mode=u=rw,go=r "$<" "$@"
 
 %.1: %.1${RST_SUFFIX}
-	$(RST2MAN) $< > "$@".tmp
+	$(RST2MAN) "$<" > "$@".tmp
 	cat debian/manpage_encoding_declaration.UTF-8 "$@".tmp > "$@"
 
 
-.PHONY: clean
-clean:
-	dh $@ --with python2,python3
-	$(RM) -r ${GENERATED_FILES}
+.PHONY: get-packaged-orig-source
+get-packaged-orig-source:
+	$(uscan-download-source) --download-current-version
 
-.PHONY: override_dh_auto_clean
-override_dh_auto_clean:
-	dh_auto_clean
-	$(RM) -r build
-	$(RM) -r ${egg_info_dir}
-
-
 # Policy §4.9 strongly recommends the ‘get-orig-source’ target:
 # “This target is optional, but providing it if possible is a good idea.”
+#
+# This target is an anomaly: per Policy §4.9, it fetches the *latest*
+# upstream source, regardless of this package's version. To fetch the
+# upstream source corresponding to this package's *declared* version
+# in ‘debian/changelog’, use ‘get-packaged-orig-source’ instead.
 .PHONY: get-orig-source
-get-orig-source: http_proxy =
-get-orig-source: makefile_dir = $(abspath $(dir $(firstword ${MAKEFILE_LIST})))
-get-orig-source: package_dir = $(abspath $(dir ${makefile_dir}))
 get-orig-source:
+	$(uscan-download-source)
+
+get-orig-source get-packaged-orig-source: http_proxy =
+get-orig-source get-packaged-orig-source: makefile_dir = $(abspath $(dir $(firstword ${MAKEFILE_LIST})))
+get-orig-source get-packaged-orig-source: package_dir = $(abspath $(dir ${makefile_dir}))
+
+define uscan-download-source
 	uscan --noconf --verbose \
-	    --force-download --download-current-version \
+	    --force-download \
 	    --rename \
 	    --destdir=$(CURDIR) \
 	    --check-dirname-level=0 ${package_dir}
+endef # uscan-download-source
 
 
-.PHONY: install
-install: build
-	dh $@ --with python2,python3 \
-	    --package ${python2_debug_package_name} \
-	    --package ${python3_debug_package_name}
-	dh $@ --with python2,python3 \
-	    $(foreach exclude_part,${debug_object_exclude}, \
-	        --exclude ${exclude_part})
+override_dh_auto_build: remove-bundled-libraries
+override_dh_auto_build:
+	dh_auto_build --buildsystem=pybuild
 
-${package_install_resources_root}:
-	$(INSTALL) -d "$@"
+# Upstream test suite doesn't currently run in our build environment.
+override_dh_auto_test:
 
-${package_install_resources_root}/${htmlfiles_dirname}: ${HTMLFILES_DIR} ${package_install_resources_root}
-	$(INSTALL) -d "$@"
-	$(INSTALL) --mode=u=rw,go=r "$<"/* "$@"
+override_dh_auto_install:
+	dh_auto_install --buildsystem=pybuild
+	$(RM) $(addprefix ${package_working_root}/${PYTHON3_PACKAGE_NAME}/, \
+	    usr/bin/python-coverage)
 
-.PHONY: install-resource-files
-install-resource-files: ${package_install_resources_root}
-install-resource-files: ${package_install_resources_root}/${htmlfiles_dirname}
+export PYBUILD_AFTER_INSTALL = \
+	$(INSTALL) --mode=u=rwx,go=rx --directory \
+	    "${package_install_resources_root}" ; \
+	$(INSTALL) --mode=u=rwx,go=rx --directory \
+	    "${package_install_resources_root}/${htmlfiles_dirname}" ; \
+	$(INSTALL) --mode=u=rw,go=r "${HTMLFILES_DIR}"/* \
+	    "${package_install_resources_root}/${htmlfiles_dirname}" ; \
+	dh_link \
+	    --package={package} \
+	    "/${RESOURCES_DIR}/${htmlfiles_dirname}" \
+	    usr/lib/python{version}/dist-packages/${HTMLFILES_DIR}
 
-.PHONY: install-python%
-install-python%: python_version_major = $(firstword $(subst ., ,$*))
-install-python%:
-	python$*-dbg setup.py install --install-layout=deb \
-	    --root=$(CURDIR)/${package_install_root}
-	python$* setup.py install --install-layout=deb \
-	    --root=$(CURDIR)/${package_install_root}
-	if [ "${python_version_major}" = "3" ] ; then \
-	    sed -i -e '1 s,${shebang_line_regex},#! ${python3_shebang_interpreter},' \
-	        "${python3_program}" ; \
-	fi
+override_dh_installchangelogs:
+	dh_installchangelogs CHANGES.rst
 
-
-.PHONY: binary-indep
-binary-indep: build install
+override_dh_installman: manpage-aliases
+	dh_installman
 
-.PHONY: binary-arch
-binary-arch: build install
-	dh $@ --with python2,python3
+override_dh_auto_clean:
+	dh_auto_clean
+	$(RM) -r ${GENERATED_FILES}
 
-.PHONY: binary
-binary: build binary-indep binary-arch
-
-
-.PHONY: override_dh_strip
-override_dh_strip:
-	dh_strip --package=${PYTHON2_PACKAGE_NAME} --dbg-package=${python2_debug_package_name}
-	dh_strip --package=${PYTHON3_PACKAGE_NAME} --dbg-package=${python3_debug_package_name}
-
-.PHONY: override_dh_auto_build
-override_dh_auto_build: $(foreach pyversion,${PYTHON_VERSIONS},$(pyversion:%=build-python%))
 override_dh_auto_build:
 	dh_auto_build
-
-.PHONY: override_dh_auto_install
-override_dh_auto_install: $(foreach pyversion,${PYTHON_VERSIONS},$(pyversion:%=install-python%))
-override_dh_auto_install: install-resource-files
-	dh_auto_install
-
-.PHONY: override_dh_link
-override_dh_link:
-	dh_link
-	for pyversion in ${PYTHON2_VERSIONS} ; do \
-	    dh_link \
-	        --package=${PYTHON2_PACKAGE_NAME} \
-	        usr/share/${PYTHON2_PACKAGE_NAME}/${htmlfiles_dirname} \
-	        usr/lib/python$${pyversion}/dist-packages/${HTMLFILES_DIR} ; \
-	done
-
-.PHONY: override_dh_installchangelogs
-override_dh_installchangelogs:
-	dh_installchangelogs CHANGES.txt
-
-.PHONY: override_dh_installdocs
-override_dh_installdocs:
-	dh_installdocs \
-	    --package=${PYTHON2_PACKAGE_NAME} \
-	    --package=${python2_debug_package_name} \
-            --link-doc=${PYTHON2_PACKAGE_NAME}
-	dh_installdocs \
-	    --package=${PYTHON3_PACKAGE_NAME} \
-	    --package=${python3_debug_package_name} \
-	    --link-doc=${PYTHON3_PACKAGE_NAME}
+	$(SPHINX) ${SPHINX_OPTS} -bhtml ${DOCUMENTATION_DIR}/ \
+		${DOCUMENTATION_BUILD_HTML_DIR}/
 
 
 # Local variables:

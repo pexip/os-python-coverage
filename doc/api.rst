@@ -1,24 +1,28 @@
+.. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 .. _api:
 
-============
-Coverage API
-============
+===============
+Coverage.py API
+===============
 
-:history: 20090524T134300, brand new docs.
-:history: 20090613T164000, final touches for 3.0
-:history: 20100221T151500, docs for 3.3 (on the plane back from PyCon)
-:history: 20100725T211700, updated for 3.4.
-:history: 20121111T235800, added a bit of clarification.
+.. :history: 20090524T134300, brand new docs.
+.. :history: 20090613T164000, final touches for 3.0
+.. :history: 20100221T151500, docs for 3.3 (on the plane back from PyCon)
+.. :history: 20100725T211700, updated for 3.4.
+.. :history: 20121111T235800, added a bit of clarification.
+.. :history: 20140819T132600, change class name to Coverage
 
 
-The API to coverage.py is very simple, contained in a single module called
-`coverage`.  Most of the interface is in a single class, also called
-`coverage`.  Methods on the coverage object correspond roughly to operations
-available in the command line interface. For example, a simple use would be::
+The API to coverage.py is very simple, contained in a module called `coverage`.
+Most of the interface is in the :class:`coverage.Coverage` class.  Methods on
+the Coverage object correspond roughly to operations available in the command
+line interface. For example, a simple use would be::
 
     import coverage
 
-    cov = coverage.coverage()
+    cov = coverage.Coverage()
     cov.start()
 
     # .. call your code ..
@@ -28,20 +32,12 @@ available in the command line interface. For example, a simple use would be::
 
     cov.html_report()
 
+The :class:`coverage.CoverageData` class provides access to coverage data
+stored in coverage.py data files.
 
-The coverage module
--------------------
+.. toctree::
+    :maxdepth: 1
 
-.. module:: coverage
-
-.. autoclass:: coverage
-    :members:
-
-
-Starting coverage automatically
--------------------------------
-
-This function is used to start coverage measurement automatically when Python
-starts.  See :ref:`subprocess` for details.
-
-.. autofunction:: process_startup
+    api_coverage
+    api_coveragedata
+    api_plugin

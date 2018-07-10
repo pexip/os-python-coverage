@@ -1,92 +1,28 @@
-"""Tests for Coverage's api."""
+# Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
-import fnmatch, os, re, sys, textwrap
+"""Tests for coverage.py's API."""
+
+import fnmatch
+import os
+import sys
+import textwrap
+import warnings
 
 import coverage
+from coverage import env
 from coverage.backward import StringIO
+from coverage.misc import CoverageException
+from coverage.report import Reporter
 
 from tests.coveragetest import CoverageTest
 
 
-class SingletonApiTest(CoverageTest):
-    """Tests of the old-fashioned singleton API."""
-
-    def setUp(self):
-        super(SingletonApiTest, self).setUp()
-        # These tests use the singleton module interface.  Prevent it from
-        # writing .coverage files at exit.
-        coverage.use_cache(0)
-
-    def do_report_work(self, modname):
-        """Create a module named `modname`, then measure it."""
-        coverage.erase()
-
-        self.make_file(modname+".py", """\
-            a = 1
-            b = 2
-            if b == 3:
-                c = 4
-                d = 5
-                e = 6
-            f = 7
-            """)
-
-        # Import the python file, executing it.
-        self.start_import_stop(coverage, modname)
-
-    def test_simple(self):
-        coverage.erase()
-
-        self.make_file("mycode.py", """\
-            a = 1
-            b = 2
-            if b == 3:
-                c = 4
-            d = 5
-            """)
-
-        # Import the python file, executing it.
-        self.start_import_stop(coverage, "mycode")
-
-        _, statements, missing, missingtext = coverage.analysis("mycode.py")
-        self.assertEqual(statements, [1,2,3,4,5])
-        self.assertEqual(missing, [4])
-        self.assertEqual(missingtext, "4")
-
-    def test_report(self):
-        self.do_report_work("mycode2")
-        coverage.report(["mycode2.py"])
-        self.assertEqual(self.stdout(), textwrap.dedent("""\
-            Name      Stmts   Miss  Cover   Missing
-            ---------------------------------------
-            mycode2       7      3    57%   4-6
-            """))
-
-    def test_report_file(self):
-        # The file= argument of coverage.report makes the report go there.
-        self.do_report_work("mycode3")
-        fout = StringIO()
-        coverage.report(["mycode3.py"], file=fout)
-        self.assertEqual(self.stdout(), "")
-        self.assertEqual(fout.getvalue(), textwrap.dedent("""\
-            Name      Stmts   Miss  Cover   Missing
-            ---------------------------------------
-            mycode3       7      3    57%   4-6
-            """))
-
-    def test_report_default(self):
-        # Calling report() with no morfs will report on whatever was executed.
-        self.do_report_work("mycode4")
-        coverage.report()
-        rpt = re.sub(r"\s+", " ", self.stdout())
-        self.assertIn("mycode4 7 3 57% 4-6", rpt)
-
-
 class ApiTest(CoverageTest):
-    """Api-oriented tests for Coverage."""
+    """Api-oriented tests for coverage.py."""
 
     def clean_files(self, files, pats):
-        """Remove names matching `pats` from `files`, a list of filenames."""
+        """Remove names matching `pats` from `files`, a list of file names."""
         good = []
         for f in files:
             for pat in pats:
@@ -100,10 +36,10 @@ class ApiTest(CoverageTest):
         """Assert that the files here are `files`, ignoring the usual junk."""
         here = os.listdir(".")
         here = self.clean_files(here, ["*.pyc", "__pycache__"])
-        self.assertSameElements(here, files)
+        self.assertCountEqual(here, files)
 
     def test_unexecuted_file(self):
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
 
         self.make_file("mycode.py", """\
             a = 1
@@ -117,7 +53,7 @@ class ApiTest(CoverageTest):
             fooey = 17
             """)
 
-        # Import the python file, executing it.
+        # Import the Python file, executing it.
         self.start_import_stop(cov, "mycode")
 
         _, statements, missing, _ = cov.analysis("not_run.py")
@@ -135,8 +71,8 @@ class ApiTest(CoverageTest):
             fooey = 17
             """)
 
-        # Import the python file, executing it.
-        cov = coverage.coverage()
+        # Import the Python file, executing it.
+        cov = coverage.Coverage()
         self.start_import_stop(cov, "mymain")
 
         filename, _, _, _ = cov.analysis("mymain.py")
@@ -149,9 +85,9 @@ class ApiTest(CoverageTest):
         filename, _, _, _ = cov.analysis(sys.modules["mymod"])
         self.assertEqual(os.path.basename(filename), "mymod.py")
 
-        # Import the python file, executing it again, once it's been compiled
+        # Import the Python file, executing it again, once it's been compiled
         # already.
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
         self.start_import_stop(cov, "mymain")
 
         filename, _, _, _ = cov.analysis("mymain.py")
@@ -172,7 +108,7 @@ class ApiTest(CoverageTest):
             """)
 
         # Measure without the stdlib.
-        cov1 = coverage.coverage()
+        cov1 = coverage.Coverage()
         self.assertEqual(cov1.config.cover_pylib, False)
         self.start_import_stop(cov1, "mymain")
 
@@ -184,7 +120,7 @@ class ApiTest(CoverageTest):
         self.assertEqual(statements, missing)
 
         # Measure with the stdlib.
-        cov2 = coverage.coverage(cover_pylib=True)
+        cov2 = coverage.Coverage(cover_pylib=True)
         self.start_import_stop(cov2, "mymain")
 
         # some statements were marked executed in mymain.py
@@ -203,7 +139,7 @@ class ApiTest(CoverageTest):
             """)
 
         # Measure without the stdlib, but include colorsys.
-        cov1 = coverage.coverage(cover_pylib=False, include=["*/colorsys.py"])
+        cov1 = coverage.Coverage(cover_pylib=False, include=["*/colorsys.py"])
         self.start_import_stop(cov1, "mymain")
 
         # some statements were marked executed in colorsys.py
@@ -214,31 +150,33 @@ class ApiTest(CoverageTest):
         self.assertEqual(statements, missing)
 
     def test_exclude_list(self):
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
         cov.clear_exclude()
         self.assertEqual(cov.get_exclude_list(), [])
         cov.exclude("foo")
         self.assertEqual(cov.get_exclude_list(), ["foo"])
         cov.exclude("bar")
         self.assertEqual(cov.get_exclude_list(), ["foo", "bar"])
-        self.assertEqual(cov._exclude_regex('exclude'), "(foo)|(bar)")
+        self.assertEqual(cov._exclude_regex('exclude'), "(?:foo)|(?:bar)")
         cov.clear_exclude()
         self.assertEqual(cov.get_exclude_list(), [])
 
     def test_exclude_partial_list(self):
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
         cov.clear_exclude(which='partial')
         self.assertEqual(cov.get_exclude_list(which='partial'), [])
         cov.exclude("foo", which='partial')
         self.assertEqual(cov.get_exclude_list(which='partial'), ["foo"])
         cov.exclude("bar", which='partial')
         self.assertEqual(cov.get_exclude_list(which='partial'), ["foo", "bar"])
-        self.assertEqual(cov._exclude_regex(which='partial'), "(foo)|(bar)")
+        self.assertEqual(
+            cov._exclude_regex(which='partial'), "(?:foo)|(?:bar)"
+        )
         cov.clear_exclude(which='partial')
         self.assertEqual(cov.get_exclude_list(which='partial'), [])
 
     def test_exclude_and_partial_are_separate_lists(self):
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
         cov.clear_exclude(which='partial')
         cov.clear_exclude(which='exclude')
         cov.exclude("foo", which='partial')
@@ -265,7 +203,7 @@ class ApiTest(CoverageTest):
             """)
 
         self.assertFiles(["datatest1.py"])
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
         self.start_import_stop(cov, "datatest1")
         cov.save()
         self.assertFiles(["datatest1.py", ".coverage"])
@@ -277,7 +215,7 @@ class ApiTest(CoverageTest):
             """)
 
         self.assertFiles(["datatest2.py"])
-        cov = coverage.coverage(data_file="cov.data")
+        cov = coverage.Coverage(data_file="cov.data")
         self.start_import_stop(cov, "datatest2")
         cov.save()
         self.assertFiles(["datatest2.py", "cov.data"])
@@ -289,7 +227,7 @@ class ApiTest(CoverageTest):
             """)
 
         self.assertFiles(["datatest3.py"])
-        cov = coverage.coverage(data_file="cov.data", data_suffix="14")
+        cov = coverage.Coverage(data_file="cov.data", data_suffix="14")
         self.start_import_stop(cov, "datatest3")
         cov.save()
         self.assertFiles(["datatest3.py", "cov.data.14"])
@@ -305,18 +243,19 @@ class ApiTest(CoverageTest):
             """)
 
         self.assertFiles(["datatest4.py", ".coveragerc"])
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
         self.start_import_stop(cov, "datatest4")
         cov.save()
         self.assertFiles(["datatest4.py", ".coveragerc", "mydata.dat"])
 
     def test_empty_reporting(self):
-        # Used to be you'd get an exception reporting on nothing...
-        cov = coverage.coverage()
+        # empty summary reports raise exception, just like the xml report
+        cov = coverage.Coverage()
         cov.erase()
-        cov.report()
+        self.assertRaises(CoverageException, cov.report)
 
-    def test_start_stop_start_stop(self):
+    def make_code1_code2(self):
+        """Create the code1.py and code2.py files."""
         self.make_file("code1.py", """\
             code1 = 1
             """)
@@ -324,10 +263,9 @@ class ApiTest(CoverageTest):
             code2 = 1
             code2 = 2
             """)
-        cov = coverage.coverage()
-        self.start_import_stop(cov, "code1")
-        cov.save()
-        self.start_import_stop(cov, "code2")
+
+    def check_code1_code2(self, cov):
+        """Check the analysis is correct for code1.py and code2.py."""
         _, statements, missing, _ = cov.analysis("code1.py")
         self.assertEqual(statements, [1])
         self.assertEqual(missing, [])
@@ -335,29 +273,75 @@ class ApiTest(CoverageTest):
         self.assertEqual(statements, [1, 2])
         self.assertEqual(missing, [])
 
-    if 0:   # expected failure
-        # for https://bitbucket.org/ned/coveragepy/issue/79
-        def test_start_save_stop(self):
-            self.make_file("code1.py", """\
-                code1 = 1
-                """)
-            self.make_file("code2.py", """\
-                code2 = 1
-                code2 = 2
-                """)
-            cov = coverage.coverage()
-            cov.start()
-            self.import_local_file("code1")
-            cov.save()
-            self.import_local_file("code2")
-            cov.stop()
+    def test_start_stop_start_stop(self):
+        self.make_code1_code2()
+        cov = coverage.Coverage()
+        self.start_import_stop(cov, "code1")
+        cov.save()
+        self.start_import_stop(cov, "code2")
+        self.check_code1_code2(cov)
 
-            _, statements, missing, _ = cov.analysis("code1.py")
-            self.assertEqual(statements, [1])
-            self.assertEqual(missing, [])
-            _, statements, missing, _ = cov.analysis("code2.py")
-            self.assertEqual(statements, [1, 2])
-            self.assertEqual(missing, [])
+    def test_start_save_stop(self):
+        self.skipTest("Expected failure: https://bitbucket.org/ned/coveragepy/issue/79")
+        self.make_code1_code2()
+        cov = coverage.Coverage()
+        cov.start()
+        self.import_local_file("code1")
+        cov.save()
+        self.import_local_file("code2")
+        cov.stop()
+
+        self.check_code1_code2(cov)
+
+    def make_corrupt_data_files(self):
+        """Make some good and some bad data files."""
+        self.make_code1_code2()
+        cov = coverage.Coverage(data_suffix=True)
+        self.start_import_stop(cov, "code1")
+        cov.save()
+
+        cov = coverage.Coverage(data_suffix=True)
+        self.start_import_stop(cov, "code2")
+        cov.save()
+
+        self.make_file(".coverage.foo", """La la la, this isn't coverage data!""")
+
+    def test_combining_corrupt_data(self):
+        # If you combine a corrupt data file, then you will get a warning,
+        # and the file will remain.
+        self.make_corrupt_data_files()
+        cov = coverage.Coverage()
+        warning_regex = (
+            r"Couldn't read data from '.*\.coverage\.foo': "
+            r"CoverageException: Doesn't seem to be a coverage\.py data file"
+        )
+        with self.assert_warnings(cov, [warning_regex]):
+            cov.combine()
+
+        # We got the results from code1 and code2 properly.
+        self.check_code1_code2(cov)
+
+        # The bad file still exists.
+        self.assert_exists(".coverage.foo")
+
+
+class NamespaceModuleTest(CoverageTest):
+    """Test PEP-420 namespace modules."""
+
+    def setUp(self):
+        super(NamespaceModuleTest, self).setUp()
+        if env.PYVERSION < (3, 3):
+            self.skipTest("Python before 3.3 doesn't have namespace packages")
+
+    def test_explicit_namespace_module(self):
+        self.make_file("namespace/package/module.py", "VAR = 1\n")
+        self.make_file("main.py", "import namespace\n")
+
+        cov = coverage.Coverage()
+        self.start_import_stop(cov, "main")
+
+        with self.assertRaisesRegex(CoverageException, r"Module .* has no file"):
+            cov.analysis(sys.modules['namespace'])
 
 
 
@@ -368,15 +352,14 @@ class UsingModulesMixin(object):
 
     def setUp(self):
         super(UsingModulesMixin, self).setUp()
-        # Parent class saves and restores sys.path, we can just modify it.
-        self.old_dir = os.getcwd()
+
+        old_dir = os.getcwd()
         os.chdir(self.nice_file(os.path.dirname(__file__), 'modules'))
+        self.addCleanup(os.chdir, old_dir)
+
+        # Parent class saves and restores sys.path, we can just modify it.
         sys.path.append(".")
         sys.path.append("../moremodules")
-
-    def tearDown(self):
-        os.chdir(self.old_dir)
-        super(UsingModulesMixin, self).tearDown()
 
 
 class OmitIncludeTestsMixin(UsingModulesMixin):
@@ -441,15 +424,15 @@ class SourceOmitIncludeTest(OmitIncludeTestsMixin, CoverageTest):
     def coverage_usepkgs(self, **kwargs):
         """Run coverage on usepkgs and return the line summary.
 
-        Arguments are passed to the `coverage.coverage` constructor.
+        Arguments are passed to the `coverage.Coverage` constructor.
 
         """
-        cov = coverage.coverage(**kwargs)
+        cov = coverage.Coverage(**kwargs)
         cov.start()
-        import usepkgs  # pragma: nested   # pylint: disable=F0401,W0612
+        import usepkgs  # pragma: nested   # pylint: disable=import-error
         cov.stop()      # pragma: nested
-        cov._harvest_data() # private! sshhh...
-        summary = cov.data.summary()
+        data = cov.get_data()
+        summary = data.line_counts()
         for k, v in list(summary.items()):
             assert k.endswith(".py")
             summary[k[:-3]] = v
@@ -483,9 +466,9 @@ class ReportIncludeOmitTest(OmitIncludeTestsMixin, CoverageTest):
 
     def coverage_usepkgs(self, **kwargs):
         """Try coverage.report()."""
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
         cov.start()
-        import usepkgs  # pragma: nested   # pylint: disable=F0401,W0612
+        import usepkgs  # pragma: nested   # pylint: disable=import-error
         cov.stop()      # pragma: nested
         report = StringIO()
         cov.report(file=report, **kwargs)
@@ -493,7 +476,7 @@ class ReportIncludeOmitTest(OmitIncludeTestsMixin, CoverageTest):
 
 
 class XmlIncludeOmitTest(OmitIncludeTestsMixin, CoverageTest):
-    """Tests of the xml include/omit functionality.
+    """Tests of the XML include/omit functionality.
 
     This also takes care of the HTML and annotate include/omit, by virtue
     of the structure of the code.
@@ -502,9 +485,9 @@ class XmlIncludeOmitTest(OmitIncludeTestsMixin, CoverageTest):
 
     def coverage_usepkgs(self, **kwargs):
         """Try coverage.xml_report()."""
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
         cov.start()
-        import usepkgs  # pragma: nested   # pylint: disable=F0401,W0612
+        import usepkgs  # pragma: nested   # pylint: disable=import-error
         cov.stop()      # pragma: nested
         cov.xml_report(outfile="-", **kwargs)
         return self.stdout()
@@ -513,7 +496,7 @@ class XmlIncludeOmitTest(OmitIncludeTestsMixin, CoverageTest):
 class AnalysisTest(CoverageTest):
     """Test the numerical analysis of results."""
     def test_many_missing_branches(self):
-        cov = coverage.coverage(branch=True)
+        cov = coverage.Coverage(branch=True)
 
         self.make_file("missing.py", """\
             def fun1(x):
@@ -529,7 +512,7 @@ class AnalysisTest(CoverageTest):
             fun2(3)
             """)
 
-        # Import the python file, executing it.
+        # Import the Python file, executing it.
         self.start_import_stop(cov, "missing")
 
         nums = cov._analyze("missing.py").numbers
@@ -542,8 +525,8 @@ class AnalysisTest(CoverageTest):
         self.assertEqual(nums.n_missing_branches, 2)
 
 
-class PluginTest(CoverageTest):
-    """Test that the API works properly the way the plugins call it.
+class TestRunnerPluginTest(CoverageTest):
+    """Test that the API works properly the way various third-party plugins call it.
 
     We don't actually use the plugins, but these tests call the API the same
     way they do.
@@ -551,7 +534,7 @@ class PluginTest(CoverageTest):
     """
     def pretend_to_be_nose_with_cover(self, erase):
         """This is what the nose --with-cover plugin does."""
-        cov = coverage.coverage()
+        cov = coverage.Coverage()
 
         self.make_file("no_biggie.py", """\
             a = 1
@@ -567,11 +550,11 @@ class PluginTest(CoverageTest):
         self.start_import_stop(cov, "no_biggie")
         cov.combine()
         cov.save()
-        cov.report(["no_biggie.py"])
+        cov.report(["no_biggie.py"], show_missing=True)
         self.assertEqual(self.stdout(), textwrap.dedent("""\
-            Name        Stmts   Miss  Cover   Missing
-            -----------------------------------------
-            no_biggie       4      1    75%   4
+            Name           Stmts   Miss  Cover   Missing
+            --------------------------------------------
+            no_biggie.py       4      1    75%   4
             """))
 
     def test_nose_plugin(self):
@@ -579,3 +562,20 @@ class PluginTest(CoverageTest):
 
     def test_nose_plugin_with_erase(self):
         self.pretend_to_be_nose_with_cover(erase=True)
+
+
+class ReporterDeprecatedAttributeTest(CoverageTest):
+    """Test that Reporter.file_reporters has been deprecated."""
+
+    run_in_temp_dir = False
+
+    def test_reporter_file_reporters(self):
+        rep = Reporter(None, None)
+
+        with warnings.catch_warnings(record=True) as warns:
+            warnings.simplefilter("always")
+            # Accessing this attribute will raise a DeprecationWarning.
+            rep.file_reporters      # pylint: disable=pointless-statement
+
+        self.assertEqual(len(warns), 1)
+        self.assertTrue(issubclass(warns[0].category, DeprecationWarning))

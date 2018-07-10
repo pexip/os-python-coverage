@@ -1,19 +1,22 @@
+.. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 .. _branch:
 
 ===========================
 Branch coverage measurement
 ===========================
 
-:history: 20091127T201300, new for version 3.2
-:history: 20100725T211700, updated for 3.4.
-:history: 20110604T181700, updated for 3.5.
-:history: 20111214T181800, Fix a bug that Guido pointed out.
+.. :history: 20091127T201300, new for version 3.2
+.. :history: 20100725T211700, updated for 3.4.
+.. :history: 20110604T181700, updated for 3.5.
+.. :history: 20111214T181800, Fix a bug that Guido pointed out.
 
 .. highlight:: python
    :linenothreshold: 5
 
 
-In addition to the usual statement coverage, Coverage.py also supports branch
+In addition to the usual statement coverage, coverage.py also supports branch
 coverage measurement. Where a line in your program could jump to more than one
 next line, coverage.py tracks which of those destinations are actually visited,
 and flags lines that haven't visited all of their possible destinations.
@@ -61,8 +64,8 @@ How it works
 
 When measuring branches, coverage.py collects pairs of line numbers, a source
 and destination for each transition from one line to another.  Static analysis
-of the compiled bytecode provides a list of possible transitions.  Comparing
-the measured to the possible indicates missing branches.
+of the source provides a list of possible transitions.  Comparing the measured
+to the possible indicates missing branches.
 
 The idea of tracking how lines follow each other was from `Titus Brown`__.
 Thanks, Titus!
@@ -73,7 +76,7 @@ __ http://ivory.idyll.org/blog
 Excluding code
 --------------
 
-If you have :ref:`excluded code <excluding>`, a condtional will not be counted
+If you have :ref:`excluded code <excluding>`, a conditional will not be counted
 as a branch if one of its choices is excluded::
 
     def only_one_choice(x):

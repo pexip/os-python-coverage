@@ -1,12 +1,14 @@
+# Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
+# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+
 """Tests of coverage/collector.py and other collectors."""
 
-import re
+import os.path
 
 import coverage
-from coverage.backward import StringIO
-from coverage.backward import set                   # pylint: disable=W0622
 
 from tests.coveragetest import CoverageTest
+from tests.helpers import CheckUniqueFilenames
 
 
 class CollectorTest(CoverageTest):
@@ -14,8 +16,6 @@ class CollectorTest(CoverageTest):
 
     def test_should_trace_cache(self):
         # The tracers should only invoke should_trace once for each file name.
-        # TODO: Might be better to do this with a mocked _should_trace,
-        # rather than by examining debug output.
 
         # Make some files that invoke each other.
         self.make_file("f1.py", """\
@@ -36,23 +36,15 @@ class CollectorTest(CoverageTest):
                 func(i)
             """)
 
-        # Trace one file, but not the other, and get the debug output.
-        debug_out = StringIO()
-        cov = coverage.coverage(
-            include=["f1.py"], debug=['trace'], debug_file=debug_out
-            )
+        # Trace one file, but not the other. CheckUniqueFilenames will assert
+        # that _should_trace hasn't been called twice for the same file.
+        cov = coverage.Coverage(include=["f1.py"])
+        should_trace_hook = CheckUniqueFilenames.hook(cov, '_should_trace')
 
-        # Import the python file, executing it.
+        # Import the Python file, executing it.
         self.start_import_stop(cov, "f2")
 
-        # Grab all the filenames mentioned in debug output, there should be no
-        # duplicates.
-        trace_lines = [
-            l for l in debug_out.getvalue().splitlines()
-            if l.startswith("Tracing ") or l.startswith("Not tracing ")
-        ]
-        filenames = [re.search(r"'[^']+'", l).group() for l in trace_lines]
-        self.assertEqual(len(filenames), len(set(filenames)))
-
-        # Double-check that the tracing messages are in there somewhere.
-        self.assertGreater(len(filenames), 5)
+        # Double-check that our files were checked.
+        abs_files = set(os.path.abspath(f) for f in should_trace_hook.filenames)
+        self.assertIn(os.path.abspath("f1.py"), abs_files)
+        self.assertIn(os.path.abspath("f2.py"), abs_files)
