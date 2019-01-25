@@ -8,7 +8,7 @@ Packages
 ========
 
 The Python `“coverage” library`_ is packaged in Debian separately for each
-Python version in Debian:
+Python major version in Debian:
 
 * `python-coverage` for Python 2.
 * `python3-coverage` for Python 3.
@@ -31,13 +31,21 @@ program by the following names:
   (where “N.M” is the major and minor Python version, e.g.
   `/usr/bin/python3.2-coverage`).
 
-Man pages are in section 1 under the corresponding names.
+Manual pages are in section 1 under the corresponding names.
+
+
+..
+    Copyright © 2013–2019 Ben Finney <bignose@debian.org>
+    This is free software: you may copy, modify, and/or distribute this work
+    under the terms of the GNU General Public License as published by the
+    Free Software Foundation; version 3 of that license or any later version.
+    No warranty expressed or implied.
 
 
 ..
     Local variables:
     coding: utf-8
-    mode: text
     mode: rst
+    mode: text
     End:
     vim: fileencoding=utf-8 filetype=rst :

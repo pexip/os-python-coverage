@@ -5,10 +5,11 @@
 # Version of UScan configuration format.
 version = 4
 
-# Current version from Python Package Index.
-opts = "uversionmangle=s/(\d)((?:a|b|c|rc)\d*)$/$1~$2/,dversionmangle=s/\+dfsg\.\d+$//" \
-    http://pypi.debian.net/coverage/coverage-(\S+)\.tar\.(?:gz|bz2|xz) \
-    debian debian/repack
+# Source tarball from Python Package Index.
+opts = "uversionmangle=s/(\d)((?:a|b|c|rc)\d*)$/$1~$2/,repack,repacksuffix=+dfsg.1,dversionmangle=s/\+dfsg\.\d+$//" \
+    https://pypi.debian.net/coverage/ \
+    /coverage/coverage-@ANY_VERSION@@ARCHIVE_EXT@ \
+    debian uupdate
 
 
 # Local variables:

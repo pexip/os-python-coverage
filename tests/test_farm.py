@@ -1,7 +1,7 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
-"""Run tests in the farm sub-directory.  Designed for nose."""
+"""Run tests in the farm sub-directory.  Designed for pytest."""
 
 import difflib
 import filecmp
@@ -11,22 +11,28 @@ import os
 import re
 import shutil
 import sys
-import unittest
 
-from nose.plugins.skip import SkipTest
+import pytest
 
-from unittest_mixins import ModuleAwareMixin, SysPathAwareMixin, change_dir, saved_sys_path
+from unittest_mixins import ModuleAwareMixin, SysPathAwareMixin, change_dir
 from tests.helpers import run_command
 from tests.backtest import execfile         # pylint: disable=redefined-builtin
 
+from coverage import env
+from coverage.backunittest import unittest
 from coverage.debug import _TEST_NAME_FILE
 
 
-def test_farm(clean_only=False):
-    """A test-generating function for nose to find and run."""
-    for fname in glob.glob("tests/farm/*/*.py"):
-        case = FarmTestCase(fname, clean_only)
-        yield (case,)
+# Look for files that become tests.
+TEST_FILES = glob.glob("tests/farm/*/*.py")
+
+
+@pytest.mark.parametrize("filename", TEST_FILES)
+def test_farm(filename):
+    if env.JYTHON:
+        # All of the farm tests use reporting, so skip them all.
+        skip("Farm tests don't run on Jython")
+    FarmTestCase(filename).run_fully()
 
 
 # "rU" was deprecated in 3.4
@@ -51,8 +57,7 @@ class FarmTestCase(ModuleAwareMixin, SysPathAwareMixin, unittest.TestCase):
     cleaning-only, or run and leave the results for debugging).
 
     This class is a unittest.TestCase so that we can use behavior-modifying
-    mixins, but it's only useful as a nose test function.  Yes, this is
-    confusing.
+    mixins, but it's only useful as a test function.  Yes, this is confusing.
 
     """
 
@@ -75,38 +80,38 @@ class FarmTestCase(ModuleAwareMixin, SysPathAwareMixin, unittest.TestCase):
         self.ok = True
 
     def setUp(self):
-        """Test set up, run by nose before __call__."""
+        """Test set up, run by the test runner before __call__."""
         super(FarmTestCase, self).setUp()
         # Modules should be importable from the current directory.
         sys.path.insert(0, '')
 
     def tearDown(self):
-        """Test tear down, run by nose after __call__."""
+        """Test tear down, run by the test runner after __call__."""
         # Make sure the test is cleaned up, unless we never want to, or if the
         # test failed.
-        if not self.dont_clean and self.ok:         # pragma: part covered
+        if not self.dont_clean and self.ok:             # pragma: part covered
             self.clean_only = True
             self()
 
         super(FarmTestCase, self).tearDown()
 
-        # This object will be run by nose via the __call__ method, and nose
-        # doesn't do cleanups in that case.  Do them now.
+        # This object will be run via the __call__ method, and test runners
+        # don't do cleanups in that case.  Do them now.
         self.doCleanups()
 
-    def runTest(self):
+    def runTest(self):                                  # pragma: not covered
         """Here to make unittest.TestCase happy, but will never be invoked."""
         raise Exception("runTest isn't used in this class!")
 
     def __call__(self):
         """Execute the test from the run.py file."""
-        if _TEST_NAME_FILE:                                 # pragma: debugging
+        if _TEST_NAME_FILE:                             # pragma: debugging
             with open(_TEST_NAME_FILE, "w") as f:
                 f.write(self.description.replace("/", "_"))
 
         # Prepare a dictionary of globals for the run.py files to use.
         fns = """
-            copy run runfunc clean skip
+            copy run clean skip
             compare contains contains_any doesnt_contain
             """.split()
         if self.clean_only:
@@ -114,7 +119,7 @@ class FarmTestCase(ModuleAwareMixin, SysPathAwareMixin, unittest.TestCase):
             glo['clean'] = clean
         else:
             glo = dict((fn, globals()[fn]) for fn in fns)
-            if self.dont_clean:                 # pragma: not covered
+            if self.dont_clean:                 # pragma: debugging
                 glo['clean'] = noop
 
         with change_dir(self.dir):
@@ -124,7 +129,7 @@ class FarmTestCase(ModuleAwareMixin, SysPathAwareMixin, unittest.TestCase):
                 self.ok = False
                 raise
 
-    def run_fully(self):        # pragma: not covered
+    def run_fully(self):
         """Run as a full test case, with setUp and tearDown."""
         self.setUp()
         try:
@@ -142,8 +147,6 @@ def noop(*args_unused, **kwargs_unused):
 
 def copy(src, dst):
     """Copy a directory."""
-    if os.path.exists(dst):
-        shutil.rmtree(dst)
     shutil.copytree(src, dst)
 
 
@@ -168,36 +171,14 @@ def run(cmds, rundir="src", outfile=None):
                 if outfile:
                     fout.write(output)
                 if retcode:
-                    raise Exception("command exited abnormally")
+                    raise Exception("command exited abnormally")    # pragma: only failure
         finally:
             if outfile:
                 fout.close()
 
 
-def runfunc(fn, rundir="src", addtopath=None):
-    """Run a function.
-
-    `fn` is a callable.
-    `rundir` is the directory in which to run the function.
-
-    """
-    with change_dir(rundir):
-        with saved_sys_path():
-            if addtopath is not None:
-                sys.path.insert(0, addtopath)
-            fn()
-
-
-def compare(
-    dir1, dir2, file_pattern=None, size_within=0,
-    left_extra=False, right_extra=False, scrubs=None
-):
+def compare(dir1, dir2, file_pattern=None, size_within=0, left_extra=False, scrubs=None):
     """Compare files matching `file_pattern` in `dir1` and `dir2`.
-
-    `dir2` is interpreted as a prefix, with Python version numbers appended
-    to find the actual directory to compare with. "foo" will compare
-    against "foo_v241", "foo_v24", "foo_v2", or "foo", depending on which
-    directory is found first.
 
     `size_within` is a percentage delta for the file sizes.  If non-zero,
     then the file contents are not compared (since they are expected to
@@ -206,8 +187,7 @@ def compare(
     within 10 percent of each other to compare equal.
 
     `left_extra` true means the left directory can have extra files in it
-    without triggering an assertion.  `right_extra` means the right
-    directory can.
+    without triggering an assertion.
 
     `scrubs` is a list of pairs, regexes to find and literal strings to
     replace them with to scrub the files of unimportant differences.
@@ -216,15 +196,6 @@ def compare(
     matches.
 
     """
-    # Search for a dir2 with a version suffix.
-    version_suff = ''.join(map(str, sys.version_info[:3]))
-    while version_suff:
-        trydir = dir2 + '_v' + version_suff
-        if os.path.exists(trydir):
-            dir2 = trydir
-            break
-        version_suff = version_suff[:-1]
-
     assert os.path.exists(dir1), "Left directory missing: %s" % dir1
     assert os.path.exists(dir2), "Right directory missing: %s" % dir2
 
@@ -248,9 +219,9 @@ def compare(
             if (big - little) / float(little) > size_within/100.0:
                 # print "%d %d" % (big, little)
                 # print "Left: ---\n%s\n-----\n%s" % (left, right)
-                wrong_size.append("%s (%s,%s)" % (f, size_l, size_r))
+                wrong_size.append("%s (%s,%s)" % (f, size_l, size_r))   # pragma: only failure
         if wrong_size:
-            print("File sizes differ between %s and %s: %s" % (
+            print("File sizes differ between %s and %s: %s" % (         # pragma: only failure
                 dir1, dir2, ", ".join(wrong_size)
             ))
 
@@ -270,7 +241,7 @@ def compare(
             if scrubs:
                 left = scrub(left, scrubs)
                 right = scrub(right, scrubs)
-            if left != right:
+            if left != right:                           # pragma: only failure
                 text_diff.append(f)
                 left = left.splitlines()
                 right = right.splitlines()
@@ -279,8 +250,7 @@ def compare(
 
     if not left_extra:
         assert not left_only, "Files in %s only: %s" % (dir1, left_only)
-    if not right_extra:
-        assert not right_only, "Files in %s only: %s" % (dir2, right_only)
+    assert not right_only, "Files in %s only: %s" % (dir2, right_only)
 
 
 def contains(filename, *strlist):
@@ -308,7 +278,10 @@ def contains_any(filename, *strlist):
     for s in strlist:
         if s in text:
             return
-    assert False, "Missing content in %s: %r [1 of %d]" % (filename, strlist[0], len(strlist),)
+
+    assert False, (                         # pragma: only failure
+        "Missing content in %s: %r [1 of %d]" % (filename, strlist[0], len(strlist),)
+    )
 
 
 def doesnt_contain(filename, *strlist):
@@ -334,7 +307,7 @@ def clean(cleandir):
         if os.path.exists(cleandir):
             try:
                 shutil.rmtree(cleandir)
-            except OSError:         # pragma: not covered
+            except OSError:         # pragma: cant happen
                 if tries == 1:
                     raise
                 else:
@@ -345,7 +318,7 @@ def clean(cleandir):
 
 def skip(msg=None):
     """Skip the current test."""
-    raise SkipTest(msg)
+    raise unittest.SkipTest(msg)
 
 
 # Helpers
@@ -371,12 +344,12 @@ def scrub(strdata, scrubs):
 
     """
     for rgx_find, rgx_replace in scrubs:
-        strdata = re.sub(rgx_find, re.escape(rgx_replace), strdata)
+        strdata = re.sub(rgx_find, rgx_replace.replace("\\", "\\\\"), strdata)
     return strdata
 
 
-def main():     # pragma: not covered
-    """Command-line access to test_farm.
+def main():     # pragma: debugging
+    """Command-line access to farm tests.
 
     Commands:
 
@@ -392,21 +365,19 @@ def main():     # pragma: not covered
 
     if op == 'run':
         # Run the test for real.
-        for test_case in sys.argv[2:]:
-            case = FarmTestCase(test_case)
-            case.run_fully()
+        for filename in sys.argv[2:]:
+            FarmTestCase(filename).run_fully()
     elif op == 'out':
         # Run the test, but don't clean up, so we can examine the output.
-        for test_case in sys.argv[2:]:
-            case = FarmTestCase(test_case, dont_clean=True)
-            case.run_fully()
+        for filename in sys.argv[2:]:
+            FarmTestCase(filename, dont_clean=True).run_fully()
     elif op == 'clean':
         # Run all the tests, but just clean.
-        for test in test_farm(clean_only=True):
-            test[0].run_fully()
+        for filename in TEST_FILES:
+            FarmTestCase(filename, clean_only=True).run_fully()
     else:
         print(main.__doc__)
 
 # So that we can run just one farm run.py at a time.
-if __name__ == '__main__':
+if __name__ == '__main__':          # pragma: debugging
     main()

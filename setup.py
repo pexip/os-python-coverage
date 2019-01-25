@@ -22,14 +22,21 @@ Environment :: Console
 Intended Audience :: Developers
 License :: OSI Approved :: Apache Software License
 Operating System :: OS Independent
+Programming Language :: Python
+Programming Language :: Python :: 2
 Programming Language :: Python :: 2.6
 Programming Language :: Python :: 2.7
+Programming Language :: Python :: 3
 Programming Language :: Python :: 3.3
 Programming Language :: Python :: 3.4
 Programming Language :: Python :: 3.5
 Programming Language :: Python :: 3.6
+Programming Language :: Python :: 3.7
+Programming Language :: Python :: 3.8
 Programming Language :: Python :: Implementation :: CPython
 Programming Language :: Python :: Implementation :: PyPy
+Programming Language :: Python :: Implementation :: Jython
+Programming Language :: Python :: Implementation :: IronPython
 Topic :: Software Development :: Quality Assurance
 Topic :: Software Development :: Testing
 """
@@ -44,7 +51,12 @@ with open(cov_ver_py) as version_file:
     exec(compile(version_file.read(), cov_ver_py, 'exec'))
 
 with open("README.rst") as readme:
-    long_description = readme.read().replace("http://coverage.readthedocs.io", __url__)
+    long_description = readme.read().replace("https://coverage.readthedocs.io", __url__)
+
+with open("CONTRIBUTORS.txt", "rb") as contributors:
+    paras = contributors.read().split(b"\n\n")
+    num_others = len(paras[-1].splitlines())
+    num_others += 1                 # Count Gareth Rees, who is mentioned in the top paragraph.
 
 classifier_list = classifiers.splitlines()
 
@@ -70,6 +82,7 @@ setup_args = dict(
     package_data={
         'coverage': [
             'htmlfiles/*.*',
+            'fullcoverage/*.*',
         ]
     },
 
@@ -86,14 +99,16 @@ setup_args = dict(
     # We need to get HTML assets from our htmlfiles directory.
     zip_safe=False,
 
-    author='Ned Batchelder and others',
+    author='Ned Batchelder and {0} others'.format(num_others),
     author_email='ned@nedbatchelder.com',
     description=doc,
     long_description=long_description,
     keywords='code coverage testing',
     license='Apache 2.0',
     classifiers=classifier_list,
-    url=__url__,
+    url="https://bitbucket.org/ned/coveragepy",
+
+    python_requires=">=2.6, !=3.0.*, !=3.1.*, !=3.2.*, <4",
 )
 
 # A replacement for the build_ext command which raises a single exception

@@ -1,7 +1,7 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
-"""A plugin for test_plugins.py to import."""
+"""A file tracer plugin for test_plugins.py to import."""
 
 import os.path
 
@@ -9,12 +9,13 @@ import coverage
 
 
 class Plugin(coverage.CoveragePlugin):
-    """A plugin to import, so that it isn't in the test's current directory."""
+    """A file tracer plugin to import, so that it isn't in the test's current directory."""
 
     def file_tracer(self, filename):
         """Trace only files named xyz.py"""
         if "xyz.py" in filename:
             return FileTracer(filename)
+        return None
 
     def file_reporter(self, filename):
         return FileReporter(filename)
@@ -24,7 +25,7 @@ class FileTracer(coverage.FileTracer):
     """A FileTracer emulating a simple static plugin."""
 
     def __init__(self, filename):
-        """Claim that xyz.py was actually sourced from ABC.zz"""
+        """Claim that */*xyz.py was actually sourced from /src/*ABC.zz"""
         self._filename = filename
         self._source_filename = os.path.join(
             "/src",

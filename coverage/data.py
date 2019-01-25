@@ -416,8 +416,12 @@ class CoverageData(object):
         self._runs[0].update(kwargs)
         self._validate()
 
-    def touch_file(self, filename):
-        """Ensure that `filename` appears in the data, empty if needed."""
+    def touch_file(self, filename, plugin_name=""):
+        """Ensure that `filename` appears in the data, empty if needed.
+
+        `plugin_name` is the name of the plugin resposible for this file. It is used
+        to associate the right filereporter, etc.
+        """
         if self._debug and self._debug.should('dataop'):
             self._debug.write("Touching %r" % (filename,))
         if not self._has_arcs() and not self._has_lines():
@@ -428,6 +432,9 @@ class CoverageData(object):
         else:
             where = self._lines
         where.setdefault(filename, [])
+        if plugin_name:
+            # Set the tracer for this file
+            self._file_tracers[filename] = plugin_name
 
         self._validate()
 
@@ -451,7 +458,7 @@ class CoverageData(object):
 
         # Write the data to the file.
         file_obj.write(self._GO_AWAY)
-        json.dump(file_data, file_obj)
+        json.dump(file_data, file_obj, separators=(',', ':'))
 
     def write_file(self, filename):
         """Write the coverage data to `filename`."""
@@ -605,15 +612,19 @@ class CoverageData(object):
 class CoverageDataFiles(object):
     """Manage the use of coverage data files."""
 
-    def __init__(self, basename=None, warn=None):
+    def __init__(self, basename=None, warn=None, debug=None):
         """Create a CoverageDataFiles to manage data files.
 
         `warn` is the warning function to use.
 
         `basename` is the name of the file to use for storing data.
 
+        `debug` is a `DebugControl` object for writing debug messages.
+
         """
         self.warn = warn
+        self.debug = debug
+
         # Construct the file name that will be used for data storage.
         self.filename = os.path.abspath(basename or ".coverage")
 
@@ -624,12 +635,16 @@ class CoverageDataFiles(object):
         basename by parallel-mode.
 
         """
+        if self.debug and self.debug.should('dataio'):
+            self.debug.write("Erasing data file %r" % (self.filename,))
         file_be_gone(self.filename)
         if parallel:
             data_dir, local = os.path.split(self.filename)
             localdot = local + '.*'
             pattern = os.path.join(os.path.abspath(data_dir), localdot)
             for filename in glob.glob(pattern):
+                if self.debug and self.debug.should('dataio'):
+                    self.debug.write("Erasing parallel data file %r" % (filename,))
                 file_be_gone(filename)
 
     def read(self, data):
@@ -657,16 +672,14 @@ class CoverageDataFiles(object):
                 with open(_TEST_NAME_FILE) as f:
                     test_name = f.read()
                 extra = "." + test_name
-            suffix = "%s%s.%s.%06d" % (
-                socket.gethostname(), extra, os.getpid(),
-                random.randint(0, 999999)
-            )
+            dice = random.Random(os.urandom(8)).randint(0, 999999)
+            suffix = "%s%s.%s.%06d" % (socket.gethostname(), extra, os.getpid(), dice)
 
         if suffix:
             filename += "." + suffix
         data.write_file(filename)
 
-    def combine_parallel_data(self, data, aliases=None, data_paths=None):
+    def combine_parallel_data(self, data, aliases=None, data_paths=None, strict=False):
         """Combine a number of data files together.
 
         Treat `self.filename` as a file prefix, and combine the data from all
@@ -686,6 +699,9 @@ class CoverageDataFiles(object):
         cannot be read, a warning will be issued, and the file will not be
         deleted.
 
+        If `strict` is true, and no files are found to combine, an error is
+        raised.
+
         """
         # Because of the os.path.abspath in the constructor, data_dir will
         # never be an empty string.
@@ -703,8 +719,12 @@ class CoverageDataFiles(object):
             else:
                 raise CoverageException("Couldn't combine from non-existent path '%s'" % (p,))
 
+        if strict and not files_to_combine:
+            raise CoverageException("No data to combine")
+
+        files_combined = 0
         for f in files_to_combine:
-            new_data = CoverageData()
+            new_data = CoverageData(debug=self.debug)
             try:
                 new_data.read_file(f)
             except CoverageException as exc:
@@ -714,7 +734,13 @@ class CoverageDataFiles(object):
                     self.warn(str(exc))
             else:
                 data.update(new_data, aliases=aliases)
+                files_combined += 1
+                if self.debug and self.debug.should('dataio'):
+                    self.debug.write("Deleting combined data file %r" % (f,))
                 file_be_gone(f)
+
+        if strict and not files_combined:
+            raise CoverageException("No usable data files")
 
 
 def canonicalize_json_data(data):

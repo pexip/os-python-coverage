@@ -5,25 +5,20 @@ Description: Omit the resource data files from Python packaging config.
  of FHS, and these files should instead go to ‘/usr/share/…’.
 Bug-Debian: http://bugs.debian.org/721676
 Author: Ben Finney <bignose@debian.org>
-Last-Update: 2016-03-13
+Last-Update: 2017-09-08
 
 diff --git a/setup.py b/setup.py
-index 010b5b7..981aef0 100644
+index 7962c44d..6ac78b0a 100644
 --- a/setup.py
 +++ b/setup.py
-@@ -66,12 +66,6 @@ setup_args = dict(
-         'coverage',
-     ],
+@@ -76,7 +76,6 @@ setup_args = dict(
  
--    package_data={
--        'coverage': [
+     package_data={
+         'coverage': [
 -            'htmlfiles/*.*',
--        ]
--    },
--
-     entry_points={
-         # Install a script as "coverage", and as "coverage[23]", and as
-         # "coverage-2.7" (or whatever).
+             'fullcoverage/*.*',
+         ]
+     },
 
 
 Local variables:

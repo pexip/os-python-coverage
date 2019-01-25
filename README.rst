@@ -9,20 +9,54 @@ Code coverage testing for Python.
 
 |  |license| |versions| |status| |docs|
 |  |ci-status| |win-ci-status| |codecov|
-|  |kit| |format| |downloads|
+|  |kit| |format| |repos|
+|  |tidelift| |saythanks|
+
+.. downloads badge seems to be broken... |downloads|
 
 Coverage.py measures code coverage, typically during test execution. It uses
 the code analysis tools and tracing hooks provided in the Python standard
 library to determine which lines are executable, and which have been executed.
 
-Coverage.py runs on CPython 2.6, 2.7, and 3.3 through 3.6; PyPy 4.0 and 5.1;
-and PyPy3 2.4.
+.. |tideliftlogo| image:: doc/media/Tidelift_Logos_RGB_Tidelift_Shorthand_On-White_small.png
+   :width: 75
+   :alt: Tidelift
 
-Documentation is on `Read the Docs <http://coverage.readthedocs.io>`_.
-Code repository and issue tracker are on `Bitbucket <http://bitbucket.org/ned/coveragepy>`_,
-with a mirrored repository on `GitHub <https://github.com/nedbat/coveragepy>`_.
+.. list-table::
+   :widths: 10 100
 
-**New in 4.2:** better support for multiprocessing and combining data.
+   * - |tideliftlogo|
+     - Professional support for coverage.py is available as part of the `Tidelift
+       Subscription`_.  Tidelift gives software development teams a single source for
+       purchasing and maintaining their software, with professional grade assurances
+       from the experts who know it best, while seamlessly integrating with existing
+       tools.
+
+.. _Tidelift Subscription: https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=readme
+
+Coverage.py runs on many versions of Python:
+
+* CPython 2.6, 2.7 and 3.3 through pre-alpha 3.8.
+* PyPy2 5.10 and PyPy3 5.10.
+* Jython 2.7.1, though not for reporting.
+* IronPython 2.7.7, though not for reporting.
+
+Documentation is on `Read the Docs`_.  Code repository and issue tracker are on
+`Bitbucket`_, with a mirrored repository on `GitHub`_.
+
+.. _Read the Docs: https://coverage.readthedocs.io/
+.. _Bitbucket: https://bitbucket.org/ned/coveragepy
+.. _GitHub: https://github.com/nedbat/coveragepy
+
+
+**New in 4.5:** Configurator plug-ins.
+
+New in 4.4: Suppressable warnings, continuous coverage measurement.
+
+New in 4.3: HTML ``--skip-covered``, sys.excepthook support, tox.ini
+support.
+
+New in 4.2: better support for multiprocessing and combining data.
 
 New in 4.1: much-improved branch coverage.
 
@@ -33,25 +67,36 @@ support, --skip-covered, HTML filtering, and more than 50 issues closed.
 Getting Started
 ---------------
 
-See the `quick start <http://coverage.readthedocs.io/#quick-start>`_
-section of the docs.
+See the `Quick Start section`_ of the docs.
+
+.. _Quick Start section: https://coverage.readthedocs.io/#quick-start
+
+
+Contributing
+------------
+
+See the `Contributing section`_ of the docs.
+
+.. _Contributing section: https://coverage.readthedocs.io/en/latest/contributing.html
 
 
 License
 -------
 
-Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0.
-For details, see https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt.
+Licensed under the `Apache 2.0 License`_.  For details, see `NOTICE.txt`_.
+
+.. _Apache 2.0 License: http://www.apache.org/licenses/LICENSE-2.0
+.. _NOTICE.txt: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
 
 .. |ci-status| image:: https://travis-ci.org/nedbat/coveragepy.svg?branch=master
     :target: https://travis-ci.org/nedbat/coveragepy
     :alt: Build status
-.. |win-ci-status| image:: https://ci.appveyor.com/api/projects/status/bitbucket/ned/coveragepy?svg=true
+.. |win-ci-status| image:: https://ci.appveyor.com/api/projects/status/kmeqpdje7h9r6vsf/branch/master?svg=true
     :target: https://ci.appveyor.com/project/nedbat/coveragepy
     :alt: Windows build status
 .. |docs| image:: https://readthedocs.org/projects/coverage/badge/?version=latest&style=flat
-    :target: http://coverage.readthedocs.io
+    :target: https://coverage.readthedocs.io/
     :alt: Documentation
 .. |reqs| image:: https://requires.io/github/nedbat/coveragepy/requirements.svg?branch=master
     :target: https://requires.io/github/nedbat/coveragepy/requirements/?branch=master
@@ -74,6 +119,15 @@ For details, see https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt.
 .. |license| image:: https://img.shields.io/pypi/l/coverage.svg
     :target: https://pypi.python.org/pypi/coverage
     :alt: License
-.. |codecov| image:: http://codecov.io/github/nedbat/coveragepy/coverage.svg?branch=master
+.. |codecov| image:: http://codecov.io/github/nedbat/coveragepy/coverage.svg?branch=master&precision=2
     :target: http://codecov.io/github/nedbat/coveragepy?branch=master
     :alt: Coverage!
+.. |repos| image:: https://repology.org/badge/tiny-repos/python:coverage.svg
+    :target: https://repology.org/metapackage/python:coverage/versions
+    :alt: Packaging status
+.. |saythanks| image:: https://img.shields.io/badge/saythanks.io-%E2%98%BC-1EAEDB.svg
+    :target: https://saythanks.io/to/nedbat
+    :alt: Say thanks :)
+.. |tidelift| image:: https://tidelift.com/badges/github/nedbat/coveragepy
+    :target: https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=readme
+    :alt: Tidelift

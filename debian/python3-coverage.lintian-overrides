@@ -1,10 +1,10 @@
 # debian/python3-coverage.lintian-overrides
-# Overrides for Lintian checks.
+# Overrides for Lintian checks of ‘python3-coverage’ package.
 # Documentation: ‘/usr/share/doc/lintian/lintian’ §2.4.
 
 # The Coverage.py library is not an application, despite these commands.
-library-package-name-for-application usr/bin/python3-coverage usr/bin/python3.5-coverage
-application-in-library-section python usr/bin/python3-coverage usr/bin/python3.5-coverage
+library-package-name-for-application usr/bin/python3-coverage usr/bin/python3.7-coverage
+application-in-library-section python usr/bin/python3-coverage usr/bin/python3.7-coverage
 
 
 # Local variables:

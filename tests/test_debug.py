@@ -4,12 +4,15 @@
 """Tests of coverage/debug.py"""
 
 import os
-import re
+
+import pytest
 
 import coverage
 from coverage.backward import StringIO
-from coverage.debug import info_formatter, info_header
+from coverage.debug import filter_text, info_formatter, info_header, short_id, short_stack
+
 from tests.coveragetest import CoverageTest
+from tests.helpers import re_lines
 
 
 class InfoFormatterTest(CoverageTest):
@@ -38,15 +41,34 @@ class InfoFormatterTest(CoverageTest):
         lines = list(info_formatter(('info%d' % i, i) for i in range(3)))
         self.assertEqual(lines, ['info0: 0', 'info1: 1', 'info2: 2'])
 
-    def test_info_header(self):
-        self.assertEqual(
-            info_header("x"),
-            "-- x ---------------------------------------------------------"
-        )
-        self.assertEqual(
-            info_header("hello there"),
-            "-- hello there -----------------------------------------------"
-        )
+
+@pytest.mark.parametrize("label, header", [
+    ("x",               "-- x ---------------------------------------------------------"),
+    ("hello there",     "-- hello there -----------------------------------------------"),
+])
+def test_info_header(label, header):
+    assert info_header(label) == header
+
+
+@pytest.mark.parametrize("id64, id16", [
+    (0x1234, 0x1234),
+    (0x12340000, 0x1234),
+    (0xA5A55A5A, 0xFFFF),
+    (0x1234cba956780fed, 0x8008),
+])
+def test_short_id(id64, id16):
+    assert short_id(id64) == id16
+
+
+@pytest.mark.parametrize("text, filters, result", [
+    ("hello", [], "hello"),
+    ("hello\n", [], "hello\n"),
+    ("hello\nhello\n", [], "hello\nhello\n"),
+    ("hello\nbye\n", [lambda x: "="+x], "=hello\n=bye\n"),
+    ("hello\nbye\n", [lambda x: "="+x, lambda x: x+"\ndone\n"], "=hello\ndone\n=bye\ndone\n"),
+])
+def test_filter_text(text, filters, result):
+    assert filter_text(text, filters) == result
 
 
 class DebugTraceTest(CoverageTest):
@@ -67,8 +89,9 @@ class DebugTraceTest(CoverageTest):
         cov = coverage.Coverage(debug=debug)
         cov._debug_file = debug_out
         self.start_import_stop(cov, "f1")
+        cov.save()
 
-        out_lines = debug_out.getvalue().splitlines()
+        out_lines = debug_out.getvalue()
         return out_lines
 
     def test_debug_no_trace(self):
@@ -84,7 +107,7 @@ class DebugTraceTest(CoverageTest):
         self.assertIn("Tracing 'f1.py'", out_lines)
 
         # We should have lines like "Not tracing 'collector.py'..."
-        coverage_lines = lines_matching(
+        coverage_lines = re_lines(
             out_lines,
             r"^Not tracing .*: is part of coverage.py$"
             )
@@ -94,13 +117,29 @@ class DebugTraceTest(CoverageTest):
         out_lines = self.f1_debug_output(["trace", "pid"])
 
         # Now our lines are always prefixed with the process id.
-        pid_prefix = "^pid %5d: " % os.getpid()
-        pid_lines = lines_matching(out_lines, pid_prefix)
+        pid_prefix = r"^%5d\.[0-9a-f]{4}: " % os.getpid()
+        pid_lines = re_lines(out_lines, pid_prefix)
         self.assertEqual(pid_lines, out_lines)
 
         # We still have some tracing, and some not tracing.
-        self.assertTrue(lines_matching(out_lines, pid_prefix + "Tracing "))
-        self.assertTrue(lines_matching(out_lines, pid_prefix + "Not tracing "))
+        self.assertTrue(re_lines(out_lines, pid_prefix + "Tracing "))
+        self.assertTrue(re_lines(out_lines, pid_prefix + "Not tracing "))
+
+    def test_debug_callers(self):
+        out_lines = self.f1_debug_output(["pid", "dataop", "dataio", "callers"])
+        print(out_lines)
+        # For every real message, there should be a stack
+        # trace with a line like "f1_debug_output : /Users/ned/coverage/tests/test_debug.py @71"
+        real_messages = re_lines(out_lines, r" @\d+", match=False).splitlines()
+        frame_pattern = r"\s+f1_debug_output : .*tests[/\\]test_debug.py @\d+$"
+        frames = re_lines(out_lines, frame_pattern).splitlines()
+        self.assertEqual(len(real_messages), len(frames))
+
+        # The last message should be "Writing data", and the last frame should
+        # be write_file in data.py.
+        self.assertRegex(real_messages[-1], r"^\s*\d+\.\w{4}: Writing data")
+        last_line = out_lines.splitlines()[-1]
+        self.assertRegex(last_line, r"\s+write_file : .*coverage[/\\]data.py @\d+$")
 
     def test_debug_config(self):
         out_lines = self.f1_debug_output(["config"])
@@ -108,30 +147,63 @@ class DebugTraceTest(CoverageTest):
         labels = """
             attempted_config_files branch config_files cover_pylib data_file
             debug exclude_list extra_css html_dir html_title ignore_errors
-            include omit parallel partial_always_list partial_list paths
+            run_include run_omit parallel partial_always_list partial_list paths
             precision show_missing source timid xml_output
+            report_include report_omit
             """.split()
         for label in labels:
             label_pat = r"^\s*%s: " % label
-            self.assertEqual(len(lines_matching(out_lines, label_pat)), 1)
+            self.assertEqual(
+                len(re_lines(out_lines, label_pat).splitlines()),
+                1
+            )
 
     def test_debug_sys(self):
         out_lines = self.f1_debug_output(["sys"])
 
         labels = """
-            version coverage cover_dirs pylib_dirs tracer config_files
+            version coverage cover_paths pylib_paths tracer config_files
             configs_read data_path python platform implementation executable
             cwd path environment command_line cover_match pylib_match
             """.split()
         for label in labels:
             label_pat = r"^\s*%s: " % label
             self.assertEqual(
-                len(lines_matching(out_lines, label_pat)),
+                len(re_lines(out_lines, label_pat).splitlines()),
                 1,
                 msg="Incorrect lines for %r" % label,
             )
 
 
-def lines_matching(lines, pat):
-    """Gives the list of lines from `lines` that match `pat`."""
-    return [l for l in lines if re.search(pat, l)]
+def f_one(*args, **kwargs):
+    """First of the chain of functions for testing `short_stack`."""
+    return f_two(*args, **kwargs)
+
+def f_two(*args, **kwargs):
+    """Second of the chain of functions for testing `short_stack`."""
+    return f_three(*args, **kwargs)
+
+def f_three(*args, **kwargs):
+    """Third of the chain of functions for testing `short_stack`."""
+    return short_stack(*args, **kwargs)
+
+
+class ShortStackTest(CoverageTest):
+    """Tests of coverage.debug.short_stack."""
+
+    run_in_temp_dir = False
+
+    def test_short_stack(self):
+        stack = f_one().splitlines()
+        self.assertGreater(len(stack), 10)
+        self.assertIn("f_three", stack[-1])
+        self.assertIn("f_two", stack[-2])
+        self.assertIn("f_one", stack[-3])
+
+    def test_short_stack_limit(self):
+        stack = f_one(limit=5).splitlines()
+        self.assertEqual(len(stack), 5)
+
+    def test_short_stack_skip(self):
+        stack = f_one(skip=1).splitlines()
+        self.assertIn("f_two", stack[-1])

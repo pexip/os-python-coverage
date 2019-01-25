@@ -10,6 +10,7 @@
 #undef WHAT_LOG         /* Define to log the WHAT params in the trace function. */
 #undef TRACE_LOG        /* Define to log our bookkeeping. */
 #undef COLLECT_STATS    /* Collect counters: stats are printed when tracer is stopped. */
+#undef DO_NOTHING       /* Define this to make the tracer do nothing. */
 
 /* Py 2.x and 3.x compatibility */
 
@@ -43,6 +44,14 @@
 
 #endif /* Py3k */
 
+// Undocumented, and not in 2.6, so our own copy of it.
+#define My_XSETREF(op, op2)                     \
+    do {                                        \
+        PyObject *_py_tmp = (PyObject *)(op);   \
+        (op) = (op2);                           \
+        Py_XDECREF(_py_tmp);                    \
+    } while (0)
+
 /* The values returned to indicate ok or error. */
 #define RET_OK      0
 #define RET_ERROR   -1
@@ -51,5 +60,8 @@
 typedef int BOOL;
 #define FALSE   0
 #define TRUE    1
+
+/* Only for extreme machete-mode debugging! */
+#define CRASH       { printf("*** CRASH! ***\n"); *((int*)1) = 1; }
 
 #endif /* _COVERAGE_UTIL_H */

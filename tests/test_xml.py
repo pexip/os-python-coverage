@@ -1,3 +1,4 @@
+# coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
@@ -8,11 +9,13 @@ import os.path
 import re
 
 import coverage
+from coverage.backward import import_local_file
 from coverage.files import abs_file
 
 from tests.coveragetest import CoverageTest
 from tests.goldtest import CoverageGoldTest
 from tests.goldtest import change_dir, compare
+from tests.helpers import re_line, re_lines
 
 
 class XmlTestHelpers(CoverageTest):
@@ -56,6 +59,11 @@ class XmlTestHelpers(CoverageTest):
             for i in range(width):
                 filename = here("f{0}.py".format(i))
                 self.make_file(filename, "# {0}\n".format(filename))
+
+    def assert_source(self, xml, src):
+        """Assert that the XML has a <source> element with `src`."""
+        src = abs_file(src)
+        self.assertRegex(xml, r'<source>\s*{0}\s*</source>'.format(re.escape(src)))
 
 
 class XmlReportTest(XmlTestHelpers, CoverageTest):
@@ -143,11 +151,6 @@ class XmlReportTest(XmlTestHelpers, CoverageTest):
         init_line = re_line(xml, 'filename="sub/__init__.py"')
         self.assertIn('line-rate="1"', init_line)
 
-    def assert_source(self, xml, src):
-        """Assert that the XML has a <source> element with `src`."""
-        src = abs_file(src)
-        self.assertRegex(xml, r'<source>\s*{0}\s*</source>'.format(re.escape(src)))
-
     def test_curdir_source(self):
         # With no source= option, the XML report should explain that the source
         # is in the current directory.
@@ -165,8 +168,8 @@ class XmlReportTest(XmlTestHelpers, CoverageTest):
         self.make_file("also/over/there/bar.py", "b = 2")
         cov = coverage.Coverage(source=["src/main", "also/over/there", "not/really"])
         cov.start()
-        mod_foo = self.import_local_file("foo", "src/main/foo.py")              # pragma: nested
-        mod_bar = self.import_local_file("bar", "also/over/there/bar.py")       # pragma: nested
+        mod_foo = import_local_file("foo", "src/main/foo.py")                   # pragma: nested
+        mod_bar = import_local_file("bar", "also/over/there/bar.py")            # pragma: nested
         cov.stop()                                                              # pragma: nested
         cov.xml_report([mod_foo, mod_bar], outfile="-")
         xml = self.stdout()
@@ -184,6 +187,14 @@ class XmlReportTest(XmlTestHelpers, CoverageTest):
             xml
         )
 
+    def test_nonascii_directory(self):
+        # https://bitbucket.org/ned/coveragepy/issues/573/cant-generate-xml-report-if-some-source
+        self.make_file("테스트/program.py", "a = 1")
+        with change_dir("테스트"):
+            cov = coverage.Coverage()
+            self.start_import_stop(cov, "program")
+            cov.xml_report()
+
 
 class XmlPackageStructureTest(XmlTestHelpers, CoverageTest):
     """Tests about the package structure reported in the coverage.xml file."""
@@ -194,7 +205,7 @@ class XmlPackageStructureTest(XmlTestHelpers, CoverageTest):
         cov.xml_report(outfile="-")
         packages_and_classes = re_lines(self.stdout(), r"<package |<class ")
         scrubs = r' branch-rate="0"| complexity="0"| line-rate="[\d.]+"'
-        return clean("".join(packages_and_classes), scrubs)
+        return clean(packages_and_classes, scrubs)
 
     def assert_package_and_class_tags(self, cov, result):
         """Check the XML package and class tags from `cov` match `result`."""
@@ -273,26 +284,16 @@ class XmlPackageStructureTest(XmlTestHelpers, CoverageTest):
 
     def test_source_prefix(self):
         # https://bitbucket.org/ned/coveragepy/issues/465
+        # https://bitbucket.org/ned/coveragepy/issues/526/generated-xml-invalid-paths-for-cobertura
         self.make_file("src/mod.py", "print(17)")
         cov = coverage.Coverage(source=["src"])
         self.start_import_stop(cov, "mod", modfile="src/mod.py")
         self.assert_package_and_class_tags(cov, """\
             <package name=".">
-                <class filename="src/mod.py" name="mod.py">
+                <class filename="mod.py" name="mod.py">
             """)
-
-
-def re_lines(text, pat):
-    """Return a list of lines that match `pat` in the string `text`."""
-    lines = [l for l in text.splitlines(True) if re.search(pat, l)]
-    return lines
-
-
-def re_line(text, pat):
-    """Return the one line in `text` that matches regex `pat`."""
-    lines = re_lines(text, pat)
-    assert len(lines) == 1
-    return lines[0]
+        xml = self.stdout()
+        self.assert_source(xml, "src")
 
 
 def clean(text, scrub=None):

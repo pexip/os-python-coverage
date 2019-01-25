@@ -2,10 +2,9 @@
 #
 # debian/tests/smoke_test.py
 #
-# Copyright © 2016 Ben Finney <bignose@debian.org>
-# This is free software; you may copy, modify, and/or distribute this work
-# under the terms of the Expat license as published by James Clark.
-# No warranty expressed or implied.
+# This is free software, and you are welcome to redistribute it under
+# certain conditions; see the end of this file for copyright
+# information, grant of license, and disclaimer of warranty.
 
 """ Post-install Python smoke test for use in Debian autopkgtest.
 
@@ -17,7 +16,6 @@
 
     Smoke test one or more modules::
         --module=MODULE_FOO --module=MODULE_BAR --module=MODULE_BAZ
-
     """
 
 import sys
@@ -30,7 +28,6 @@ def emit_implementation():
     """ Emit the details of the current Python implementation.
 
         :return: ``None``.
-
         """
     sys.stdout.write(
             "Interpreter: {command}\n{version}\n".format(
@@ -42,7 +39,6 @@ def emit_distribution(name):
 
         :param name: Name of the distribution to retrieve.
         :return: ``None``.
-
         """
     distribution = pkg_resources.get_distribution(name)
     sys.stdout.write(
@@ -55,7 +51,6 @@ def emit_module(name):
 
         :param name: Full name of the module to import.
         :return: ``None``.
-
         """
     module = importlib.import_module(name)
     sys.stdout.write(
@@ -68,7 +63,6 @@ def suite(args):
 
         :param args: Namespace of arguments parsed from `ArgumentParser`.
         :return: ``None``.
-
         """
     emit_implementation()
 
@@ -103,7 +97,6 @@ def main(argv=None):
         :param argv: Sequence of all command line arguments.
             (Default: `sys.argv`)
         :return: The exit status (integer) for exit from the process.
-
         """
     exit_status = 0
 
@@ -126,6 +119,13 @@ def main(argv=None):
 if __name__ == "__main__":
     exit_status = main(sys.argv)
     sys.exit(exit_status)
+
+
+# Copyright © 2016–2019 Ben Finney <bignose@debian.org>
+# This is free software: you may copy, modify, and/or distribute this work
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; version 3 of that license or any later version.
+# No warranty expressed or implied.
 
 
 # Local variables:

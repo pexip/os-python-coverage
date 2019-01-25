@@ -1,4 +1,4 @@
-# coding: utf8
+# coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
@@ -9,7 +9,6 @@ import os
 import os.path
 import py_compile
 import re
-import sys
 
 import coverage
 from coverage import env
@@ -20,18 +19,11 @@ from coverage.data import CoverageData
 from coverage.misc import CoverageException, output_encoding
 from coverage.summary import SummaryReporter
 
-from tests.coveragetest import CoverageTest
-
-HERE = os.path.dirname(__file__)
+from tests.coveragetest import CoverageTest, TESTS_DIR, UsingModulesMixin
 
 
-class SummaryTest(CoverageTest):
+class SummaryTest(UsingModulesMixin, CoverageTest):
     """Tests of the text summary reporting for coverage.py."""
-
-    def setUp(self):
-        super(SummaryTest, self).setUp()
-        # Parent class saves and restores sys.path, we can just modify it.
-        sys.path.append(self.nice_file(HERE, 'modules'))
 
     def make_mycode(self):
         """Make the mycode.py file when needed."""
@@ -51,16 +43,16 @@ class SummaryTest(CoverageTest):
         # Name                                           Stmts   Miss  Cover
         # ------------------------------------------------------------------
         # c:/ned/coverage/tests/modules/covmod1.py           2      0   100%
-        # c:/ned/coverage/tests/zipmods.zip/covmodzip1.py    3      0   100%
+        # c:/ned/coverage/tests/zipmods.zip/covmodzip1.py    2      0   100%
         # mycode.py                                          4      0   100%
         # ------------------------------------------------------------------
-        # TOTAL                                              9      0   100%
+        # TOTAL                                              8      0   100%
 
         self.assertNotIn("/coverage/__init__/", report)
         self.assertIn("/tests/modules/covmod1.py ", report)
         self.assertIn("/tests/zipmods.zip/covmodzip1.py ", report)
         self.assertIn("mycode.py ", report)
-        self.assertEqual(self.last_line_squeezed(report), "TOTAL 9 0 100%")
+        self.assertEqual(self.last_line_squeezed(report), "TOTAL 8 0 100%")
 
     def test_report_just_one(self):
         # Try reporting just one module
@@ -100,7 +92,7 @@ class SummaryTest(CoverageTest):
         # Try reporting while omitting some modules
         self.make_mycode()
         self.run_command("coverage run mycode.py")
-        report = self.report_from_command("coverage report --omit '%s/*'" % HERE)
+        report = self.report_from_command("coverage report --omit '%s/*'" % TESTS_DIR)
 
         # Name        Stmts   Miss  Cover
         # -------------------------------
@@ -129,6 +121,41 @@ class SummaryTest(CoverageTest):
         self.assertNotIn("/tests/zipmods.zip/covmodzip1.py ", report)
         self.assertIn("mycode.py ", report)
         self.assertEqual(self.last_line_squeezed(report), "mycode.py 4 0 100%")
+
+    def test_run_source_vs_report_include(self):
+        # https://bitbucket.org/ned/coveragepy/issues/621/include-ignored-warning-when-using
+        self.make_file(".coveragerc", """\
+            [run]
+            source = .
+
+            [report]
+            include = mod/*,tests/*
+            """)
+        # It should be OK to use that configuration.
+        cov = coverage.Coverage()
+        with self.assert_warnings(cov, []):
+            cov.start()
+            cov.stop()                                                  # pragma: nested
+
+    def test_run_omit_vs_report_omit(self):
+        # https://bitbucket.org/ned/coveragepy/issues/622/report-omit-overwrites-run-omit
+        # report:omit shouldn't clobber run:omit.
+        self.make_mycode()
+        self.make_file(".coveragerc", """\
+            [run]
+            omit = */covmodzip1.py
+
+            [report]
+            omit = */covmod1.py
+            """)
+        self.run_command("coverage run mycode.py")
+
+        # Read the data written, to see that the right files have been omitted from running.
+        covdata = CoverageData()
+        covdata.read_file(".coverage")
+        files = [os.path.basename(p) for p in covdata.measured_files()]
+        self.assertIn("covmod1.py", files)
+        self.assertNotIn("covmodzip1.py", files)
 
     def test_report_branches(self):
         self.make_file("mybranch.py", """\
@@ -361,6 +388,27 @@ class SummaryTest(CoverageTest):
         squeezed = self.squeezed_lines(report)
         self.assertEqual(squeezed[3], "1 file skipped due to complete coverage.")
 
+    def test_report_skip_covered_longfilename(self):
+        self.make_file("long_______________filename.py", """
+            def foo():
+                pass
+            foo()
+        """)
+        out = self.run_command("coverage run --branch long_______________filename.py")
+        self.assertEqual(out, "")
+        report = self.report_from_command("coverage report --skip-covered")
+
+        # Name    Stmts   Miss Branch BrPart  Cover
+        # -----------------------------------------
+        #
+        # 1 file skipped due to complete coverage.
+
+        self.assertEqual(self.line_count(report), 4, report)
+        lines = self.report_lines(report)
+        self.assertEqual(lines[0], "Name    Stmts   Miss Branch BrPart  Cover")
+        squeezed = self.squeezed_lines(report)
+        self.assertEqual(squeezed[3], "1 file skipped due to complete coverage.")
+
     def test_report_skip_covered_no_data(self):
         report = self.report_from_command("coverage report --skip-covered")
 
@@ -372,6 +420,49 @@ class SummaryTest(CoverageTest):
         squeezed = self.squeezed_lines(report)
         self.assertEqual(squeezed[2], "No data to report.")
 
+    def test_report_precision(self):
+        self.make_file(".coveragerc", """\
+            [report]
+            precision = 3
+            """)
+        self.make_file("main.py", """
+            import not_covered, covered
+
+            def normal(z):
+                if z:
+                    print("z")
+            normal(True)
+            normal(False)
+        """)
+        self.make_file("not_covered.py", """
+            def not_covered(n):
+                if n:
+                    print("n")
+            not_covered(True)
+        """)
+        self.make_file("covered.py", """
+            def foo():
+                pass
+            foo()
+        """)
+        out = self.run_command("coverage run --branch main.py")
+        self.assertEqual(out, "n\nz\n")
+        report = self.report_from_command("coverage report")
+
+        # Name             Stmts   Miss Branch BrPart      Cover
+        # ------------------------------------------------------
+        # covered.py           3      0      0      0   100.000%
+        # main.py              6      0      2      0   100.000%
+        # not_covered.py       4      0      2      1    83.333%
+        # ------------------------------------------------------
+        # TOTAL               13      0      4      1    94.118%
+
+        self.assertEqual(self.line_count(report), 7, report)
+        squeezed = self.squeezed_lines(report)
+        self.assertEqual(squeezed[2], "covered.py 3 0 0 0 100.000%")
+        self.assertEqual(squeezed[4], "not_covered.py 4 0 2 1 83.333%")
+        self.assertEqual(squeezed[6], "TOTAL 13 0 4 1 94.118%")
+
     def test_dotpy_not_python(self):
         # We run a .py file, and when reporting, we can't parse it as Python.
         # We should get an error message in the report.
@@ -381,22 +472,25 @@ class SummaryTest(CoverageTest):
         self.make_file("mycode.py", "This isn't python at all!")
         report = self.report_from_command("coverage report mycode.py")
 
+        # mycode   NotPython: Couldn't parse '...' as Python source: 'invalid syntax' at line 1
         # Name     Stmts   Miss  Cover
         # ----------------------------
-        # mycode   NotPython: Couldn't parse '...' as Python source: 'invalid syntax' at line 1
         # No data to report.
 
-        last = self.squeezed_lines(report)[-2]
+        errmsg = self.squeezed_lines(report)[0]
         # The actual file name varies run to run.
-        last = re.sub(r"parse '.*mycode.py", "parse 'mycode.py", last)
+        errmsg = re.sub(r"parse '.*mycode.py", "parse 'mycode.py", errmsg)
         # The actual error message varies version to version
-        last = re.sub(r": '.*' at", ": 'error' at", last)
+        errmsg = re.sub(r": '.*' at", ": 'error' at", errmsg)
         self.assertEqual(
-            last,
+            errmsg,
             "mycode.py NotPython: Couldn't parse 'mycode.py' as Python source: 'error' at line 1"
         )
 
     def test_accenteddotpy_not_python(self):
+        if env.JYTHON:
+            self.skipTest("Jython doesn't like accented file names")
+
         # We run a .py file with a non-ascii name, and when reporting, we can't
         # parse it as Python.  We should get an error message in the report.
 
@@ -405,24 +499,23 @@ class SummaryTest(CoverageTest):
         self.make_file(u"accented\xe2.py", "This isn't python at all!")
         report = self.report_from_command(u"coverage report accented\xe2.py")
 
+        # xxxx   NotPython: Couldn't parse '...' as Python source: 'invalid syntax' at line 1
         # Name     Stmts   Miss  Cover
         # ----------------------------
-        # xxxx   NotPython: Couldn't parse '...' as Python source: 'invalid syntax' at line 1
         # No data to report.
 
-        last = self.squeezed_lines(report)[-2]
+        errmsg = self.squeezed_lines(report)[0]
         # The actual file name varies run to run.
-        last = re.sub(r"parse '.*(accented.*?\.py)", r"parse '\1", last)
+        errmsg = re.sub(r"parse '.*(accented.*?\.py)", r"parse '\1", errmsg)
         # The actual error message varies version to version
-        last = re.sub(r": '.*' at", ": 'error' at", last)
+        errmsg = re.sub(r": '.*' at", ": 'error' at", errmsg)
         expected = (
             u"accented\xe2.py NotPython: "
             u"Couldn't parse 'accented\xe2.py' as Python source: 'error' at line 1"
         )
         if env.PY2:
-            # pylint: disable=redefined-variable-type
             expected = expected.encode(output_encoding())
-        self.assertEqual(last, expected)
+        self.assertEqual(errmsg, expected)
 
     def test_dotpy_not_python_ignored(self):
         # We run a .py file, and when reporting, we can't parse it as Python,
@@ -478,7 +571,7 @@ class SummaryTest(CoverageTest):
             """)
         cov = coverage.Coverage(branch=True, source=["."])
         cov.start()
-        import main     # pragma: nested # pylint: disable=import-error
+        import main     # pragma: nested # pylint: disable=import-error, unused-variable
         cov.stop()      # pragma: nested
         report = self.get_report(cov).splitlines()
         self.assertIn("mybranch.py 5 5 2 0 0%", report)
@@ -487,7 +580,7 @@ class SummaryTest(CoverageTest):
         """A helper for the next few tests."""
         cov = coverage.Coverage()
         cov.start()
-        import TheCode  # pragma: nested # pylint: disable=import-error
+        import TheCode  # pragma: nested # pylint: disable=import-error, unused-variable
         cov.stop()      # pragma: nested
         return self.get_report(cov)
 
@@ -522,7 +615,7 @@ class SummaryTest(CoverageTest):
             """)
         cov = coverage.Coverage()
         cov.start()
-        import start    # pragma: nested # pylint: disable=import-error
+        import start    # pragma: nested # pylint: disable=import-error, unused-variable
         cov.stop()      # pragma: nested
 
         report = self.get_report(cov)
@@ -542,7 +635,7 @@ class SummaryTest(CoverageTest):
         # Run the program.
         cov = coverage.Coverage()
         cov.start()
-        import main     # pragma: nested # pylint: disable=import-error
+        import main     # pragma: nested # pylint: disable=import-error, unused-variable
         cov.stop()      # pragma: nested
 
         report = self.get_report(cov).splitlines()
@@ -564,7 +657,7 @@ class SummaryTest(CoverageTest):
         # Python 3 puts the .pyc files in a __pycache__ directory, and will
         # not import from there without source.  It will import a .pyc from
         # the source location though.
-        if not os.path.exists("mod.pyc"):
+        if env.PY3 and not env.JYTHON:
             pycs = glob.glob("__pycache__/mod.*.pyc")
             self.assertEqual(len(pycs), 1)
             os.rename(pycs[0], "mod.pyc")
@@ -572,7 +665,7 @@ class SummaryTest(CoverageTest):
         # Run the program.
         cov = coverage.Coverage()
         cov.start()
-        import main     # pragma: nested # pylint: disable=import-error
+        import main     # pragma: nested # pylint: disable=import-error, unused-variable
         cov.stop()      # pragma: nested
 
         # Put back the missing Python file.
@@ -581,7 +674,7 @@ class SummaryTest(CoverageTest):
         self.assertIn("mod.py 1 0 100%", report)
 
 
-class SummaryTest2(CoverageTest):
+class SummaryTest2(UsingModulesMixin, CoverageTest):
     """Another bunch of summary tests."""
     # This class exists because tests naturally clump into classes based on the
     # needs of their setUp, rather than the product features they are testing.
@@ -589,18 +682,12 @@ class SummaryTest2(CoverageTest):
 
     run_in_temp_dir = False
 
-    def setUp(self):
-        super(SummaryTest2, self).setUp()
-        # Parent class saves and restores sys.path, we can just modify it.
-        sys.path.append(self.nice_file(HERE, 'modules'))
-        sys.path.append(self.nice_file(HERE, 'moremodules'))
-
     def test_empty_files(self):
         # Shows that empty files like __init__.py are listed as having zero
         # statements, not one statement.
         cov = coverage.Coverage(branch=True)
         cov.start()
-        import usepkgs  # pragma: nested # pylint: disable=import-error
+        import usepkgs  # pragma: nested # pylint: disable=import-error, unused-variable
         cov.stop()      # pragma: nested
 
         repout = StringIO()
@@ -608,7 +695,7 @@ class SummaryTest2(CoverageTest):
 
         report = repout.getvalue().replace('\\', '/')
         report = re.sub(r"\s+", " ", report)
-        self.assertIn("tests/modules/pkg1/__init__.py 2 0 0 0 100%", report)
+        self.assertIn("tests/modules/pkg1/__init__.py 1 0 0 0 100%", report)
         self.assertIn("tests/modules/pkg2/__init__.py 0 0 0 0 100%", report)
 
 
@@ -652,13 +739,10 @@ class TestSummaryReporterConfiguration(CoverageTest):
 
     run_in_temp_dir = False
 
-    # We just need some readable files to work with. These will do.
-    HERE = os.path.dirname(__file__)
-
     LINES_1 = {
-        os.path.join(HERE, "test_api.py"): dict.fromkeys(range(300)),
-        os.path.join(HERE, "test_backward.py"): dict.fromkeys(range(20)),
-        os.path.join(HERE, "test_coverage.py"): dict.fromkeys(range(15)),
+        os.path.join(TESTS_DIR, "test_api.py"): dict.fromkeys(range(400)),
+        os.path.join(TESTS_DIR, "test_backward.py"): dict.fromkeys(range(20)),
+        os.path.join(TESTS_DIR, "test_coverage.py"): dict.fromkeys(range(15)),
     }
 
     def get_coverage_data(self, lines):
@@ -737,6 +821,14 @@ class TestSummaryReporterConfiguration(CoverageTest):
         opts.from_args(sort='Stmts')
         report = self.get_summary_text(data, opts)
         self.assert_ordering(report, "test_backward.py", "test_coverage.py", "test_api.py")
+
+    def test_sort_report_by_missing(self):
+        # Sort the text report by the Missing column.
+        data = self.get_coverage_data(self.LINES_1)
+        opts = CoverageConfig()
+        opts.from_args(sort='Miss')
+        report = self.get_summary_text(data, opts)
+        self.assert_ordering(report, "test_backward.py", "test_api.py", "test_coverage.py")
 
     def test_sort_report_by_cover(self):
         # Sort the text report by the Cover column.
