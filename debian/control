@@ -22,7 +22,7 @@ VCS-Git: https://notabug.org/bignose/debian_python-coverage.git
 VCS-Browser: https://notabug.org/bignose/debian_python-coverage/
 X-Python-Version: >= 2.6
 X-Python3-Version: >= 3.3
-XS-Pexip-Upstream: http://ftp.debian.org/debian/ stretch
+XS-Pexip-Upstream: http://ftp.debian.org/debian/ buster
 
 Package: python3-coverage
 Architecture: any
