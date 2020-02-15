@@ -6,6 +6,7 @@
 
 import datetime
 import glob
+import json
 import os
 import os.path
 import re
@@ -46,7 +47,7 @@ class HtmlTestHelpers(CoverageTest):
         self.clean_local_file_imports()
         cov = coverage.Coverage(**(covargs or {}))
         self.start_import_stop(cov, "main_file")
-        cov.html_report(**(htmlargs or {}))
+        return cov.html_report(**(htmlargs or {}))
 
     def remove_html_files(self):
         """Remove the HTML files created as part of the HTML report."""
@@ -101,11 +102,7 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
         # At least one of our tests monkey-patches the version of coverage.py,
         # so grab it here to restore it later.
         self.real_coverage_version = coverage.__version__
-        self.addCleanup(self.cleanup_coverage_version)
-
-    def cleanup_coverage_version(self):
-        """A cleanup."""
-        coverage.__version__ = self.real_coverage_version
+        self.addCleanup(setattr, coverage, "__version__", self.real_coverage_version)
 
     def test_html_created(self):
         # Test basic HTML generation: files should be created.
@@ -208,6 +205,44 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
         fixed_index2 = index2.replace("XYZZY", self.real_coverage_version)
         self.assertMultiLineEqual(index1, fixed_index2)
 
+    def test_file_becomes_100(self):
+        self.create_initial_files()
+        self.run_coverage()
+
+        # Now change a file and do it again
+        self.make_file("main_file.py", """\
+            import helper1, helper2
+            # helper1 is now 100%
+            helper1.func1(12)
+            helper1.func1(23)
+            """)
+
+        self.run_coverage(htmlargs=dict(skip_covered=True))
+
+        # The 100% file, skipped, shouldn't be here.
+        self.assert_doesnt_exist("htmlcov/helper1_py.html")
+
+    def test_status_format_change(self):
+        self.create_initial_files()
+        self.run_coverage()
+        self.remove_html_files()
+
+        with open("htmlcov/status.json") as status_json:
+            status_data = json.load(status_json)
+
+        self.assertEqual(status_data['format'], 1)
+        status_data['format'] = 2
+        with open("htmlcov/status.json", "w") as status_json:
+            json.dump(status_data, status_json)
+
+        self.run_coverage()
+
+        # All the files have been reported again.
+        self.assert_exists("htmlcov/index.html")
+        self.assert_exists("htmlcov/helper1_py.html")
+        self.assert_exists("htmlcov/main_file_py.html")
+        self.assert_exists("htmlcov/helper2_py.html")
+
 
 class HtmlTitleTest(HtmlTestHelpers, CoverageTest):
     """Tests of the HTML title support."""
@@ -260,18 +295,20 @@ class HtmlWithUnparsableFilesTest(HtmlTestHelpers, CoverageTest):
     """Test the behavior when measuring unparsable files."""
 
     def test_dotpy_not_python(self):
+        self.make_file("main.py", "import innocuous")
         self.make_file("innocuous.py", "a = 1")
         cov = coverage.Coverage()
-        self.start_import_stop(cov, "innocuous")
+        self.start_import_stop(cov, "main")
         self.make_file("innocuous.py", "<h1>This isn't python!</h1>")
         msg = "Couldn't parse '.*innocuous.py' as Python source: .* at line 1"
         with self.assertRaisesRegex(NotPython, msg):
             cov.html_report()
 
     def test_dotpy_not_python_ignored(self):
+        self.make_file("main.py", "import innocuous")
         self.make_file("innocuous.py", "a = 2")
         cov = coverage.Coverage()
-        self.start_import_stop(cov, "innocuous")
+        self.start_import_stop(cov, "main")
         self.make_file("innocuous.py", "<h1>This isn't python!</h1>")
         cov.html_report(ignore_errors=True)
         self.assertEqual(
@@ -337,7 +374,7 @@ class HtmlWithUnparsableFilesTest(HtmlTestHelpers, CoverageTest):
         self.make_file("main.py", "import sub.not_ascii")
         self.make_file("sub/__init__.py")
         self.make_file("sub/not_ascii.py", """\
-            # coding: utf8
+            # coding: utf-8
             a = 1  # Isn't this great?!
             """)
         cov = coverage.Coverage()
@@ -346,7 +383,7 @@ class HtmlWithUnparsableFilesTest(HtmlTestHelpers, CoverageTest):
         # Create the undecodable version of the file. make_file is too helpful,
         # so get down and dirty with bytes.
         with open("sub/not_ascii.py", "wb") as f:
-            f.write(b"# coding: utf8\na = 1  # Isn't this great?\xcb!\n")
+            f.write(b"# coding: utf-8\na = 1  # Isn't this great?\xcb!\n")
 
         with open("sub/not_ascii.py", "rb") as f:
             undecodable = f.read()
@@ -419,11 +456,55 @@ class HtmlTest(HtmlTestHelpers, CoverageTest):
 
     def test_shining_panda_fix(self):
         # The ShiningPanda plugin looks for "status.dat" to find HTML reports.
-        # Accomodate them, but only if we are running under Jenkins.
+        # Accommodate them, but only if we are running under Jenkins.
         self.set_environ("JENKINS_URL", "Something or other")
         self.create_initial_files()
         self.run_coverage()
         self.assert_exists("htmlcov/status.dat")
+
+    def test_report_skip_covered_no_branches(self):
+        self.make_file("main_file.py", """
+            import not_covered
+
+            def normal():
+                print("z")
+            normal()
+        """)
+        self.make_file("not_covered.py", """
+            def not_covered():
+                print("n")
+        """)
+        self.run_coverage(htmlargs=dict(skip_covered=True))
+        self.assert_exists("htmlcov/index.html")
+        self.assert_doesnt_exist("htmlcov/main_file_py.html")
+        self.assert_exists("htmlcov/not_covered_py.html")
+
+    def test_report_skip_covered_100(self):
+        self.make_file("main_file.py", """
+            def normal():
+                print("z")
+            normal()
+        """)
+        res = self.run_coverage(covargs=dict(source="."), htmlargs=dict(skip_covered=True))
+        self.assertEqual(res, 100.0)
+        self.assert_doesnt_exist("htmlcov/main_file_py.html")
+
+    def test_report_skip_covered_branches(self):
+        self.make_file("main_file.py", """
+            import not_covered
+
+            def normal():
+                print("z")
+            normal()
+        """)
+        self.make_file("not_covered.py", """
+            def not_covered():
+                print("n")
+        """)
+        self.run_coverage(covargs=dict(branch=True), htmlargs=dict(skip_covered=True))
+        self.assert_exists("htmlcov/index.html")
+        self.assert_doesnt_exist("htmlcov/main_file_py.html")
+        self.assert_exists("htmlcov/not_covered_py.html")
 
 
 class HtmlStaticFileTest(CoverageTest):
@@ -431,12 +512,8 @@ class HtmlStaticFileTest(CoverageTest):
 
     def setUp(self):
         super(HtmlStaticFileTest, self).setUp()
-        self.original_path = list(coverage.html.STATIC_PATH)
-        self.addCleanup(self.cleanup_static_path)
-
-    def cleanup_static_path(self):
-        """A cleanup."""
-        coverage.html.STATIC_PATH = self.original_path
+        original_path = list(coverage.html.STATIC_PATH)
+        self.addCleanup(setattr, coverage.html, 'STATIC_PATH', original_path)
 
     def test_copying_static_files_from_system(self):
         # Make a new place for static files.
@@ -600,7 +677,7 @@ class HtmlGoldTests(CoverageGoldTest):
             # pylint: disable=import-error
             cov = coverage.Coverage(include=["./*"])
             cov.start()
-            import main         # pragma: nested
+            import main         # pragma: nested # pylint: disable=unused-variable
             cov.stop()          # pragma: nested
             cov.html_report(directory="../out/omit_1")
 
@@ -613,7 +690,7 @@ class HtmlGoldTests(CoverageGoldTest):
             # pylint: disable=import-error
             cov = coverage.Coverage(include=["./*"])
             cov.start()
-            import main         # pragma: nested
+            import main         # pragma: nested # pylint: disable=unused-variable
             cov.stop()          # pragma: nested
             cov.html_report(directory="../out/omit_2", omit=["m1.py"])
 
@@ -626,7 +703,7 @@ class HtmlGoldTests(CoverageGoldTest):
             # pylint: disable=import-error
             cov = coverage.Coverage(include=["./*"])
             cov.start()
-            import main         # pragma: nested
+            import main         # pragma: nested # pylint: disable=unused-variable
             cov.stop()          # pragma: nested
             cov.html_report(directory="../out/omit_3", omit=["m1.py", "m2.py"])
 
@@ -639,7 +716,7 @@ class HtmlGoldTests(CoverageGoldTest):
             # pylint: disable=import-error
             cov = coverage.Coverage(config_file="omit4.ini", include=["./*"])
             cov.start()
-            import main         # pragma: nested
+            import main         # pragma: nested # pylint: disable=unused-variable
             cov.stop()          # pragma: nested
             cov.html_report(directory="../out/omit_4")
 
@@ -652,7 +729,7 @@ class HtmlGoldTests(CoverageGoldTest):
             # pylint: disable=import-error
             cov = coverage.Coverage(config_file="omit5.ini", include=["./*"])
             cov.start()
-            import main         # pragma: nested
+            import main         # pragma: nested # pylint: disable=unused-variable
             cov.stop()          # pragma: nested
             cov.html_report()
 
@@ -666,7 +743,7 @@ class HtmlGoldTests(CoverageGoldTest):
             sys.path.insert(0, "../othersrc")
             cov = coverage.Coverage(include=["./*", "../othersrc/*"])
             cov.start()
-            import here         # pragma: nested
+            import here         # pragma: nested # pylint: disable=unused-variable
             cov.stop()          # pragma: nested
             cov.html_report(directory="../out/other")
 
@@ -686,7 +763,7 @@ class HtmlGoldTests(CoverageGoldTest):
 
         with change_dir("src"):
             # pylint: disable=import-error
-            cov = coverage.Coverage(branch=True)
+            cov = coverage.Coverage(config_file="partial.ini")
             cov.start()
             import partial          # pragma: nested
             cov.stop()              # pragma: nested
@@ -695,11 +772,12 @@ class HtmlGoldTests(CoverageGoldTest):
         compare("gold_partial", "out/partial", size_within=10, file_pattern="*.html")
         contains(
             "out/partial/partial_py.html",
-            '<p id="t8" class="stm run hide_run">',
+            '<p id="t8" class="stm par run hide_run">',
             '<p id="t11" class="stm run hide_run">',
-            '<p id="t14" class="stm run hide_run">',
             # The "if 0" and "if 1" statements are optimized away.
-            '<p id="t17" class="pln">',
+            '<p id="t14" class="pln">',
+            # The "raise AssertionError" is excluded by regex in the .ini.
+            '<p id="t21" class="exc">',
         )
         contains(
             "out/partial/index.html",
@@ -707,7 +785,7 @@ class HtmlGoldTests(CoverageGoldTest):
         )
         contains(
             "out/partial/index.html",
-            '<span class="pc_cov">100%</span>'
+            '<span class="pc_cov">91%</span>'
         )
 
     def test_styled(self):

@@ -5,6 +5,433 @@
 Change history for Coverage.py
 ==============================
 
+    .. When updating the "Unreleased" header to a specific version, use this
+    .. format.  Don't forget the jump target:
+    ..
+    ..
+    ..  .. _changes_781:
+    ..
+    ..
+    ..  Version 7.8.1 --- 2021-07-27
+    ..  ----------------------------
+
+
+.. _changes_452:
+
+Version 4.5.2 --- 2018-11-12
+----------------------------
+
+- Namespace packages are supported on Python 3.7, where they used to cause
+  TypeErrors about path being None. Fixes `issue 700`_.
+
+- Python 3.8 (as of today!) passes all tests.  Fixes `issue 707` and
+  `issue 714`_.
+
+- Development moved from `Bitbucket`_ to `GitHub`_.
+
+.. _issue 700: https://github.com/nedbat/coveragepy/issues/700
+.. _issue 707: https://github.com/nedbat/coveragepy/issues/707
+.. _issue 714: https://github.com/nedbat/coveragepy/issues/714
+
+.. _Bitbucket: https://bitbucket.org/ned/coveragepy
+.. _GitHub: https://github.com/nedbat/coveragepy
+
+
+.. _changes_451:
+
+Version 4.5.1 --- 2018-02-10
+----------------------------
+
+- Now that 4.5 properly separated the ``[run] omit`` and ``[report] omit``
+  settings, an old bug has become apparent.  If you specified a package name
+  for ``[run] source``, then omit patterns weren't matched inside that package.
+  This bug (`issue 638`_) is now fixed.
+
+- On Python 3.7, reporting about a decorated function with no body other than a
+  docstring would crash coverage.py with an IndexError (`issue 640`_).  This is
+  now fixed.
+
+- Configurer plugins are now reported in the output of ``--debug=sys``.
+
+.. _issue 638: https://bitbucket.org/ned/coveragepy/issues/638/run-omit-is-ignored-since-45
+.. _issue 640: https://bitbucket.org/ned/coveragepy/issues/640/indexerror-reporting-on-an-empty-decorated
+
+
+.. _changes_45:
+
+Version 4.5 --- 2018-02-03
+--------------------------
+
+- A new kind of plugin is supported: configurators are invoked at start-up to
+  allow more complex configuration than the .coveragerc file can easily do.
+  See :ref:`api_plugin` for details.  This solves the complex configuration
+  problem described in `issue 563`_.
+
+- The ``fail_under`` option can now be a float.  Note that you must specify the
+  ``[report] precision`` configuration option for the fractional part to be
+  used.  Thanks to Lars Hupfeldt Nielsen for help with the implementation.
+  Fixes `issue 631`_.
+
+- The ``include`` and ``omit`` options can be specified for both the ``[run]``
+  and ``[report]`` phases of execution.  4.4.2 introduced some incorrect
+  interactions between those phases, where the options for one were confused
+  for the other.  This is now corrected, fixing `issue 621`_ and `issue 622`_.
+  Thanks to Daniel Hahler for seeing more clearly than I could.
+
+- The ``coverage combine`` command used to always overwrite the data file, even
+  when no data had been read from apparently combinable files.  Now, an error
+  is raised if we thought there were files to combine, but in fact none of them
+  could be used.  Fixes `issue 629`_.
+
+- The ``coverage combine`` command could get confused about path separators
+  when combining data collected on Windows with data collected on Linux, as
+  described in `issue 618`_.  This is now fixed: the result path always uses
+  the path separator specified in the ``[paths]`` result.
+
+- On Windows, the HTML report could fail when source trees are deeply nested,
+  due to attempting to create HTML filenames longer than the 250-character
+  maximum.  Now filenames will never get much larger than 200 characters,
+  fixing `issue 627`_.  Thanks to Alex Sandro for helping with the fix.
+
+.. _issue 563: https://bitbucket.org/ned/coveragepy/issues/563/platform-specific-configuration
+.. _issue 618: https://bitbucket.org/ned/coveragepy/issues/618/problem-when-combining-windows-generated
+.. _issue 621: https://bitbucket.org/ned/coveragepy/issues/621/include-ignored-warning-when-using
+.. _issue 622: https://bitbucket.org/ned/coveragepy/issues/622/report-omit-overwrites-run-omit
+.. _issue 627: https://bitbucket.org/ned/coveragepy/issues/627/failure-generating-html-reports-when-the
+.. _issue 629: https://bitbucket.org/ned/coveragepy/issues/629/multiple-use-of-combine-leads-to-empty
+.. _issue 631: https://bitbucket.org/ned/coveragepy/issues/631/precise-coverage-percentage-value
+
+
+.. _changes_442:
+
+Version 4.4.2 --- 2017-11-05
+----------------------------
+
+- Support for Python 3.7.  In some cases, class and module docstrings are no
+  longer counted in statement totals, which could slightly change your total
+  results.
+
+- Specifying both ``--source`` and ``--include`` no longer silently ignores the
+  include setting, instead it displays a warning. Thanks, Loïc Dachary.  Closes
+  `issue 265`_ and `issue 101`_.
+
+- Fixed a race condition when saving data and multiple threads are tracing
+  (`issue 581`_). It could produce a "dictionary changed size during iteration"
+  RuntimeError.  I believe this mostly but not entirely fixes the race
+  condition.  A true fix would likely be too expensive.  Thanks, Peter Baughman
+  for the debugging, and Olivier Grisel for the fix with tests.
+
+- Configuration values which are file paths will now apply tilde-expansion,
+  closing `issue 589`_.
+
+- Now secondary config files like tox.ini and setup.cfg can be specified
+  explicitly, and prefixed sections like `[coverage:run]` will be read. Fixes
+  `issue 588`_.
+
+- Be more flexible about the command name displayed by help, fixing
+  `issue 600`_. Thanks, Ben Finney.
+
+.. _issue 101: https://bitbucket.org/ned/coveragepy/issues/101/settings-under-report-affect-running
+.. _issue 581: https://bitbucket.org/ned/coveragepy/issues/581/race-condition-when-saving-data-under
+.. _issue 588: https://bitbucket.org/ned/coveragepy/issues/588/using-rcfile-path-to-toxini-uses-run
+.. _issue 589: https://bitbucket.org/ned/coveragepy/issues/589/allow-expansion-in-coveragerc
+.. _issue 600: https://bitbucket.org/ned/coveragepy/issues/600/get-program-name-from-command-line-when
+
+
+.. _changes_441:
+
+Version 4.4.1 --- 2017-05-14
+----------------------------
+
+- No code changes: just corrected packaging for Python 2.7 Linux wheels.
+
+
+.. _changes_44:
+
+Version 4.4 --- 2017-05-07
+--------------------------
+
+- Reports could produce the wrong file names for packages, reporting ``pkg.py``
+  instead of the correct ``pkg/__init__.py``.  This is now fixed.  Thanks, Dirk
+  Thomas.
+
+- XML reports could produce ``<source>`` and ``<class>`` lines that together
+  didn't specify a valid source file path.  This is now fixed. (`issue 526`_)
+
+- Namespace packages are no longer warned as having no code. (`issue 572`_)
+
+- Code that uses ``sys.settrace(sys.gettrace())`` in a file that wasn't being
+  coverage-measured would prevent correct coverage measurement in following
+  code. An example of this was running doctests programmatically. This is now
+  fixed. (`issue 575`_)
+
+- Errors printed by the ``coverage`` command now go to stderr instead of
+  stdout.
+
+- Running ``coverage xml`` in a directory named with non-ASCII characters would
+  fail under Python 2. This is now fixed. (`issue 573`_)
+
+.. _issue 526: https://bitbucket.org/ned/coveragepy/issues/526/generated-xml-invalid-paths-for-cobertura
+.. _issue 572: https://bitbucket.org/ned/coveragepy/issues/572/no-python-source-warning-for-namespace
+.. _issue 573: https://bitbucket.org/ned/coveragepy/issues/573/cant-generate-xml-report-if-some-source
+.. _issue 575: https://bitbucket.org/ned/coveragepy/issues/575/running-doctest-prevents-complete-coverage
+
+
+Version 4.4b1 --- 2017-04-04
+----------------------------
+
+- Some warnings can now be individually disabled.  Warnings that can be
+  disabled have a short name appended.  The ``[run] disable_warnings`` setting
+  takes a list of these warning names to disable. Closes both `issue 96`_ and
+  `issue 355`_.
+
+- The XML report now includes attributes from version 4 of the Cobertura XML
+  format, fixing `issue 570`_.
+
+- In previous versions, calling a method that used collected data would prevent
+  further collection.  For example, `save()`, `report()`, `html_report()`, and
+  others would all stop collection.  An explicit `start()` was needed to get it
+  going again.  This is no longer true.  Now you can use the collected data and
+  also continue measurement. Both `issue 79`_ and `issue 448`_ described this
+  problem, and have been fixed.
+
+- Plugins can now find unexecuted files if they choose, by implementing the
+  `find_executable_files` method.  Thanks, Emil Madsen.
+
+- Minimal IronPython support. You should be able to run IronPython programs
+  under ``coverage run``, though you will still have to do the reporting phase
+  with CPython.
+
+- Coverage.py has long had a special hack to support CPython's need to measure
+  the coverage of the standard library tests. This code was not installed by
+  kitted versions of coverage.py.  Now it is.
+
+.. _issue 79: https://bitbucket.org/ned/coveragepy/issues/79/save-prevents-harvesting-on-stop
+.. _issue 96: https://bitbucket.org/ned/coveragepy/issues/96/unhelpful-warnings-produced-when-using
+.. _issue 355: https://bitbucket.org/ned/coveragepy/issues/355/warnings-should-be-suppressable
+.. _issue 448: https://bitbucket.org/ned/coveragepy/issues/448/save-and-html_report-prevent-further
+.. _issue 570: https://bitbucket.org/ned/coveragepy/issues/570/cobertura-coverage-04dtd-support
+
+
+.. _changes_434:
+
+Version 4.3.4 --- 2017-01-17
+----------------------------
+
+- Fixing 2.6 in version 4.3.3 broke other things, because the too-tricky
+  exception wasn't properly derived from Exception, described in `issue 556`_.
+  A newb mistake; it hasn't been a good few days.
+
+.. _issue 556: https://bitbucket.org/ned/coveragepy/issues/556/43-fails-if-there-are-html-files-in-the
+
+
+.. _changes_433:
+
+Version 4.3.3 --- 2017-01-17
+----------------------------
+
+- Python 2.6 support was broken due to a testing exception imported for the
+  benefit of the coverage.py test suite.  Properly conditionalizing it fixed
+  `issue 554`_ so that Python 2.6 works again.
+
+.. _issue 554: https://bitbucket.org/ned/coveragepy/issues/554/traceback-on-python-26-starting-with-432
+
+
+.. _changes_432:
+
+Version 4.3.2 --- 2017-01-16
+----------------------------
+
+- Using the ``--skip-covered`` option on an HTML report with 100% coverage
+  would cause a "No data to report" error, as reported in `issue 549`_. This is
+  now fixed; thanks, Loïc Dachary.
+
+- If-statements can be optimized away during compilation, for example, `if 0:`
+  or `if __debug__:`.  Coverage.py had problems properly understanding these
+  statements which existed in the source, but not in the compiled bytecode.
+  This problem, reported in `issue 522`_, is now fixed.
+
+- If you specified ``--source`` as a directory, then coverage.py would look for
+  importable Python files in that directory, and could identify ones that had
+  never been executed at all.  But if you specified it as a package name, that
+  detection wasn't performed.  Now it is, closing `issue 426`_. Thanks to Loïc
+  Dachary for the fix.
+
+- If you started and stopped coverage measurement thousands of times in your
+  process, you could crash Python with a "Fatal Python error: deallocating
+  None" error.  This is now fixed.  Thanks to Alex Groce for the bug report.
+
+- On PyPy, measuring coverage in subprocesses could produce a warning: "Trace
+  function changed, measurement is likely wrong: None".  This was spurious, and
+  has been suppressed.
+
+- Previously, coverage.py couldn't start on Jython, due to that implementation
+  missing the multiprocessing module (`issue 551`_). This problem has now been
+  fixed. Also, `issue 322`_ about not being able to invoke coverage
+  conveniently, seems much better: ``jython -m coverage run myprog.py`` works
+  properly.
+
+- Let's say you ran the HTML report over and over again in the same output
+  directory, with ``--skip-covered``. And imagine due to your heroic
+  test-writing efforts, a file just achieved the goal of 100% coverage. With
+  coverage.py 4.3, the old HTML file with the less-than-100% coverage would be
+  left behind.  This file is now properly deleted.
+
+.. _issue 322: https://bitbucket.org/ned/coveragepy/issues/322/cannot-use-coverage-with-jython
+.. _issue 426: https://bitbucket.org/ned/coveragepy/issues/426/difference-between-coverage-results-with
+.. _issue 522: https://bitbucket.org/ned/coveragepy/issues/522/incorrect-branch-reporting-with-__debug__
+.. _issue 549: https://bitbucket.org/ned/coveragepy/issues/549/skip-covered-with-100-coverage-throws-a-no
+.. _issue 551: https://bitbucket.org/ned/coveragepy/issues/551/coveragepy-cannot-be-imported-in-jython27
+
+
+.. _changes_431:
+
+Version 4.3.1 --- 2016-12-28
+----------------------------
+
+- Some environments couldn't install 4.3, as described in `issue 540`_. This is
+  now fixed.
+
+- The check for conflicting ``--source`` and ``--include`` was too simple in a
+  few different ways, breaking a few perfectly reasonable use cases, described
+  in `issue 541`_.  The check has been reverted while we re-think the fix for
+  `issue 265`_.
+
+.. _issue 540: https://bitbucket.org/ned/coveragepy/issues/540/cant-install-coverage-v43-into-under
+.. _issue 541: https://bitbucket.org/ned/coveragepy/issues/541/coverage-43-breaks-nosetest-with-coverage
+
+
+.. _changes_43:
+
+Version 4.3 --- 2016-12-27
+--------------------------
+
+Special thanks to **Loïc Dachary**, who took an extraordinary interest in
+coverage.py and contributed a number of improvements in this release.
+
+- Subprocesses that are measured with `automatic subprocess measurement`_ used
+  to read in any pre-existing data file.  This meant data would be incorrectly
+  carried forward from run to run.  Now those files are not read, so each
+  subprocess only writes its own data. Fixes `issue 510`_.
+
+- The ``coverage combine`` command will now fail if there are no data files to
+  combine. The combine changes in 4.2 meant that multiple combines could lose
+  data, leaving you with an empty .coverage data file. Fixes
+  `issue 525`_, `issue 412`_, `issue 516`_, and probably `issue 511`_.
+
+- Coverage.py wouldn't execute `sys.excepthook`_ when an exception happened in
+  your program.  Now it does, thanks to Andrew Hoos.  Closes `issue 535`_.
+
+- Branch coverage fixes:
+
+  - Branch coverage could misunderstand a finally clause on a try block that
+    never continued on to the following statement, as described in `issue
+    493`_.  This is now fixed. Thanks to Joe Doherty for the report and Loïc
+    Dachary for the fix.
+
+  - A while loop with a constant condition (while True) and a continue
+    statement would be mis-analyzed, as described in `issue 496`_. This is now
+    fixed, thanks to a bug report by Eli Skeggs and a fix by Loïc Dachary.
+
+  - While loops with constant conditions that were never executed could result
+    in a non-zero coverage report.  Artem Dayneko reported this in `issue
+    502`_, and Loïc Dachary provided the fix.
+
+- The HTML report now supports a ``--skip-covered`` option like the other
+  reporting commands.  Thanks, Loïc Dachary for the implementation, closing
+  `issue 433`_.
+
+- Options can now be read from a tox.ini file, if any. Like setup.cfg, sections
+  are prefixed with "coverage:", so ``[run]`` options will be read from the
+  ``[coverage:run]`` section of tox.ini. Implements part of `issue 519`_.
+  Thanks, Stephen Finucane.
+
+- Specifying both ``--source`` and ``--include`` no longer silently ignores the
+  include setting, instead it fails with a message. Thanks, Nathan Land and
+  Loïc Dachary. Closes `issue 265`_.
+
+- The ``Coverage.combine`` method has a new parameter, ``strict=False``, to
+  support failing if there are no data files to combine.
+
+- When forking subprocesses, the coverage data files would have the same random
+  number appended to the file name. This didn't cause problems, because the
+  file names had the process id also, making collisions (nearly) impossible.
+  But it was disconcerting.  This is now fixed.
+
+- The text report now properly sizes headers when skipping some files, fixing
+  `issue 524`_. Thanks, Anthony Sottile and Loïc Dachary.
+
+- Coverage.py can now search .pex files for source, just as it can .zip and
+  .egg.  Thanks, Peter Ebden.
+
+- Data files are now about 15% smaller.
+
+- Improvements in the ``[run] debug`` setting:
+
+  - The "dataio" debug setting now also logs when data files are deleted during
+    combining or erasing.
+
+  - A new debug option, "multiproc", for logging the behavior of
+    ``concurrency=multiprocessing``.
+
+  - If you used the debug options "config" and "callers" together, you'd get a
+    call stack printed for every line in the multi-line config output. This is
+    now fixed.
+
+- Fixed an unusual bug involving multiple coding declarations affecting code
+  containing code in multi-line strings: `issue 529`_.
+
+- Coverage.py will no longer be misled into thinking that a plain file is a
+  package when interpreting ``--source`` options.  Thanks, Cosimo Lupo.
+
+- If you try to run a non-Python file with coverage.py, you will now get a more
+  useful error message. `Issue 514`_.
+
+- The default pragma regex changed slightly, but this will only matter to you
+  if you are deranged and use mixed-case pragmas.
+
+- Deal properly with non-ASCII file names in an ASCII-only world, `issue 533`_.
+
+- Programs that set Unicode configuration values could cause UnicodeErrors when
+  generating HTML reports.  Pytest-cov is one example.  This is now fixed.
+
+- Prevented deprecation warnings from configparser that happened in some
+  circumstances, closing `issue 530`_.
+
+- Corrected the name of the jquery.ba-throttle-debounce.js library. Thanks,
+  Ben Finney.  Closes `issue 505`_.
+
+- Testing against PyPy 5.6 and PyPy3 5.5.
+
+- Switched to pytest from nose for running the coverage.py tests.
+
+- Renamed AUTHORS.txt to CONTRIBUTORS.txt, since there are other ways to
+  contribute than by writing code. Also put the count of contributors into the
+  author string in setup.py, though this might be too cute.
+
+.. _sys.excepthook: https://docs.python.org/3/library/sys.html#sys.excepthook
+.. _issue 265: https://bitbucket.org/ned/coveragepy/issues/265/when-using-source-include-is-silently
+.. _issue 412: https://bitbucket.org/ned/coveragepy/issues/412/coverage-combine-should-error-if-no
+.. _issue 433: https://bitbucket.org/ned/coveragepy/issues/433/coverage-html-does-not-suport-skip-covered
+.. _issue 493: https://bitbucket.org/ned/coveragepy/issues/493/confusing-branching-failure
+.. _issue 496: https://bitbucket.org/ned/coveragepy/issues/496/incorrect-coverage-with-branching-and
+.. _issue 502: https://bitbucket.org/ned/coveragepy/issues/502/incorrect-coverage-report-with-cover
+.. _issue 505: https://bitbucket.org/ned/coveragepy/issues/505/use-canonical-filename-for-debounce
+.. _issue 514: https://bitbucket.org/ned/coveragepy/issues/514/path-to-problem-file-not-reported-when
+.. _issue 510: https://bitbucket.org/ned/coveragepy/issues/510/erase-still-needed-in-42
+.. _issue 511: https://bitbucket.org/ned/coveragepy/issues/511/version-42-coverage-combine-empties
+.. _issue 516: https://bitbucket.org/ned/coveragepy/issues/516/running-coverage-combine-twice-deletes-all
+.. _issue 519: https://bitbucket.org/ned/coveragepy/issues/519/coverage-run-sections-in-toxini-or-as
+.. _issue 524: https://bitbucket.org/ned/coveragepy/issues/524/coverage-report-with-skip-covered-column
+.. _issue 525: https://bitbucket.org/ned/coveragepy/issues/525/coverage-combine-when-not-in-parallel-mode
+.. _issue 529: https://bitbucket.org/ned/coveragepy/issues/529/encoding-marker-may-only-appear-on-the
+.. _issue 530: https://bitbucket.org/ned/coveragepy/issues/530/deprecationwarning-you-passed-a-bytestring
+.. _issue 533: https://bitbucket.org/ned/coveragepy/issues/533/exception-on-unencodable-file-name
+.. _issue 535: https://bitbucket.org/ned/coveragepy/issues/535/sysexcepthook-is-not-called
+
+
+.. _changes_42:
+
 Version 4.2 --- 2016-07-26
 --------------------------
 
@@ -70,7 +497,7 @@ Work from the PyCon 2016 Sprints!
 - The `test_helpers` module has been moved into a separate pip-installable
   package: `unittest-mixins`_.
 
-.. _automatic subprocess measurement: http://coverage.readthedocs.io/en/latest/subprocess.html
+.. _automatic subprocess measurement: https://coverage.readthedocs.io/en/latest/subprocess.html
 .. _issue 199: https://bitbucket.org/ned/coveragepy/issues/199/add-a-way-to-sort-the-text-report
 .. _issue 231: https://bitbucket.org/ned/coveragepy/issues/231/various-default-behavior-in-report-phase
 .. _issue 298: https://bitbucket.org/ned/coveragepy/issues/298/show-in-html-report-that-the-columns-are
@@ -81,6 +508,8 @@ Work from the PyCon 2016 Sprints!
 .. _issue 492: https://bitbucket.org/ned/coveragepy/issues/492/subprocess-coverage-strange-detection-of
 .. _unittest-mixins: https://pypi.python.org/pypi/unittest-mixins
 
+
+.. _changes_41:
 
 Version 4.1 --- 2016-05-21
 --------------------------
@@ -236,6 +665,8 @@ Version 4.1b1 --- 2016-01-10
 .. _issue 461: https://bitbucket.org/ned/coveragepy/issues/461/multiline-asserts-need-too-many-pragma
 
 
+.. _changes_403:
+
 Version 4.0.3 --- 2015-11-24
 ----------------------------
 
@@ -261,6 +692,8 @@ Version 4.0.3 --- 2015-11-24
 .. _issue 445: https://bitbucket.org/ned/coveragepy/issues/445/django-app-cannot-connect-to-cassandra
 
 
+.. _changes_402:
+
 Version 4.0.2 --- 2015-11-04
 ----------------------------
 
@@ -279,6 +712,8 @@ Version 4.0.2 --- 2015-11-04
 .. _issue 432: https://bitbucket.org/ned/coveragepy/issues/432/path-with-unicode-characters-various
 .. _issue 436: https://bitbucket.org/ned/coveragepy/issues/436/disabled-coverage-ctracer-may-rise-from
 
+
+.. _changes_401:
 
 Version 4.0.1 --- 2015-10-13
 ----------------------------
@@ -326,6 +761,8 @@ Version 4.0.1 --- 2015-10-13
 .. _issue 423: https://bitbucket.org/ned/coveragepy/issues/423/skip_covered-changes-reported-total
 
 
+.. _changes_40:
+
 Version 4.0 --- 2015-09-20
 --------------------------
 
@@ -350,7 +787,6 @@ Version 4.0b3 --- 2015-09-07
 
 .. _issue 403: https://bitbucket.org/ned/coveragepy/issues/403/hasherupdate-fails-with-typeerror-nonetype
 .. _issue 404: https://bitbucket.org/ned/coveragepy/issues/404/shiningpanda-jenkins-plugin-cant-find-html
-
 
 
 Version 4.0b2 --- 2015-08-22
@@ -486,8 +922,9 @@ Version 4.0a6 --- 2015-06-21
   persisted in pursuing this despite Ned's pessimism.  Fixes `issue 308`_ and
   `issue 324`_.
 
-- The COVERAGE_DEBUG environment variable can be used to set the ``[run] debug``
-  configuration option to control what internal operations are logged.
+- The COVERAGE_DEBUG environment variable can be used to set the
+  ``[run] debug`` configuration option to control what internal operations are
+  logged.
 
 - HTML reports were truncated at formfeed characters.  This is now fixed
   (`issue 360`_).  It's always fun when the problem is due to a `bug in the
@@ -513,17 +950,17 @@ Version 4.0a6 --- 2015-06-21
 - Plugin support had some bugs fixed, closing `issue 374`_ and `issue 375`_.
   Thanks, Stefan Behnel.
 
-.. _issue 299: https://bitbucket.org/ned/coveragepy/issue/299/inserted-created-on-yyyy-mm-dd-hh-mm-in
-.. _issue 308: https://bitbucket.org/ned/coveragepy/issue/308/yield-lambda-branch-coverage
-.. _issue 324: https://bitbucket.org/ned/coveragepy/issue/324/yield-in-loop-confuses-branch-coverage
-.. _issue 351: https://bitbucket.org/ned/coveragepy/issue/351/files-with-incorrect-encoding-are-ignored
-.. _issue 354: https://bitbucket.org/ned/coveragepy/issue/354/coverage-combine-should-take-a-list-of
-.. _issue 359: https://bitbucket.org/ned/coveragepy/issue/359/xml-report-chunk-error
-.. _issue 360: https://bitbucket.org/ned/coveragepy/issue/360/html-reports-get-confused-by-l-in-the-code
-.. _issue 361: https://bitbucket.org/ned/coveragepy/issue/361/use-double-quotes-in-html-output-to
-.. _issue 363: https://bitbucket.org/ned/coveragepy/issue/363/annotate-command-hits-unicode-happy-fun
-.. _issue 374: https://bitbucket.org/ned/coveragepy/issue/374/c-tracer-lookups-fail-in
-.. _issue 375: https://bitbucket.org/ned/coveragepy/issue/375/ctracer_handle_return-reads-byte-code
+.. _issue 299: https://bitbucket.org/ned/coveragepy/issues/299/inserted-created-on-yyyy-mm-dd-hh-mm-in
+.. _issue 308: https://bitbucket.org/ned/coveragepy/issues/308/yield-lambda-branch-coverage
+.. _issue 324: https://bitbucket.org/ned/coveragepy/issues/324/yield-in-loop-confuses-branch-coverage
+.. _issue 351: https://bitbucket.org/ned/coveragepy/issues/351/files-with-incorrect-encoding-are-ignored
+.. _issue 354: https://bitbucket.org/ned/coveragepy/issues/354/coverage-combine-should-take-a-list-of
+.. _issue 359: https://bitbucket.org/ned/coveragepy/issues/359/xml-report-chunk-error
+.. _issue 360: https://bitbucket.org/ned/coveragepy/issues/360/html-reports-get-confused-by-l-in-the-code
+.. _issue 361: https://bitbucket.org/ned/coveragepy/issues/361/use-double-quotes-in-html-output-to
+.. _issue 363: https://bitbucket.org/ned/coveragepy/issues/363/annotate-command-hits-unicode-happy-fun
+.. _issue 374: https://bitbucket.org/ned/coveragepy/issues/374/c-tracer-lookups-fail-in
+.. _issue 375: https://bitbucket.org/ned/coveragepy/issues/375/ctracer_handle_return-reads-byte-code
 
 
 Version 4.0a5 --- 2015-02-16
@@ -553,11 +990,11 @@ Version 4.0a5 --- 2015-02-16
 
 - Added 3.5.0a1 to the list of supported CPython versions.
 
-.. _issue 117: https://bitbucket.org/ned/coveragepy/issue/117/enable-coverage-measurement-of-code-run-by
-.. _issue 340: https://bitbucket.org/ned/coveragepy/issue/340/keyerror-subpy
-.. _issue 353: https://bitbucket.org/ned/coveragepy/issue/353/40a3-introduces-an-unexpected-third-case
-.. _issue 357: https://bitbucket.org/ned/coveragepy/issue/357/behavior-changed-when-coveragerc-is
-.. _issue 358: https://bitbucket.org/ned/coveragepy/issue/358/all-coverage-commands-should-adjust
+.. _issue 117: https://bitbucket.org/ned/coveragepy/issues/117/enable-coverage-measurement-of-code-run-by
+.. _issue 340: https://bitbucket.org/ned/coveragepy/issues/340/keyerror-subpy
+.. _issue 353: https://bitbucket.org/ned/coveragepy/issues/353/40a3-introduces-an-unexpected-third-case
+.. _issue 357: https://bitbucket.org/ned/coveragepy/issues/357/behavior-changed-when-coveragerc-is
+.. _issue 358: https://bitbucket.org/ned/coveragepy/issues/358/all-coverage-commands-should-adjust
 
 
 Version 4.0a4 --- 2015-01-25
@@ -597,11 +1034,11 @@ Version 4.0a3 --- 2015-01-20
 - Regexes in the configuration file are now compiled as soon as they are read,
   to provide error messages earlier (`issue 349`_).
 
-.. _issue 69: https://bitbucket.org/ned/coveragepy/issue/69/coverage-html-overwrite-files-that-doesnt
-.. _issue 235: https://bitbucket.org/ned/coveragepy/issue/235/package-name-is-missing-in-xml-report
-.. _issue 290: https://bitbucket.org/ned/coveragepy/issue/290/running-programmatically-with-pyw-files
-.. _issue 345: https://bitbucket.org/ned/coveragepy/issue/345/xml-reports-line-rate-0-for-empty-files
-.. _issue 349: https://bitbucket.org/ned/coveragepy/issue/349/bad-regex-in-config-should-get-an-earlier
+.. _issue 69: https://bitbucket.org/ned/coveragepy/issues/69/coverage-html-overwrite-files-that-doesnt
+.. _issue 235: https://bitbucket.org/ned/coveragepy/issues/235/package-name-is-missing-in-xml-report
+.. _issue 290: https://bitbucket.org/ned/coveragepy/issues/290/running-programmatically-with-pyw-files
+.. _issue 345: https://bitbucket.org/ned/coveragepy/issues/345/xml-reports-line-rate-0-for-empty-files
+.. _issue 349: https://bitbucket.org/ned/coveragepy/issues/349/bad-regex-in-config-should-get-an-earlier
 
 
 Version 4.0a2 --- 2015-01-14
@@ -661,15 +1098,15 @@ Version 4.0a2 --- 2015-01-14
   haven't changed is now a JSON file instead of a pickle file.  This obviates
   `issue 287`_ and `issue 237`_.
 
-.. _issue 237: https://bitbucket.org/ned/coveragepy/issue/237/htmlcov-with-corrupt-statusdat
-.. _issue 287: https://bitbucket.org/ned/coveragepy/issue/287/htmlpy-doesnt-specify-pickle-protocol
-.. _issue 293: https://bitbucket.org/ned/coveragepy/issue/293/number-of-statement-detection-wrong-if-no
-.. _issue 314: https://bitbucket.org/ned/coveragepy/issue/314/fail_under-param-not-working-in-coveragerc
-.. _issue 315: https://bitbucket.org/ned/coveragepy/issue/315/option-to-omit-empty-files-eg-__init__py
-.. _issue 328: https://bitbucket.org/ned/coveragepy/issue/328/misbehavior-in-run-source
-.. _issue 334: https://bitbucket.org/ned/coveragepy/issue/334/pragma-not-recognized-if-tab-character
-.. _issue 342: https://bitbucket.org/ned/coveragepy/issue/342/console-and-html-coverage-reports-differ
-.. _issue 343: https://bitbucket.org/ned/coveragepy/issue/343/an-explicitly-named-non-existent-config
+.. _issue 237: https://bitbucket.org/ned/coveragepy/issues/237/htmlcov-with-corrupt-statusdat
+.. _issue 287: https://bitbucket.org/ned/coveragepy/issues/287/htmlpy-doesnt-specify-pickle-protocol
+.. _issue 293: https://bitbucket.org/ned/coveragepy/issues/293/number-of-statement-detection-wrong-if-no
+.. _issue 314: https://bitbucket.org/ned/coveragepy/issues/314/fail_under-param-not-working-in-coveragerc
+.. _issue 315: https://bitbucket.org/ned/coveragepy/issues/315/option-to-omit-empty-files-eg-__init__py
+.. _issue 328: https://bitbucket.org/ned/coveragepy/issues/328/misbehavior-in-run-source
+.. _issue 334: https://bitbucket.org/ned/coveragepy/issues/334/pragma-not-recognized-if-tab-character
+.. _issue 342: https://bitbucket.org/ned/coveragepy/issues/342/console-and-html-coverage-reports-differ
+.. _issue 343: https://bitbucket.org/ned/coveragepy/issues/343/an-explicitly-named-non-existent-config
 
 
 Version 4.0a1 --- 2014-09-27
@@ -714,17 +1151,19 @@ Version 4.0a1 --- 2014-09-27
 - Encoding declarations in source files are only considered if they are truly
   comments.  Thanks, Anthony Sottile.
 
-.. _issue 57: https://bitbucket.org/ned/coveragepy/issue/57/annotate-command-fails-to-annotate-many
-.. _issue 94: https://bitbucket.org/ned/coveragepy/issue/94/coverage-xml-doesnt-produce-sources
-.. _issue 149: https://bitbucket.org/ned/coveragepy/issue/149/coverage-gevent-looks-broken
-.. _issue 230: https://bitbucket.org/ned/coveragepy/issue/230/show-line-no-for-missing-branches-in
-.. _issue 284: https://bitbucket.org/ned/coveragepy/issue/284/fail-under-should-show-more-precision
-.. _issue 285: https://bitbucket.org/ned/coveragepy/issue/285/xml-report-fails-if-output-file-directory
-.. _issue 303: https://bitbucket.org/ned/coveragepy/issue/303/unicodedecodeerror
-.. _issue 304: https://bitbucket.org/ned/coveragepy/issue/304/attempt-to-get-configuration-from-setupcfg
-.. _issue 305: https://bitbucket.org/ned/coveragepy/issue/305/pendingdeprecationwarning-the-imp-module
-.. _issue 331: https://bitbucket.org/ned/coveragepy/issue/331/failure-of-encoding-detection-on-python2
+.. _issue 57: https://bitbucket.org/ned/coveragepy/issues/57/annotate-command-fails-to-annotate-many
+.. _issue 94: https://bitbucket.org/ned/coveragepy/issues/94/coverage-xml-doesnt-produce-sources
+.. _issue 149: https://bitbucket.org/ned/coveragepy/issues/149/coverage-gevent-looks-broken
+.. _issue 230: https://bitbucket.org/ned/coveragepy/issues/230/show-line-no-for-missing-branches-in
+.. _issue 284: https://bitbucket.org/ned/coveragepy/issues/284/fail-under-should-show-more-precision
+.. _issue 285: https://bitbucket.org/ned/coveragepy/issues/285/xml-report-fails-if-output-file-directory
+.. _issue 303: https://bitbucket.org/ned/coveragepy/issues/303/unicodedecodeerror
+.. _issue 304: https://bitbucket.org/ned/coveragepy/issues/304/attempt-to-get-configuration-from-setupcfg
+.. _issue 305: https://bitbucket.org/ned/coveragepy/issues/305/pendingdeprecationwarning-the-imp-module
+.. _issue 331: https://bitbucket.org/ned/coveragepy/issues/331/failure-of-encoding-detection-on-python2
 
+
+.. _changes_371:
 
 Version 3.7.1 --- 2013-12-13
 ----------------------------
@@ -734,6 +1173,8 @@ Version 3.7.1 --- 2013-12-13
 - Fixed the mechanism for finding OS-installed static files for the HTML report
   so that it will actually find OS-installed static files.
 
+
+.. _changes_37:
 
 Version 3.7 --- 2013-10-06
 --------------------------
@@ -778,19 +1219,21 @@ Version 3.7 --- 2013-10-06
 - The source kit now includes the ``__main__.py`` file in the root coverage
   directory, fixing `issue 255`_.
 
-.. _issue 92: https://bitbucket.org/ned/coveragepy/issue/92/finally-clauses-arent-treated-properly-in
-.. _issue 164: https://bitbucket.org/ned/coveragepy/issue/164/trace-function-changed-warning-when-using
-.. _issue 175: https://bitbucket.org/ned/coveragepy/issue/175/branch-coverage-gets-confused-in-certain
-.. _issue 207: https://bitbucket.org/ned/coveragepy/issue/207/run-m-cannot-find-module-or-package-in
-.. _issue 242: https://bitbucket.org/ned/coveragepy/issue/242/running-a-two-level-package-doesnt-work
-.. _issue 218: https://bitbucket.org/ned/coveragepy/issue/218/run-command-does-not-respect-the-omit-flag
-.. _issue 250: https://bitbucket.org/ned/coveragepy/issue/250/uncaught-zerodivisionerror-when-generating
-.. _issue 255: https://bitbucket.org/ned/coveragepy/issue/255/directory-level-__main__py-not-included-in
-.. _issue 259: https://bitbucket.org/ned/coveragepy/issue/259/allow-use-of-system-installed-third-party
-.. _issue 261: https://bitbucket.org/ned/coveragepy/issue/261/pyw-files-arent-reported-properly
-.. _issue 264: https://bitbucket.org/ned/coveragepy/issue/264/coverage-wont-run-pyc-files
-.. _issue 267: https://bitbucket.org/ned/coveragepy/issue/267/relative-path-aliases-dont-work
+.. _issue 92: https://bitbucket.org/ned/coveragepy/issues/92/finally-clauses-arent-treated-properly-in
+.. _issue 164: https://bitbucket.org/ned/coveragepy/issues/164/trace-function-changed-warning-when-using
+.. _issue 175: https://bitbucket.org/ned/coveragepy/issues/175/branch-coverage-gets-confused-in-certain
+.. _issue 207: https://bitbucket.org/ned/coveragepy/issues/207/run-m-cannot-find-module-or-package-in
+.. _issue 242: https://bitbucket.org/ned/coveragepy/issues/242/running-a-two-level-package-doesnt-work
+.. _issue 218: https://bitbucket.org/ned/coveragepy/issues/218/run-command-does-not-respect-the-omit-flag
+.. _issue 250: https://bitbucket.org/ned/coveragepy/issues/250/uncaught-zerodivisionerror-when-generating
+.. _issue 255: https://bitbucket.org/ned/coveragepy/issues/255/directory-level-__main__py-not-included-in
+.. _issue 259: https://bitbucket.org/ned/coveragepy/issues/259/allow-use-of-system-installed-third-party
+.. _issue 261: https://bitbucket.org/ned/coveragepy/issues/261/pyw-files-arent-reported-properly
+.. _issue 264: https://bitbucket.org/ned/coveragepy/issues/264/coverage-wont-run-pyc-files
+.. _issue 267: https://bitbucket.org/ned/coveragepy/issues/267/relative-path-aliases-dont-work
 
+
+.. _changes_36:
 
 Version 3.6 --- 2013-01-05
 --------------------------
@@ -798,8 +1241,8 @@ Version 3.6 --- 2013-01-05
 - Added a page to the docs about troublesome situations, closing `issue 226`_,
   and added some info to the TODO file, closing `issue 227`_.
 
-.. _issue 226: https://bitbucket.org/ned/coveragepy/issue/226/make-readme-section-to-describe-when
-.. _issue 227: https://bitbucket.org/ned/coveragepy/issue/227/update-todo
+.. _issue 226: https://bitbucket.org/ned/coveragepy/issues/226/make-readme-section-to-describe-when
+.. _issue 227: https://bitbucket.org/ned/coveragepy/issues/227/update-todo
 
 
 Version 3.6b3 --- 2012-12-29
@@ -807,7 +1250,7 @@ Version 3.6b3 --- 2012-12-29
 
 - Beta 2 broke the nose plugin. It's fixed again, closing `issue 224`_.
 
-.. _issue 224: https://bitbucket.org/ned/coveragepy/issue/224/36b2-breaks-nosexcover
+.. _issue 224: https://bitbucket.org/ned/coveragepy/issues/224/36b2-breaks-nosexcover
 
 
 Version 3.6b2 --- 2012-12-23
@@ -827,7 +1270,7 @@ Version 3.6b2 --- 2012-12-23
   file name, coverage.py no longer associates it with the directory name,
   fixing `issue 221`_.
 
-.. _issue 221: https://bitbucket.org/ned/coveragepy/issue/221/coveragepy-incompatible-with-pyratemp
+.. _issue 221: https://bitbucket.org/ned/coveragepy/issues/221/coveragepy-incompatible-with-pyratemp
 
 
 Version 3.6b1 --- 2012-11-28
@@ -921,28 +1364,30 @@ Version 3.6b1 --- 2012-11-28
   ``'NoneType' object has no attribute 'isabs'``.  It no longer does,
   so kiss `issue 153`_ goodbye.
 
-.. _issue 60: https://bitbucket.org/ned/coveragepy/issue/60/incorrect-path-to-orphaned-pyc-files
-.. _issue 67: https://bitbucket.org/ned/coveragepy/issue/67/xml-report-filenames-may-be-generated
-.. _issue 89: https://bitbucket.org/ned/coveragepy/issue/89/on-windows-all-packages-are-reported-in
-.. _issue 97: https://bitbucket.org/ned/coveragepy/issue/97/allow-environment-variables-to-be
-.. _issue 100: https://bitbucket.org/ned/coveragepy/issue/100/source-directive-doesnt-work-for-packages
-.. _issue 111: https://bitbucket.org/ned/coveragepy/issue/111/when-installing-coverage-with-pip-not
-.. _issue 137: https://bitbucket.org/ned/coveragepy/issue/137/provide-docs-with-source-distribution
-.. _issue 139: https://bitbucket.org/ned/coveragepy/issue/139/easy-check-for-a-certain-coverage-in-tests
-.. _issue 143: https://bitbucket.org/ned/coveragepy/issue/143/omit-doesnt-seem-to-work-in-coverage
-.. _issue 153: https://bitbucket.org/ned/coveragepy/issue/153/non-existent-filename-triggers
-.. _issue 156: https://bitbucket.org/ned/coveragepy/issue/156/a-completely-unexecuted-file-shows-14
-.. _issue 163: https://bitbucket.org/ned/coveragepy/issue/163/problem-with-include-and-omit-filename
-.. _issue 171: https://bitbucket.org/ned/coveragepy/issue/171/how-to-contribute-and-run-tests
-.. _issue 193: https://bitbucket.org/ned/coveragepy/issue/193/unicodedecodeerror-on-htmlpy
-.. _issue 201: https://bitbucket.org/ned/coveragepy/issue/201/coverage-using-django-14-with-pydb-on
-.. _issue 202: https://bitbucket.org/ned/coveragepy/issue/202/get-rid-of-ez_setuppy-and
-.. _issue 203: https://bitbucket.org/ned/coveragepy/issue/203/duplicate-filenames-reported-when-filename
-.. _issue 205: https://bitbucket.org/ned/coveragepy/issue/205/make-pydoc-coverage-more-friendly
-.. _issue 206: https://bitbucket.org/ned/coveragepy/issue/206/pydoc-coveragecoverage-fails-with-an-error
-.. _issue 210: https://bitbucket.org/ned/coveragepy/issue/210/if-theres-no-coverage-data-coverage-xml
-.. _issue 214: https://bitbucket.org/ned/coveragepy/issue/214/coveragepy-measures-itself-on-precise
+.. _issue 60: https://bitbucket.org/ned/coveragepy/issues/60/incorrect-path-to-orphaned-pyc-files
+.. _issue 67: https://bitbucket.org/ned/coveragepy/issues/67/xml-report-filenames-may-be-generated
+.. _issue 89: https://bitbucket.org/ned/coveragepy/issues/89/on-windows-all-packages-are-reported-in
+.. _issue 97: https://bitbucket.org/ned/coveragepy/issues/97/allow-environment-variables-to-be
+.. _issue 100: https://bitbucket.org/ned/coveragepy/issues/100/source-directive-doesnt-work-for-packages
+.. _issue 111: https://bitbucket.org/ned/coveragepy/issues/111/when-installing-coverage-with-pip-not
+.. _issue 137: https://bitbucket.org/ned/coveragepy/issues/137/provide-docs-with-source-distribution
+.. _issue 139: https://bitbucket.org/ned/coveragepy/issues/139/easy-check-for-a-certain-coverage-in-tests
+.. _issue 143: https://bitbucket.org/ned/coveragepy/issues/143/omit-doesnt-seem-to-work-in-coverage
+.. _issue 153: https://bitbucket.org/ned/coveragepy/issues/153/non-existent-filename-triggers
+.. _issue 156: https://bitbucket.org/ned/coveragepy/issues/156/a-completely-unexecuted-file-shows-14
+.. _issue 163: https://bitbucket.org/ned/coveragepy/issues/163/problem-with-include-and-omit-filename
+.. _issue 171: https://bitbucket.org/ned/coveragepy/issues/171/how-to-contribute-and-run-tests
+.. _issue 193: https://bitbucket.org/ned/coveragepy/issues/193/unicodedecodeerror-on-htmlpy
+.. _issue 201: https://bitbucket.org/ned/coveragepy/issues/201/coverage-using-django-14-with-pydb-on
+.. _issue 202: https://bitbucket.org/ned/coveragepy/issues/202/get-rid-of-ez_setuppy-and
+.. _issue 203: https://bitbucket.org/ned/coveragepy/issues/203/duplicate-filenames-reported-when-filename
+.. _issue 205: https://bitbucket.org/ned/coveragepy/issues/205/make-pydoc-coverage-more-friendly
+.. _issue 206: https://bitbucket.org/ned/coveragepy/issues/206/pydoc-coveragecoverage-fails-with-an-error
+.. _issue 210: https://bitbucket.org/ned/coveragepy/issues/210/if-theres-no-coverage-data-coverage-xml
+.. _issue 214: https://bitbucket.org/ned/coveragepy/issues/214/coveragepy-measures-itself-on-precise
 
+
+.. _changes_353:
 
 Version 3.5.3 --- 2012-09-29
 ----------------------------
@@ -974,14 +1419,16 @@ Version 3.5.3 --- 2012-09-29
 
 - Testing is now done with `tox`_, thanks, Marc Abramowitz.
 
-.. _issue 147: https://bitbucket.org/ned/coveragepy/issue/147/massive-memory-usage-by-ctracer
-.. _issue 179: https://bitbucket.org/ned/coveragepy/issue/179/htmlreporter-fails-when-source-file-is
-.. _issue 183: https://bitbucket.org/ned/coveragepy/issue/183/install-fails-for-python-23
-.. _issue 194: https://bitbucket.org/ned/coveragepy/issue/194/filelocatorrelative_filename-could-mangle
-.. _issue 195: https://bitbucket.org/ned/coveragepy/issue/195/pyo-file-handling-in-codeunit
-.. _issue 197: https://bitbucket.org/ned/coveragepy/issue/197/line-numbers-in-html-report-do-not-align
-.. _tox: http://tox.readthedocs.org/
+.. _issue 147: https://bitbucket.org/ned/coveragepy/issues/147/massive-memory-usage-by-ctracer
+.. _issue 179: https://bitbucket.org/ned/coveragepy/issues/179/htmlreporter-fails-when-source-file-is
+.. _issue 183: https://bitbucket.org/ned/coveragepy/issues/183/install-fails-for-python-23
+.. _issue 194: https://bitbucket.org/ned/coveragepy/issues/194/filelocatorrelative_filename-could-mangle
+.. _issue 195: https://bitbucket.org/ned/coveragepy/issues/195/pyo-file-handling-in-codeunit
+.. _issue 197: https://bitbucket.org/ned/coveragepy/issues/197/line-numbers-in-html-report-do-not-align
+.. _tox: https://tox.readthedocs.io/
 
+
+.. _changes_352:
 
 Version 3.5.2 --- 2012-05-04
 ----------------------------
@@ -1025,13 +1472,15 @@ Version 3.5.2b1 --- 2012-04-29
 - When installing into pypy, we no longer attempt (and fail) to compile
   the C tracer function, closing `issue 166`_.
 
-.. _issue 142: https://bitbucket.org/ned/coveragepy/issue/142/executing-python-file-syspath-is-replaced
-.. _issue 155: https://bitbucket.org/ned/coveragepy/issue/155/cant-use-coverage-run-m-unittest-discover
-.. _issue 157: https://bitbucket.org/ned/coveragepy/issue/157/chokes-on-source-files-with-non-utf-8
-.. _issue 166: https://bitbucket.org/ned/coveragepy/issue/166/dont-try-to-compile-c-extension-on-pypy
-.. _issue 168: https://bitbucket.org/ned/coveragepy/issue/168/dont-be-alarmed-by-emacs-droppings
-.. _issue 173: https://bitbucket.org/ned/coveragepy/issue/173/theres-no-way-to-specify-show-missing-in
+.. _issue 142: https://bitbucket.org/ned/coveragepy/issues/142/executing-python-file-syspath-is-replaced
+.. _issue 155: https://bitbucket.org/ned/coveragepy/issues/155/cant-use-coverage-run-m-unittest-discover
+.. _issue 157: https://bitbucket.org/ned/coveragepy/issues/157/chokes-on-source-files-with-non-utf-8
+.. _issue 166: https://bitbucket.org/ned/coveragepy/issues/166/dont-try-to-compile-c-extension-on-pypy
+.. _issue 168: https://bitbucket.org/ned/coveragepy/issues/168/dont-be-alarmed-by-emacs-droppings
+.. _issue 173: https://bitbucket.org/ned/coveragepy/issues/173/theres-no-way-to-specify-show-missing-in
 
+
+.. _changes_351:
 
 Version 3.5.1 --- 2011-09-23
 ----------------------------
@@ -1072,13 +1521,15 @@ Version 3.5.1b1 --- 2011-08-28
   into running some coverage.py code before anything else in the process.
   See the coverage/fullcoverage directory if you are interested.
 
-.. _issue 17: http://bitbucket.org/ned/coveragepy/issue/17/support-combining-coverage-data-from
-.. _issue 122: http://bitbucket.org/ned/coveragepy/issue/122/for-else-always-reports-missing-branch
-.. _issue 124: http://bitbucket.org/ned/coveragepy/issue/124/no-arbitrary-unicode-in-html-reports-in
-.. _issue 128: http://bitbucket.org/ned/coveragepy/issue/128/branch-coverage-of-with-statement-in-27
-.. _issue 138: http://bitbucket.org/ned/coveragepy/issue/138/include-should-take-precedence-over-is
-.. _issue 144: http://bitbucket.org/ned/coveragepy/issue/144/failure-generating-html-output-for
+.. _issue 17: https://bitbucket.org/ned/coveragepy/issues/17/support-combining-coverage-data-from
+.. _issue 122: https://bitbucket.org/ned/coveragepy/issues/122/for-else-always-reports-missing-branch
+.. _issue 124: https://bitbucket.org/ned/coveragepy/issues/124/no-arbitrary-unicode-in-html-reports-in
+.. _issue 128: https://bitbucket.org/ned/coveragepy/issues/128/branch-coverage-of-with-statement-in-27
+.. _issue 138: https://bitbucket.org/ned/coveragepy/issues/138/include-should-take-precedence-over-is
+.. _issue 144: https://bitbucket.org/ned/coveragepy/issues/144/failure-generating-html-output-for
 
+
+.. _changes_35:
 
 Version 3.5 --- 2011-06-29
 --------------------------
@@ -1108,9 +1559,9 @@ Version 3.5b1 --- 2011-06-05
 - Partial branch warnings can now be pragma'd away.  The configuration option
   ``partial_branches`` is a list of regular expressions.  Lines matching any of
   those expressions will never be marked as a partial branch.  In addition,
-  there's a built-in list of regular expressions marking statements which should
-  never be marked as partial.  This list includes ``while True:``, ``while 1:``,
-  ``if 1:``, and ``if 0:``.
+  there's a built-in list of regular expressions marking statements which
+  should never be marked as partial.  This list includes ``while True:``,
+  ``while 1:``, ``if 1:``, and ``if 0:``.
 
 - The ``coverage()`` constructor accepts single strings for the ``omit=`` and
   ``include=`` arguments, adapting to a common error in programmatic use.
@@ -1157,16 +1608,18 @@ Version 3.5b1 --- 2011-06-05
 - Internally, files are now closed explicitly, fixing `issue 104`_.  Thanks,
   Brett Cannon.
 
-.. _issue 80: https://bitbucket.org/ned/coveragepy/issue/80/is-there-a-duck-typing-way-to-know-we-cant
-.. _issue 93: http://bitbucket.org/ned/coveragepy/issue/93/copying-a-mock-object-breaks-coverage
-.. _issue 95: https://bitbucket.org/ned/coveragepy/issue/95/run-subcommand-should-take-a-module-name
-.. _issue 104: https://bitbucket.org/ned/coveragepy/issue/104/explicitly-close-files
-.. _issue 107: https://bitbucket.org/ned/coveragepy/issue/107/codeparser-not-opening-source-files-with
-.. _issue 115: https://bitbucket.org/ned/coveragepy/issue/115/fail-gracefully-when-reporting-on-file
-.. _issue 121: https://bitbucket.org/ned/coveragepy/issue/121/filename-patterns-are-applied-stupidly
-.. _issue 123: https://bitbucket.org/ned/coveragepy/issue/123/pyeval_settrace-used-in-way-that-breaks
-.. _issue 125: https://bitbucket.org/ned/coveragepy/issue/125/coverage-removes-decoratortoolss-tracing
+.. _issue 80: https://bitbucket.org/ned/coveragepy/issues/80/is-there-a-duck-typing-way-to-know-we-cant
+.. _issue 93: https://bitbucket.org/ned/coveragepy/issues/93/copying-a-mock-object-breaks-coverage
+.. _issue 95: https://bitbucket.org/ned/coveragepy/issues/95/run-subcommand-should-take-a-module-name
+.. _issue 104: https://bitbucket.org/ned/coveragepy/issues/104/explicitly-close-files
+.. _issue 107: https://bitbucket.org/ned/coveragepy/issues/107/codeparser-not-opening-source-files-with
+.. _issue 115: https://bitbucket.org/ned/coveragepy/issues/115/fail-gracefully-when-reporting-on-file
+.. _issue 121: https://bitbucket.org/ned/coveragepy/issues/121/filename-patterns-are-applied-stupidly
+.. _issue 123: https://bitbucket.org/ned/coveragepy/issues/123/pyeval_settrace-used-in-way-that-breaks
+.. _issue 125: https://bitbucket.org/ned/coveragepy/issues/125/coverage-removes-decoratortoolss-tracing
 
+
+.. _changes_34:
 
 Version 3.4 --- 2010-09-19
 --------------------------
@@ -1176,7 +1629,7 @@ Version 3.4 --- 2010-09-19
 - Programs that exited with ``sys.exit()`` with no argument weren't handled
   properly, producing a coverage.py stack trace.  That is now fixed.
 
-.. _issue 88: http://bitbucket.org/ned/coveragepy/issue/88/xml-report-lists-packages-in-random-order
+.. _issue 88: https://bitbucket.org/ned/coveragepy/issues/88/xml-report-lists-packages-in-random-order
 
 
 Version 3.4b2 --- 2010-09-06
@@ -1201,12 +1654,12 @@ Version 3.4b2 --- 2010-09-06
   would report no coverage for the `run` method.  This is now fixed, closing
   `issue 85`_.
 
-.. _issue 16: http://bitbucket.org/ned/coveragepy/issue/16/allow-configuration-of-accuracy-of-percentage-totals
-.. _issue 41: http://bitbucket.org/ned/coveragepy/issue/41/report-says-100-when-it-isnt-quite-there
-.. _issue 65: http://bitbucket.org/ned/coveragepy/issue/65/branch-option-not-reported-in-cobertura
-.. _issue 70: http://bitbucket.org/ned/coveragepy/issue/70/text-report-and-html-report-disagree-on-coverage
-.. _issue 81: http://bitbucket.org/ned/coveragepy/issue/81/xml-report-does-not-have-condition-coverage-attribute-for-lines-with-a
-.. _issue 85: http://bitbucket.org/ned/coveragepy/issue/85/threadrun-isnt-measured
+.. _issue 16: https://bitbucket.org/ned/coveragepy/issues/16/allow-configuration-of-accuracy-of-percentage-totals
+.. _issue 41: https://bitbucket.org/ned/coveragepy/issues/41/report-says-100-when-it-isnt-quite-there
+.. _issue 65: https://bitbucket.org/ned/coveragepy/issues/65/branch-option-not-reported-in-cobertura
+.. _issue 70: https://bitbucket.org/ned/coveragepy/issues/70/text-report-and-html-report-disagree-on-coverage
+.. _issue 81: https://bitbucket.org/ned/coveragepy/issues/81/xml-report-does-not-have-condition-coverage-attribute-for-lines-with-a
+.. _issue 85: https://bitbucket.org/ned/coveragepy/issues/85/threadrun-isnt-measured
 
 
 Version 3.4b1 --- 2010-08-21
@@ -1282,18 +1735,20 @@ Version 3.4b1 --- 2010-08-21
 - Asking for an HTML report with no files now shows a nice error message rather
   than a cryptic failure ('int' object is unsubscriptable). Fixes `issue 59`_.
 
-.. _issue 1:  http://bitbucket.org/ned/coveragepy/issue/1/empty-__init__py-files-are-reported-as-1-executable
-.. _issue 34: http://bitbucket.org/ned/coveragepy/issue/34/enhanced-omit-globbing-handling
-.. _issue 36: http://bitbucket.org/ned/coveragepy/issue/36/provide-regex-style-omit
-.. _issue 46: http://bitbucket.org/ned/coveragepy/issue/46
-.. _issue 53: http://bitbucket.org/ned/coveragepy/issue/53
-.. _issue 52: http://bitbucket.org/ned/coveragepy/issue/52/doctesttestfile-confuses-source-detection
-.. _issue 56: http://bitbucket.org/ned/coveragepy/issue/56
-.. _issue 61: http://bitbucket.org/ned/coveragepy/issue/61/annotate-i-doesnt-work
-.. _issue 62: http://bitbucket.org/ned/coveragepy/issue/62
-.. _issue 59: http://bitbucket.org/ned/coveragepy/issue/59/html-report-fails-with-int-object-is
-.. _issue 82: http://bitbucket.org/ned/coveragepy/issue/82/tokenerror-when-generating-html-report
+.. _issue 1:  https://bitbucket.org/ned/coveragepy/issues/1/empty-__init__py-files-are-reported-as-1-executable
+.. _issue 34: https://bitbucket.org/ned/coveragepy/issues/34/enhanced-omit-globbing-handling
+.. _issue 36: https://bitbucket.org/ned/coveragepy/issues/36/provide-regex-style-omit
+.. _issue 46: https://bitbucket.org/ned/coveragepy/issues/46
+.. _issue 53: https://bitbucket.org/ned/coveragepy/issues/53
+.. _issue 52: https://bitbucket.org/ned/coveragepy/issues/52/doctesttestfile-confuses-source-detection
+.. _issue 56: https://bitbucket.org/ned/coveragepy/issues/56
+.. _issue 61: https://bitbucket.org/ned/coveragepy/issues/61/annotate-i-doesnt-work
+.. _issue 62: https://bitbucket.org/ned/coveragepy/issues/62
+.. _issue 59: https://bitbucket.org/ned/coveragepy/issues/59/html-report-fails-with-int-object-is
+.. _issue 82: https://bitbucket.org/ned/coveragepy/issues/82/tokenerror-when-generating-html-report
 
+
+.. _changes_331:
 
 Version 3.3.1 --- 2010-03-06
 ----------------------------
@@ -1304,9 +1759,11 @@ Version 3.3.1 --- 2010-03-06
 - When running your code with "coverage run", if you call `sys.exit()`,
   coverage.py will exit with that status code, fixing `issue 50`_.
 
-.. _issue 49: http://bitbucket.org/ned/coveragepy/issue/49
-.. _issue 50: http://bitbucket.org/ned/coveragepy/issue/50
+.. _issue 49: https://bitbucket.org/ned/coveragepy/issues/49
+.. _issue 50: https://bitbucket.org/ned/coveragepy/issues/50
 
+
+.. _changes_33:
 
 Version 3.3 --- 2010-02-24
 --------------------------
@@ -1342,10 +1799,12 @@ Version 3.3 --- 2010-02-24
 
 - Added an AUTHORS.txt file.
 
-.. _issue 39: http://bitbucket.org/ned/coveragepy/issue/39
-.. _issue 40: http://bitbucket.org/ned/coveragepy/issue/40
-.. _issue 47: http://bitbucket.org/ned/coveragepy/issue/47
+.. _issue 39: https://bitbucket.org/ned/coveragepy/issues/39
+.. _issue 40: https://bitbucket.org/ned/coveragepy/issues/40
+.. _issue 47: https://bitbucket.org/ned/coveragepy/issues/47
 
+
+.. _changes_32:
 
 Version 3.2 --- 2009-12-05
 --------------------------
@@ -1366,7 +1825,7 @@ Version 3.2b4 --- 2009-12-01
 
 - On Python 3.x, setuptools has been replaced by `Distribute`_.
 
-.. _Distribute: http://packages.python.org/distribute/
+.. _Distribute: https://pypi.python.org/pypi/distribute
 
 
 Version 3.2b3 --- 2009-11-23
@@ -1381,7 +1840,7 @@ Version 3.2b3 --- 2009-11-23
 - The table of contents in the HTML report is now sortable: click the headers
   on any column.  Thanks, `Chris Adams`_.
 
-.. _Chris Adams: http://improbable.org/chris/
+.. _Chris Adams: http://chris.improbable.org
 
 
 Version 3.2b2 --- 2009-11-19
@@ -1400,12 +1859,12 @@ Version 3.2b2 --- 2009-11-19
 - The --omit option now works much better than before, fixing `issue 14`_ and
   `issue 33`_.  Thanks, Danek Duvall.
 
-.. _issue 14: http://bitbucket.org/ned/coveragepy/issue/14
-.. _issue 30: http://bitbucket.org/ned/coveragepy/issue/30
-.. _issue 31: http://bitbucket.org/ned/coveragepy/issue/31
-.. _issue 32: http://bitbucket.org/ned/coveragepy/issue/32
-.. _issue 33: http://bitbucket.org/ned/coveragepy/issue/33
-.. _issue 35: http://bitbucket.org/ned/coveragepy/issue/35
+.. _issue 14: https://bitbucket.org/ned/coveragepy/issues/14
+.. _issue 30: https://bitbucket.org/ned/coveragepy/issues/30
+.. _issue 31: https://bitbucket.org/ned/coveragepy/issues/31
+.. _issue 32: https://bitbucket.org/ned/coveragepy/issues/32
+.. _issue 33: https://bitbucket.org/ned/coveragepy/issues/33
+.. _issue 35: https://bitbucket.org/ned/coveragepy/issues/35
 
 
 Version 3.2b1 --- 2009-11-10
@@ -1420,8 +1879,10 @@ Version 3.2b1 --- 2009-11-10
 - Some exceptions reported by the command line interface have been cleaned up
   so that tracebacks inside coverage.py aren't shown.  Fixes `issue 23`_.
 
-.. _issue 23: http://bitbucket.org/ned/coveragepy/issue/23
+.. _issue 23: https://bitbucket.org/ned/coveragepy/issues/23
 
+
+.. _changes_31:
 
 Version 3.1 --- 2009-10-04
 --------------------------
@@ -1429,7 +1890,7 @@ Version 3.1 --- 2009-10-04
 - Source code can now be read from eggs.  Thanks, Ross Lawley.  Fixes
   `issue 25`_.
 
-.. _issue 25: http://bitbucket.org/ned/coveragepy/issue/25
+.. _issue 25: https://bitbucket.org/ned/coveragepy/issues/25
 
 
 Version 3.1b1 --- 2009-09-27
@@ -1459,11 +1920,13 @@ Version 3.1b1 --- 2009-09-27
 - Added a "coverage debug" command for getting diagnostic information about the
   coverage.py installation.
 
-.. _issue 11: http://bitbucket.org/ned/coveragepy/issue/11
-.. _issue 12: http://bitbucket.org/ned/coveragepy/issue/12
-.. _issue 13: http://bitbucket.org/ned/coveragepy/issue/13
-.. _issue 24: http://bitbucket.org/ned/coveragepy/issue/24
+.. _issue 11: https://bitbucket.org/ned/coveragepy/issues/11
+.. _issue 12: https://bitbucket.org/ned/coveragepy/issues/12
+.. _issue 13: https://bitbucket.org/ned/coveragepy/issues/13
+.. _issue 24: https://bitbucket.org/ned/coveragepy/issues/24
 
+
+.. _changes_301:
 
 Version 3.0.1 --- 2009-07-07
 ----------------------------
@@ -1485,10 +1948,12 @@ Version 3.0.1 --- 2009-07-07
   mode just like Python does.  This lets it run Windows files on Mac, for
   example.
 
-.. _issue 9: http://bitbucket.org/ned/coveragepy/issue/9
-.. _issue 10: http://bitbucket.org/ned/coveragepy/issue/10
-.. _issue 8: http://bitbucket.org/ned/coveragepy/issue/8
+.. _issue 9: https://bitbucket.org/ned/coveragepy/issues/9
+.. _issue 10: https://bitbucket.org/ned/coveragepy/issues/10
+.. _issue 8: https://bitbucket.org/ned/coveragepy/issues/8
 
+
+.. _changes_30:
 
 Version 3.0 --- 2009-06-13
 --------------------------
@@ -1501,7 +1966,7 @@ Version 3.0 --- 2009-06-13
 
 - Nested modules now get a proper flat_rootname.  Thanks, Christian Heimes.
 
-.. _issue 6: http://bitbucket.org/ned/coveragepy/issue/6
+.. _issue 6: https://bitbucket.org/ned/coveragepy/issues/6
 
 
 Version 3.0b3 --- 2009-05-16
@@ -1599,8 +2064,8 @@ Version 2.78 --- 2007-09-30
 ---------------------------
 
 - Don't try to predict whether a file is Python source based on the extension.
-  Extension-less files are often Pythons scripts. Instead, simply parse the file
-  and catch the syntax errors. Hat tip to Ben Finney.
+  Extension-less files are often Pythons scripts. Instead, simply parse the
+  file and catch the syntax errors. Hat tip to Ben Finney.
 
 
 Version 2.77 --- 2007-07-29

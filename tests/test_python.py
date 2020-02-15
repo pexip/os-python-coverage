@@ -6,7 +6,10 @@
 import os
 import sys
 
-from coverage.python import get_zip_bytes
+import pytest
+
+from coverage import env
+from coverage.python import get_zip_bytes, source_for_file
 
 from tests.coveragetest import CoverageTest
 
@@ -28,3 +31,31 @@ class GetZipBytesTest(CoverageTest):
             self.assertIn('All OK', zip_text)
             # Run the code to see that we really got it encoded properly.
             __import__("encoded_"+encoding)
+
+
+def test_source_for_file(tmpdir):
+    path = tmpdir.join("a.py")
+    src = str(path)
+    assert source_for_file(src) == src
+    assert source_for_file(src + 'c') == src
+    assert source_for_file(src + 'o') == src
+    unknown = src + 'FOO'
+    assert source_for_file(unknown) == unknown
+
+
+@pytest.mark.skipif(not env.WINDOWS, reason="not windows")
+def test_source_for_file_windows(tmpdir):
+    path = tmpdir.join("a.py")
+    src = str(path)
+
+    # On windows if a pyw exists, it is an acceptable source
+    path_windows = tmpdir.ensure("a.pyw")
+    assert str(path_windows) == source_for_file(src + 'c')
+
+    # If both pyw and py exist, py is preferred
+    path.ensure(file=True)
+    assert source_for_file(src + 'c') == src
+
+
+def test_source_for_file_jython():
+    assert source_for_file("a$py.class") == "a.py"

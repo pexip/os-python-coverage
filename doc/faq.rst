@@ -7,24 +7,52 @@
 FAQ and other help
 ==================
 
-.. :history: 20090613T141800, brand new docs.
-.. :history: 20091005T073900, updated for 3.1.
-.. :history: 20091127T201500, updated for 3.2.
-.. :history: 20110605T175500, add the announcement mailing list.
-.. :history: 20121231T104700, Tweak the py3 text.
-
 
 Frequently asked questions
 --------------------------
 
-**Q: I use nose to run my tests, and its cover plugin doesn't let me create
-HTML or XML reports.  What should I do?**
+**Q: How do I use coverage.py with nose?**
+
+The best way to use nose and coverage.py together is to run nose under
+coverage.py::
+
+    coverage run $(which nosetests)
+
+You can also use ``nosetests --with-coverage`` to use `nose's built-in
+plugin`__, but it isn't recommended.
+
+The nose plugin doesn't expose all the functionality and configurability of
+coverage.py, and it uses different command-line options from those described in
+coverage.py's documentation.  Additionally nose and its coverage plugin are
+unmaintained at this point, so they aren't receiving any fixes or other
+updates.
+
+__ https://nose.readthedocs.io/en/latest/plugins/cover.html
+
+
+**Q: How do I run nosetests under coverage.py with tox?**
+
+Assuming you've installed tox in a virtualenv, you can do this in tox.ini::
+
+    [testenv]
+    commands = coverage run {envbindir}/nosetests
+
+Coverage.py needs a path to the nosetests executable, but ``coverage run
+$(which nosetests)`` doesn't work in tox.ini because tox doesn't handle the
+shell command substitution. Tox's `string substitution`__ shown above does the
+trick.
+
+__ https://tox.readthedocs.io/en/latest/config.html#substitutions
+
+
+**Q: I use nose to run my tests, and its coverage plugin doesn't let me create
+HTML or XML reports. What should I do?**
 
 First run your tests and collect coverage data with `nose`_ and its plugin.
 This will write coverage data into a .coverage file.  Then run coverage.py from
 the :ref:`command line <cmd>` to create the reports you need from that data.
 
-.. _nose: http://nose.readthedocs.io
+.. _nose: https://nose.readthedocs.io/
 
 
 **Q: Why do unexecutable lines show up as executed?**
@@ -58,24 +86,19 @@ coverage.start() before importing the modules that define your functions.
 Make sure you are using the C trace function.  Coverage.py provides two
 implementations of the trace function.  The C implementation runs much faster.
 To see what you are running, use ``coverage debug sys``.  The output contains
-details of the environment, including a line that says either ``tracer: CTracer``
-or ``tracer: PyTracer``.  If it says ``PyTracer`` then you are using the
-slow Python implementation.
+details of the environment, including a line that says either
+``tracer: CTracer`` or ``tracer: PyTracer``.  If it says ``PyTracer`` then you
+are using the slow Python implementation.
 
 Try re-installing coverage.py to see what happened and if you get the CTracer
 as you should.
-
-
-**Q: Does coverage.py work on Python 3.x?**
-
-Yes, Python 3 is fully supported.
 
 
 **Q: Isn't coverage testing the best thing ever?**
 
 It's good, but `it isn't perfect`__.
 
-__ http://nedbatchelder.com/blog/200710/flaws_in_coverage_measurement.html
+__ https://nedbatchelder.com/blog/200710/flaws_in_coverage_measurement.html
 
 
 ..  Other resources
@@ -86,15 +109,15 @@ __ http://nedbatchelder.com/blog/200710/flaws_in_coverage_measurement.html
 
     - `trialcoverage`_ is a plug-in for Twisted trial.
 
-    .. _trialcoverage: http://pypi.python.org/pypi/trialcoverage
+    .. _trialcoverage: https://pypi.python.org/pypi/trialcoverage
 
     - `pytest-coverage`_
 
-    .. _pytest-coverage: http://pypi.python.org/pypi/pytest-coverage
+    .. _pytest-coverage: https://pypi.python.org/pypi/pytest-coverage
 
     - `django-coverage`_ for use with Django.
 
-    .. _django-coverage: http://pypi.python.org/pypi/django-coverage
+    .. _django-coverage: https://pypi.python.org/pypi/django-coverage
 
 
 **Q: Where can I get more help with coverage.py?**
@@ -104,19 +127,14 @@ mailing list.
 
 .. _Testing In Python: http://lists.idyll.org/listinfo/testing-in-python
 
-Bug reports are gladly accepted at the `Bitbucket issue tracker`_.
+Bug reports are gladly accepted at the `GitHub issue tracker`_.
 
-.. _Bitbucket issue tracker: http://bitbucket.org/ned/coveragepy/issues
-
-Announcements of new coverage.py releases are sent to the
-`coveragepy-announce`_ mailing list.
-
-.. _coveragepy-announce: http://groups.google.com/group/coveragepy-announce
+.. _GitHub issue tracker: https://github.com/nedbat/coveragepy/issues
 
 `I can be reached`__ in a number of ways, I'm happy to answer questions about
 using coverage.py.
 
-__  http://nedbatchelder.com/site/aboutned.html
+__  https://nedbatchelder.com/site/aboutned.html
 
 
 History
@@ -127,5 +145,5 @@ Since 2004, `Ned Batchelder`_ has extended and maintained it with the help of
 `many others`_.  The :ref:`change history <changes>` has all the details.
 
 .. _Gareth Rees:    http://garethrees.org/
-.. _Ned Batchelder: http://nedbatchelder.com
-.. _many others:    http://bitbucket.org/ned/coveragepy/src/tip/AUTHORS.txt
+.. _Ned Batchelder: https://nedbatchelder.com
+.. _many others:    https://github.com/nedbat/coveragepy/blob/master/CONTRIBUTORS.txt

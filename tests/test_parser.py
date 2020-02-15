@@ -165,10 +165,10 @@ class PythonParserTest(CoverageTest):
             def func(x=25):
                 return 26
             """)
-        self.assertEqual(
-            parser.raw_statements,
-            set([3, 4, 5, 6, 8, 9, 10, 13, 15, 16, 17, 20, 22, 23, 25, 26])
-        )
+        raw_statements = set([3, 4, 5, 6, 8, 9, 10, 13, 15, 16, 17, 20, 22, 23, 25, 26])
+        if env.PYBEHAVIOR.trace_decorated_def:
+            raw_statements.update([11, 19, 25])
+        self.assertEqual(parser.raw_statements, raw_statements)
         self.assertEqual(parser.statements, set([8]))
 
     def test_class_decorator_pragmas(self):
@@ -185,6 +185,38 @@ class PythonParserTest(CoverageTest):
         self.assertEqual(parser.raw_statements, set([1, 2, 3, 5, 6, 7, 8]))
         self.assertEqual(parser.statements, set([1, 2, 3]))
 
+    def test_empty_decorated_function(self):
+        parser = self.parse_source("""\
+            def decorator(func):
+                return func
+
+            @decorator
+            def foo(self):
+                '''Docstring'''
+
+            @decorator
+            def bar(self):
+                pass
+            """)
+
+        if env.PYBEHAVIOR.trace_decorated_def:
+            expected_statements = set([1, 2, 4, 5, 8, 9, 10])
+            expected_arcs = set(self.arcz_to_arcs(".1 14 45 58 89 9.  .2 2.  -8A A-8"))
+            expected_exits = {1: 1, 2: 1, 4: 1, 5: 1, 8: 1, 9: 1, 10: 1}
+        else:
+            expected_statements = set([1, 2, 4, 8, 10])
+            expected_arcs = set(self.arcz_to_arcs(".1 14 48 8.  .2 2.  -8A A-8"))
+            expected_exits = {1: 1, 2: 1, 4: 1, 8: 1, 10: 1}
+
+        if env.PYVERSION >= (3, 7, 0, 'beta', 5):
+            # 3.7 changed how functions with only docstrings were numbered.
+            expected_arcs.update(set(self.arcz_to_arcs("-46 6-4")))
+            expected_exits.update({6: 1})
+
+        self.assertEqual(parser.statements, expected_statements)
+        self.assertEqual(parser.arcs(), expected_arcs)
+        self.assertEqual(parser.exit_counts(), expected_exits)
+
 
 class ParserMissingArcDescriptionTest(CoverageTest):
     """Tests for PythonParser.missing_arc_description."""
@@ -193,7 +225,7 @@ class ParserMissingArcDescriptionTest(CoverageTest):
 
     def parse_text(self, source):
         """Parse Python source, and return the parser object."""
-        parser = PythonParser(textwrap.dedent(source))
+        parser = PythonParser(text=textwrap.dedent(source))
         parser.parse_source()
         return parser
 
@@ -309,26 +341,57 @@ class ParserMissingArcDescriptionTest(CoverageTest):
                         this_thing(16)
                 that_thing(17)
             """)
-        self.assertEqual(
-            parser.missing_arc_description(16, 17),
-            "line 16 didn't jump to line 17, because the break on line 5 wasn't executed"
-        )
-        self.assertEqual(
-            parser.missing_arc_description(16, 2),
-            "line 16 didn't jump to line 2, "
-                "because the continue on line 8 wasn't executed"
+        if env.PYBEHAVIOR.finally_jumps_back:
+            self.assertEqual(
+                parser.missing_arc_description(16, 5),
+                "line 16 didn't jump to line 5, because the break on line 5 wasn't executed"
+            )
+            self.assertEqual(
+                parser.missing_arc_description(5, 17),
+                "line 5 didn't jump to line 17, because the break on line 5 wasn't executed"
+            )
+            self.assertEqual(
+                parser.missing_arc_description(16, 8),
+                "line 16 didn't jump to line 8, because the continue on line 8 wasn't executed"
+            )
+            self.assertEqual(
+                parser.missing_arc_description(8, 2),
+                "line 8 didn't jump to line 2, because the continue on line 8 wasn't executed"
+            )
+            self.assertEqual(
+                parser.missing_arc_description(16, 12),
+                "line 16 didn't jump to line 12, because the return on line 12 wasn't executed"
+            )
+            self.assertEqual(
+                parser.missing_arc_description(12, -1),
+                "line 12 didn't return from function 'function', "
+                    "because the return on line 12 wasn't executed"
+            )
+            self.assertEqual(
+                parser.missing_arc_description(16, -1),
+                "line 16 didn't except from function 'function', "
+                    "because the raise on line 14 wasn't executed"
+            )
+        else:
+            self.assertEqual(
+                parser.missing_arc_description(16, 17),
+                "line 16 didn't jump to line 17, because the break on line 5 wasn't executed"
+            )
+            self.assertEqual(
+                parser.missing_arc_description(16, 2),
+                "line 16 didn't jump to line 2, "
+                    "because the continue on line 8 wasn't executed"
+                    " or "
+                    "the continue on line 10 wasn't executed"
+            )
+            self.assertEqual(
+                parser.missing_arc_description(16, -1),
+                "line 16 didn't except from function 'function', "
+                    "because the raise on line 14 wasn't executed"
                 " or "
-                "the continue on line 10 wasn't executed"
-        )
-        self.assertEqual(
-            parser.missing_arc_description(16, -1),
-            "line 16 didn't except from function 'function', "
-                "because the raise on line 14 wasn't executed"
-            " or "
-            "line 16 didn't return from function 'function', "
-                "because the return on line 12 wasn't executed"
-        )
-
+                "line 16 didn't return from function 'function', "
+                    "because the return on line 12 wasn't executed"
+            )
     def test_missing_arc_descriptions_bug460(self):
         parser = self.parse_text(u"""\
             x = 1

@@ -5,13 +5,13 @@
 
 import contextlib
 import datetime
-import glob
+import functools
 import os
 import random
 import re
 import shlex
-import shutil
 import sys
+import types
 
 from unittest_mixins import (
     EnvironmentAwareMixin, StdStreamCapturingMixin, TempDirMixin,
@@ -19,24 +19,55 @@ from unittest_mixins import (
 )
 
 import coverage
-from coverage.backunittest import TestCase
+from coverage import env
+from coverage.backunittest import TestCase, unittest
 from coverage.backward import StringIO, import_local_file, string_class, shlex_quote
 from coverage.cmdline import CoverageScript
-from coverage.debug import _TEST_NAME_FILE, DebugControl
+from coverage.debug import _TEST_NAME_FILE
+from coverage.misc import StopEverything
 
-from tests.helpers import run_command
+from tests.helpers import run_command, SuperModuleCleaner
 
 
 # Status returns for the command line.
 OK, ERR = 0, 1
 
+# The coverage/tests directory, for all sorts of finding test helping things.
+TESTS_DIR = os.path.dirname(__file__)
+
+
+def convert_skip_exceptions(method):
+    """A decorator for test methods to convert StopEverything to SkipTest."""
+    @functools.wraps(method)
+    def wrapper(*args, **kwargs):
+        """Run the test method, and convert exceptions."""
+        try:
+            result = method(*args, **kwargs)
+        except StopEverything:
+            raise unittest.SkipTest("StopEverything!")
+        return result
+    return wrapper
+
+
+class SkipConvertingMetaclass(type):
+    """Decorate all test methods to convert StopEverything to SkipTest."""
+    def __new__(mcs, name, bases, attrs):
+        for attr_name, attr_value in attrs.items():
+            if attr_name.startswith('test_') and isinstance(attr_value, types.FunctionType):
+                attrs[attr_name] = convert_skip_exceptions(attr_value)
+
+        return super(SkipConvertingMetaclass, mcs).__new__(mcs, name, bases, attrs)
+
+
+CoverageTestMethodsMixin = SkipConvertingMetaclass('CoverageTestMethodsMixin', (), {})
 
 class CoverageTest(
     EnvironmentAwareMixin,
     StdStreamCapturingMixin,
     TempDirMixin,
     DelayedAssertionMixin,
-    TestCase
+    CoverageTestMethodsMixin,
+    TestCase,
 ):
     """A base class for coverage.py test cases."""
 
@@ -46,8 +77,13 @@ class CoverageTest(
     # Tell newer unittest implementations to print long helpful messages.
     longMessage = True
 
+    # Let stderr go to stderr, pytest will capture it for us.
+    show_stderr = True
+
     def setUp(self):
         super(CoverageTest, self).setUp()
+
+        self.module_cleaner = SuperModuleCleaner()
 
         # Attributes for getting info about what happened.
         self.last_command_status = None
@@ -67,25 +103,7 @@ class CoverageTest(
         one test.
 
         """
-        # So that we can re-import files, clean them out first.
-        self.cleanup_modules()
-        # Also have to clean out the .pyc file, since the timestamp
-        # resolution is only one second, a changed file might not be
-        # picked up.
-        for pyc in glob.glob('*.pyc'):
-            os.remove(pyc)
-        if os.path.exists("__pycache__"):
-            shutil.rmtree("__pycache__")
-
-    def import_local_file(self, modname, modfile=None):
-        """Import a local file as a module.
-
-        Opens a file in the current directory named `modname`.py, imports it
-        as `modname`, and returns the module object. `modfile` is the file to
-        import if it isn't in the current directory.
-
-        """
-        return import_local_file(modname, modfile)
+        self.module_cleaner.clean_local_file_imports()
 
     def start_import_stop(self, cov, modname, modfile=None):
         """Start coverage, import a file, then stop coverage.
@@ -100,7 +118,7 @@ class CoverageTest(
         cov.start()
         try:                                    # pragma: nested
             # Import the Python file, executing it.
-            mod = self.import_local_file(modname, modfile)
+            mod = import_local_file(modname, modfile)
         finally:                                # pragma: nested
             # Stop coverage.py.
             cov.stop()
@@ -237,17 +255,17 @@ class CoverageTest(
             with self.delayed_assertions():
                 self.assert_equal_args(
                     analysis.arc_possibilities(), arcs,
-                    "Possible arcs differ",
+                    "Possible arcs differ: minus is actual, plus is expected"
                 )
 
                 self.assert_equal_args(
                     analysis.arcs_missing(), arcs_missing,
-                    "Missing arcs differ"
+                    "Missing arcs differ: minus is actual, plus is expected"
                 )
 
                 self.assert_equal_args(
                     analysis.arcs_unpredicted(), arcs_unpredicted,
-                    "Unpredicted arcs differ"
+                    "Unpredicted arcs differ: minus is actual, plus is expected"
                 )
 
         if report:
@@ -259,11 +277,27 @@ class CoverageTest(
         return cov
 
     @contextlib.contextmanager
-    def assert_warnings(self, cov, warnings):
-        """A context manager to check that particular warnings happened in `cov`."""
+    def assert_warnings(self, cov, warnings, not_warnings=()):
+        """A context manager to check that particular warnings happened in `cov`.
+
+        `cov` is a Coverage instance.  `warnings` is a list of regexes.  Every
+        regex must match a warning that was issued by `cov`.  It is OK for
+        extra warnings to be issued by `cov` that are not matched by any regex.
+        Warnings that are disabled are still considered issued by this function.
+
+        `not_warnings` is a list of regexes that must not appear in the
+        warnings.  This is only checked if there are some positive warnings to
+        test for in `warnings`.
+
+        If `warnings` is empty, then `cov` is not allowed to issue any
+        warnings.
+
+        """
         saved_warnings = []
-        def capture_warning(msg):
+        def capture_warning(msg, slug=None):
             """A fake implementation of Coverage._warn, to capture warnings."""
+            if slug:
+                msg = "%s (%s)" % (msg, slug)
             saved_warnings.append(msg)
 
         original_warn = cov._warn
@@ -274,12 +308,22 @@ class CoverageTest(
         except:
             raise
         else:
-            for warning_regex in warnings:
-                for saved in saved_warnings:
-                    if re.search(warning_regex, saved):
-                        break
-                else:
-                    self.fail("Didn't find warning %r in %r" % (warning_regex, saved_warnings))
+            if warnings:
+                for warning_regex in warnings:
+                    for saved in saved_warnings:
+                        if re.search(warning_regex, saved):
+                            break
+                    else:
+                        self.fail("Didn't find warning %r in %r" % (warning_regex, saved_warnings))
+                for warning_regex in not_warnings:
+                    for saved in saved_warnings:
+                        if re.search(warning_regex, saved):
+                            self.fail("Found warning %r in %r" % (warning_regex, saved_warnings))
+            else:
+                # No warnings expected. Raise if any warnings happened.
+                if saved_warnings:
+                    self.fail("Unexpected warnings: %r" % (saved_warnings,))
+        finally:
             cov._warn = original_warn
 
     def nice_file(self, *fparts):
@@ -328,8 +372,7 @@ class CoverageTest(
         Returns None.
 
         """
-        script = CoverageScript(_covpkg=_covpkg)
-        ret_actual = script.command_line(shlex.split(args))
+        ret_actual = command_line(args, _covpkg=_covpkg)
         self.assertEqual(ret_actual, ret)
 
     coverage_command = "coverage"
@@ -341,39 +384,14 @@ class CoverageTest(
         combined content of `stdout` and `stderr` output streams from the
         sub-process.
 
+        See `run_command_status` for complete semantics.
+
         Use this when you need to test the process behavior of coverage.
 
         Compare with `command_line`.
 
-        Handles the following command name specially:
-
-        * "python" is replaced with the command name of the current
-            Python interpreter.
-
-        * "coverage" is replaced with the command name for the main
-            Coverage.py program.
-
         """
-        split_commandline = cmd.split(" ", 1)
-        command_name = split_commandline[0]
-        command_args = split_commandline[1:]
-
-        if command_name == "python":
-            # Running a Python interpreter in a sub-processes can be tricky.
-            # Use the real name of our own executable. So "python foo.py" might
-            # get executed as "python3.3 foo.py". This is important because
-            # Python 3.x doesn't install as "python", so you might get a Python
-            # 2 executable instead if you don't use the executable's basename.
-            command_name = os.path.basename(sys.executable)
-
-        if command_name == "coverage":
-            # The invocation requests the Coverage.py program.  Substitute the
-            # actual Coverage.py main command name.
-            command_name = self.coverage_command
-
-        full_commandline = " ".join([shlex_quote(command_name)] + command_args)
-
-        _, output = self.run_command_status(full_commandline)
+        _, output = self.run_command_status(cmd)
         return output
 
     def run_command_status(self, cmd):
@@ -383,24 +401,80 @@ class CoverageTest(
 
         Compare with `command_line`.
 
-        Returns a pair: the process' exit status and stdout text, which are
-        also stored as self.last_command_status and self.last_command_output.
+        Handles the following command names specially:
+
+        * "python" is replaced with the command name of the current
+            Python interpreter.
+
+        * "coverage" is replaced with the command name for the main
+            Coverage.py program.
+
+        Returns a pair: the process' exit status and its stdout/stderr text,
+        which are also stored as `self.last_command_status` and
+        `self.last_command_output`.
 
         """
+        # Make sure "python" and "coverage" mean specifically what we want
+        # them to mean.
+        split_commandline = cmd.split()
+        command_name = split_commandline[0]
+        command_args = split_commandline[1:]
+
+        if command_name == "python":
+            # Running a Python interpreter in a sub-processes can be tricky.
+            # Use the real name of our own executable. So "python foo.py" might
+            # get executed as "python3.3 foo.py". This is important because
+            # Python 3.x doesn't install as "python", so you might get a Python
+            # 2 executable instead if you don't use the executable's basename.
+            command_words = [os.path.basename(sys.executable)]
+
+        elif command_name == "coverage":
+            if env.JYTHON:                  # pragma: only jython
+                # Jython can't do reporting, so let's skip the test now.
+                if command_args and command_args[0] in ('report', 'html', 'xml', 'annotate'):
+                    self.skipTest("Can't run reporting commands in Jython")
+                # Jython can't run "coverage" as a command because the shebang
+                # refers to another shebang'd Python script. So run them as
+                # modules.
+                command_words = "jython -m coverage".split()
+            else:
+                # The invocation requests the Coverage.py program.  Substitute the
+                # actual Coverage.py main command name.
+                command_words = [self.coverage_command]
+
+        else:
+            command_words = [command_name]
+
+        cmd = " ".join([shlex_quote(w) for w in command_words] + command_args)
+
         # Add our test modules directory to PYTHONPATH.  I'm sure there's too
         # much path munging here, but...
-        here = os.path.dirname(self.nice_file(coverage.__file__, ".."))
-        testmods = self.nice_file(here, 'tests/modules')
-        zipfile = self.nice_file(here, 'tests/zipmods.zip')
-        pypath = os.getenv('PYTHONPATH', '')
+        pythonpath_name = "PYTHONPATH"
+        if env.JYTHON:
+            pythonpath_name = "JYTHONPATH"          # pragma: only jython
+
+        testmods = self.nice_file(self.working_root(), 'tests/modules')
+        zipfile = self.nice_file(self.working_root(), 'tests/zipmods.zip')
+        pypath = os.getenv(pythonpath_name, '')
         if pypath:
             pypath += os.pathsep
         pypath += testmods + os.pathsep + zipfile
-        self.set_environ('PYTHONPATH', pypath)
+        self.set_environ(pythonpath_name, pypath)
+
+        # There are environment variables that we set when we are running the
+        # coverage test suite under coverage.  We don't want these environment
+        # variables to leak into subprocesses we start for a test. Delete them
+        # before running the subprocess command.
+        self.del_environ("COVERAGE_COVERAGE")
+        self.del_environ("COVERAGE_PROCESS_START")
 
         self.last_command_status, self.last_command_output = run_command(cmd)
         print(self.last_command_output)
         return self.last_command_status, self.last_command_output
+
+    def working_root(self):
+        """Where is the root of the coverage.py working tree?"""
+        return os.path.dirname(self.nice_file(coverage.__file__, ".."))
 
     def report_from_command(self, cmd):
         """Return the report from the `cmd`, with some convenience added."""
@@ -428,11 +502,25 @@ class CoverageTest(
         return self.squeezed_lines(report)[-1]
 
 
-class DebugControlString(DebugControl):
-    """A `DebugControl` that writes to a StringIO, for testing."""
-    def __init__(self, options):
-        super(DebugControlString, self).__init__(options, StringIO())
+class UsingModulesMixin(object):
+    """A mixin for importing modules from tests/modules and tests/moremodules."""
 
-    def get_output(self):
-        """Get the output text from the `DebugControl`."""
-        return self.output.getvalue()
+    def setUp(self):
+        super(UsingModulesMixin, self).setUp()
+
+        # Parent class saves and restores sys.path, we can just modify it.
+        sys.path.append(self.nice_file(TESTS_DIR, 'modules'))
+        sys.path.append(self.nice_file(TESTS_DIR, 'moremodules'))
+
+
+def command_line(args, **kwargs):
+    """Run `args` through the CoverageScript command line.
+
+    `kwargs` are the keyword arguments to the CoverageScript constructor.
+
+    Returns the return code from CoverageScript.command_line.
+
+    """
+    script = CoverageScript(**kwargs)
+    ret = script.command_line(shlex.split(args))
+    return ret

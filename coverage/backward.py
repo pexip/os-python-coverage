@@ -3,10 +3,8 @@
 
 """Add things to old Pythons so I can pretend they are newer."""
 
-# This file does lots of tricky stuff, so disable a bunch of pylint warnings.
-# pylint: disable=redefined-builtin
+# This file does tricky stuff, so disable a pylint warning.
 # pylint: disable=unused-import
-# pxlint: disable=no-name-in-module
 
 import sys
 
@@ -19,11 +17,14 @@ try:
 except ImportError:
     from io import StringIO
 
-# In py3, ConfigParser was renamed to the more-standard configparser
+# In py3, ConfigParser was renamed to the more-standard configparser.
+# But there's a py3 backport that installs "configparser" in py2, and I don't
+# want it because it has annoying deprecation warnings. So try the real py2
+# import first.
 try:
-    import configparser
-except ImportError:
     import ConfigParser as configparser
+except ImportError:
+    import configparser
 
 # What's a string called?
 try:
@@ -45,9 +46,9 @@ except ImportError:
 
 # range or xrange?
 try:
-    range = xrange
+    range = xrange      # pylint: disable=redefined-builtin
 except NameError:
-    range = range       # pylint: disable=redefined-variable-type
+    range = range
 
 # shlex.quote is new, but there's an undocumented implementation in "pipes",
 # who knew!?
@@ -58,17 +59,28 @@ except ImportError:
     # in Python versions earlier than 3.3.
     from pipes import quote as shlex_quote
 
-# A function to iterate listlessly over a dict's items.
+# A function to iterate listlessly over a dict's items, and one to get the
+# items as a list.
 try:
     {}.iteritems
 except AttributeError:
+    # Python 3
     def iitems(d):
         """Produce the items from dict `d`."""
         return d.items()
+
+    def litems(d):
+        """Return a list of items from dict `d`."""
+        return list(d.items())
 else:
+    # Python 2
     def iitems(d):
         """Produce the items from dict `d`."""
         return d.iteritems()
+
+    def litems(d):
+        """Return a list of items from dict `d`."""
+        return d.items()
 
 # Getting the `next` function from an iterator is different in 2 and 3.
 try:
@@ -141,6 +153,12 @@ try:
     PYC_MAGIC_NUMBER = importlib.util.MAGIC_NUMBER
 except AttributeError:
     PYC_MAGIC_NUMBER = imp.get_magic()
+
+
+def invalidate_import_caches():
+    """Invalidate any import caches that may or may not exist."""
+    if importlib and hasattr(importlib, "invalidate_caches"):
+        importlib.invalidate_caches()
 
 
 def import_local_file(modname, modfile=None):

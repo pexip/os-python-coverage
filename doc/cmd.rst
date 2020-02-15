@@ -16,7 +16,7 @@ Coverage.py command line usage
 .. :history: 20100725T211700, updated for 3.4
 .. :history: 20110827T212500, updated for 3.5.1, combining aliases
 .. :history: 20120119T075600, Added some clarification from George Paci
-.. :history: 20120504T091800, Added info about execution warnings, and 3.5.2 stuff.
+.. :history: 20120504T091800, Added info about execution warnings, and 3.5.2.
 .. :history: 20120807T211600, Clarified the combine rules.
 .. :history: 20121003T074600, Fixed an option reference, https://bitbucket.org/ned/coveragepy/issue/200/documentation-mentions-output-xml-instead
 .. :history: 20121117T091000, Added command aliases.
@@ -113,8 +113,8 @@ in the configuration file.  Options on the command line will not be passed to
 the processes that multiprocessing creates.  Best practice is to use the
 configuration file for all options.
 
-.. _multiprocessing: https://docs.python.org/2/library/multiprocessing.html
-.. _greenlet: http://greenlet.readthedocs.org/en/latest/
+.. _multiprocessing: https://docs.python.org/3/library/multiprocessing.html
+.. _greenlet: https://greenlet.readthedocs.io/
 .. _gevent: http://www.gevent.org/
 .. _eventlet: http://eventlet.net/
 
@@ -131,39 +131,58 @@ If you are measuring coverage in a multi-process program, or across a number of
 machines, you'll want the ``--parallel-mode`` switch to keep the data separate
 during measurement.  See :ref:`cmd_combining` below.
 
+
+.. _cmd_warnings:
+
+Warnings
+--------
+
 During execution, coverage.py may warn you about conditions it detects that
 could affect the measurement process.  The possible warnings include:
 
-* "Trace function changed, measurement is likely wrong: XXX"
+* "Trace function changed, measurement is likely wrong: XXX (trace-changed)"
 
   Coverage measurement depends on a Python setting called the trace function.
   Other Python code in your product might change that function, which will
-  disrupt coverage.py's measurement.  This warning indicate that has happened.
+  disrupt coverage.py's measurement.  This warning indicates that has happened.
   The XXX in the message is the new trace function value, which might provide
   a clue to the cause.
 
-* "Module XXX has no Python source"
+* "Module XXX has no Python source (module-not-python)"
 
   You asked coverage.py to measure module XXX, but once it was imported, it
   turned out not to have a corresponding .py file.  Without a .py file,
   coverage.py can't report on missing lines.
 
-* "Module XXX was never imported"
+* "Module XXX was never imported (module-not-imported)"
 
   You asked coverage.py to measure module XXX, but it was never imported by
   your program.
 
-* "No data was collected"
+* "No data was collected (no-data-collected)"
 
   Coverage.py ran your program, but didn't measure any lines as executed.
   This could be because you asked to measure only modules that never ran,
   or for other reasons.
 
-* "Module XXX was previously imported, but not measured."
+* "Module XXX was previously imported, but not measured (module-not-measured)"
 
   You asked coverage.py to measure module XXX, but it had already been imported
   when coverage started.  This meant coverage.py couldn't monitor its
   execution.
+
+* "--include is ignored because --source is set (include-ignored)"
+
+  Both ``--include`` and ``--source`` were specified while running code.  Both
+  are meant to focus measurement on a particular part of your source code, so
+  ``--include`` is ignored in favor of ``--source``.
+
+Individual warnings can be disabled with the `disable_warnings
+<config_run_disable_warnings>`_ configuration setting.  To silence "No data was
+collected," add this to your .coveragerc file::
+
+    [run]
+    disable_warnings = no-data-collected
 
 
 .. _cmd_datafile:
@@ -338,7 +357,7 @@ file decorated to show the status of each line.
 
 Here's a `sample report`__.
 
-__ http://nedbatchelder.com/files/sample_coverage_html/index.html
+__ https://nedbatchelder.com/files/sample_coverage_html/index.html
 
 Lines are highlighted green for executed, red for missing, and gray for
 excluded.  The counts at the top of the file are buttons to turn on and off
@@ -366,6 +385,8 @@ is a data file that is used to speed up reporting the next time.  If you
 generate a new report into the same directory, coverage.py will skip
 generating unchanged pages, making the process faster.
 
+The ``--skip-covered`` switch will leave out any file with 100% coverage,
+letting you focus on the files that still need attention.
 
 .. _cmd_annotation:
 
@@ -407,7 +428,7 @@ XML reporting
 The **xml** command writes coverage data to a "coverage.xml" file in a format
 compatible with `Cobertura`_.
 
-.. _Cobertura: http://cobertura.sourceforge.net
+.. _Cobertura: http://cobertura.github.io/cobertura/
 
 You can specify the name of the output file with the ``-o`` switch.
 
@@ -449,9 +470,14 @@ to log:
 
 * ``dataop``: log when data is added to the CoverageData object.
 
-* ``pid``: annotate all debug output with the process id.
+* ``multiproc``: log the start and stop of multiprocessing processes.
+
+* ``pid``: annotate all warnings and debug output with the process id.
 
 * ``plugin``: print information about plugin operations.
+
+* ``process``: show process creation information, and changes in the current
+  directory.
 
 * ``sys``: before starting, dump all the system and environment information,
   as with :ref:`coverage debug sys <cmd_debug>`.

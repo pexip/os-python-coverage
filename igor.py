@@ -20,10 +20,7 @@ import textwrap
 import warnings
 import zipfile
 
-
-# We want to see all warnings while we are running tests.  But we also need to
-# disable warnings for some of the more complex setting up of tests.
-warnings.simplefilter("default")
+import pytest
 
 
 @contextlib.contextmanager
@@ -79,10 +76,7 @@ def should_skip(tracer):
     if tracer == "py":
         skipper = os.environ.get("COVERAGE_NO_PYTRACER")
     else:
-        skipper = (
-            os.environ.get("COVERAGE_NO_EXTENSION") or
-            os.environ.get("COVERAGE_NO_CTRACER")
-        )
+        skipper = os.environ.get("COVERAGE_NO_CTRACER")
 
     if skipper:
         msg = "Skipping tests " + label_for_tracer(tracer)
@@ -94,21 +88,16 @@ def should_skip(tracer):
     return msg
 
 
-def run_tests(tracer, *nose_args):
+def run_tests(tracer, *runner_args):
     """The actual running of tests."""
-    with ignore_warnings():
-        import nose.core
-
     if 'COVERAGE_TESTING' not in os.environ:
         os.environ['COVERAGE_TESTING'] = "True"
     print_banner(label_for_tracer(tracer))
-    nose_args = ["nosetests"] + list(nose_args)
-    nose.core.main(argv=nose_args)
+    return pytest.main(list(runner_args))
 
 
-def run_tests_with_coverage(tracer, *nose_args):
+def run_tests_with_coverage(tracer, *runner_args):
     """Run tests, but with coverage."""
-
     # Need to define this early enough that the first import of env.py sees it.
     os.environ['COVERAGE_TESTING'] = "True"
     os.environ['COVERAGE_PROCESS_START'] = os.path.abspath('metacov.ini')
@@ -117,8 +106,7 @@ def run_tests_with_coverage(tracer, *nose_args):
     # Create the .pth file that will let us measure coverage in sub-processes.
     # The .pth file seems to have to be alphabetically after easy-install.pth
     # or the sys.path entries aren't created right?
-    import nose
-    pth_dir = os.path.dirname(os.path.dirname(nose.__file__))
+    pth_dir = os.path.dirname(pytest.__file__)
     pth_path = os.path.join(pth_dir, "zzz_metacov.pth")
     with open(pth_path, "w") as pth_file:
         pth_file.write("import coverage; coverage.process_startup()\n")
@@ -157,18 +145,17 @@ def run_tests_with_coverage(tracer, *nose_args):
         import coverage                         # pylint: disable=reimported
         sys.modules.update(covmods)
 
-        # Run nosetests, with the arguments from our command line.
-        try:
-            run_tests(tracer, *nose_args)
-        except SystemExit:
-            # nose3 seems to raise SystemExit, not sure why?
-            pass
+        # Run tests, with the arguments from our command line.
+        status = run_tests(tracer, *runner_args)
+
     finally:
         cov.stop()
         os.remove(pth_path)
 
     cov.combine()
     cov.save()
+
+    return status
 
 
 def do_combine_html():
@@ -184,19 +171,19 @@ def do_combine_html():
     cov.xml_report()
 
 
-def do_test_with_tracer(tracer, *noseargs):
-    """Run nosetests with a particular tracer."""
+def do_test_with_tracer(tracer, *runner_args):
+    """Run tests with a particular tracer."""
     # If we should skip these tests, skip them.
     skip_msg = should_skip(tracer)
     if skip_msg:
         print(skip_msg)
-        return
+        return None
 
     os.environ["COVERAGE_TEST_TRACER"] = tracer
     if os.environ.get("COVERAGE_COVERAGE", ""):
-        return run_tests_with_coverage(tracer, *noseargs)
+        return run_tests_with_coverage(tracer, *runner_args)
     else:
-        return run_tests(tracer, *noseargs)
+        return run_tests(tracer, *runner_args)
 
 
 def do_zip_mods():
@@ -269,13 +256,13 @@ def do_check_eol():
         with open(fname, "rb") as f:
             for n, line in enumerate(f, start=1):
                 if crlf:
-                    if "\r" in line:
+                    if b"\r" in line:
                         print("%s@%d: CR found" % (fname, n))
                         return
                 if trail_white:
                     line = line[:-1]
                     if not crlf:
-                        line = line.rstrip('\r')
+                        line = line.rstrip(b'\r')
                     if line.rstrip() != line:
                         print("%s@%d: trailing whitespace found" % (fname, n))
                         return
@@ -285,9 +272,9 @@ def do_check_eol():
 
     def check_files(root, patterns, **kwargs):
         """Check a number of files for whitespace abuse."""
-        for root, dirs, files in os.walk(root):
+        for where, dirs, files in os.walk(root):
             for f in files:
-                fname = os.path.join(root, f)
+                fname = os.path.join(where, f)
                 for p in patterns:
                     if fnmatch.fnmatch(fname, p):
                         check_file(fname, **kwargs)
@@ -331,7 +318,7 @@ def print_banner(label):
     try:
         which_python = os.path.relpath(sys.executable)
     except ValueError:
-        # On Windows having a python executable on a different drives
+        # On Windows having a python executable on a different drive
         # than the sources cannot be relative.
         which_python = sys.executable
     print('=== %s %s %s (%s) ===' % (impl, version, label, which_python))
@@ -389,6 +376,7 @@ def main(args):
         # If a handler returns a failure-like value, stop.
         if ret:
             return ret
+    return 0
 
 
 if __name__ == '__main__':

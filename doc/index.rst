@@ -46,8 +46,12 @@ Coverage.py
 .. :history: 20160110T125900, updated for 4.1b1
 .. :history: 20160123T171300, updated for 4.1b2
 .. :history: 20160510T125300, updated for 4.1b3
-.. :history: 20160521T074500, udpated for 4.1
-.. :history: 20160726T161300, udpated for 4.2
+.. :history: 20160521T074500, updated for 4.1
+.. :history: 20160726T161300, updated for 4.2
+.. :history: 20161226T160400, updated for 4.3
+.. :history: 20170116T180100, updated for 4.3.2
+.. :history: 20180203T130300, updated for 4.5
+.. :history: 20180210T125300, updated for 4.5.1
 
 
 Coverage.py is a tool for measuring code coverage of Python programs. It
@@ -60,30 +64,53 @@ not.
 
 .. ifconfig:: not prerelease
 
-    The latest version is coverage.py 4.2, released July 26th 2016.  It
+    The latest version is coverage.py 4.5.2, released November 12th 2018.  It
     is supported on:
 
-    * Python versions 2.6, 2.7, 3.3, 3.4, 3.5, and 3.6.
+    * Python versions 2.6, 2.7, 3.3, 3.4, 3.5, 3.6, 3.7, and pre-alpha 3.8.
 
-    * PyPy 4.0 and 5.1.
+    * PyPy2 6.0 and PyPy3 6.0.
 
-    * PyPy3 2.4.
+    * Jython 2.7.1, though only for running code, not reporting.
+
+    * IronPython 2.7.7, though only for running code, not reporting.
 
 .. ifconfig:: prerelease
 
-    The latest version is coverage.py 4.2b1, released July 4th 2016.  It is
+    The latest version is coverage.py 4.4b1, released April 4th 2017.  It is
     supported on:
 
-    * Python versions 2.6, 2.7, 3.3, 3.4, and 3.5.
+    * Python versions 2.6, 2.7, 3.3, 3.4, 3.5, and 3.6.
 
-    * PyPy 4.0 and 5.1.
+    * PyPy2 5.6 and PyPy3 5.5.
 
-    * PyPy3 2.4.
+    * Jython 2.7.1, though only for running code, not reporting.
+
+    * IronPython 2.7.7, though only for running code, not reporting.
 
     **This is a pre-release build.  The usual warnings about possible bugs
-    apply.** The latest stable version is coverage.py 4.1, `described here`_.
+    apply.** The latest stable version is coverage.py 4.3.4, `described here`_.
 
-.. _described here: http://nedbatchelder.com/code/coverage
+.. _described here: https://nedbatchelder.com/code/coverage
+
+.. image:: media/Tidelift_Logos_RGB_Tidelift_Shorthand_On-White.png
+   :width: 75
+   :alt: Tidelift
+   :align: left
+   :class: tideliftlogo
+
+Professional support for coverage.py is available as part of the `Tidelift
+Subscription`_.  Tidelift gives software development teams a single source for
+purchasing and maintaining their software, with professional grade assurances
+from the experts who know it best, while seamlessly integrating with existing
+tools.
+
+.. _Tidelift Subscription: https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=docs
+
+Professional support for coverage.py is available as part of the `Tidelift
+Subscription`_.
+
+.. _Tidelift Subscription: https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=docs
 
 
 Quick start
@@ -98,6 +125,12 @@ Getting started is easy:
 #.  Use ``coverage run`` to run your program and gather data:
 
     .. code-block:: console
+
+        # if you usually do:
+        #
+        #   $ python my_program.py arg1 arg2
+        #
+        # then instead do:
 
         $ coverage run my_program.py arg1 arg2
         blah blah ..your program's output.. blah blah
@@ -131,9 +164,9 @@ Getting started is easy:
         Then visit htmlcov/index.html in your browser, to see a
         `report like this one`_.
 
-.. _coverage.py page on the Python Package Index: http://pypi.python.org/pypi/coverage
-.. _report like this: http://nedbatchelder.com/files/sample_coverage_html/index.html
-.. _report like this one: http://nedbatchelder.com/files/sample_coverage_html_beta/index.html
+.. _coverage.py page on the Python Package Index: https://pypi.python.org/pypi/coverage
+.. _report like this: https://nedbatchelder.com/files/sample_coverage_html/index.html
+.. _report like this one: https://nedbatchelder.com/files/sample_coverage_html_beta/index.html
 
 
 Using coverage.py
@@ -145,14 +178,15 @@ If you need more control over how your project is measured, you can use the
 :ref:`API <api>`.
 
 Some test runners provide coverage integration to make it easy to use
-coverage.py while running tests.  For example, `nose`_ has a `cover plug-in`_.
+coverage.py while running tests.  For example, `pytest`_ has the `pytest-cov`_
+plugin.
 
 You can fine-tune coverage.py's view of your code by directing it to ignore
 parts that you know aren't interesting.  See :ref:`source` and :ref:`excluding`
 for details.
 
-.. _nose:           http://nose.readthedocs.io
-.. _cover plug-in:  https://nose.readthedocs.io/en/latest/plugins/cover.html
+.. _pytest: http://doc.pytest.org
+.. _pytest-cov: https://pytest-cov.readthedocs.io/
 
 
 .. _contact:
@@ -165,18 +199,19 @@ coverage.py or get help using it on the `Testing In Python`_ mailing list.
 
 .. _Testing In Python: http://lists.idyll.org/listinfo/testing-in-python
 
-Bug reports are gladly accepted at the `Bitbucket issue tracker`_.
-Bitbucket also hosts the `code repository`_. There is a `mirrored repo`_ on
-GitHub.
+Bug reports are gladly accepted at the `GitHub issue tracker`_.
+GitHub also hosts the `code repository`_.
 
-.. _Bitbucket issue tracker: http://bitbucket.org/ned/coveragepy/issues
-.. _code repository: http://bitbucket.org/ned/coveragepy
-.. _mirrored repo: https://github.com/nedbat/coveragepy
+.. _GitHub issue tracker: https://github.com/nedbat/coveragepy/issues
+.. _code repository: https://github.com/nedbat/coveragepy
+
+Professional support for coverage.py is available as part of the `Tidelift
+Subscription`_.
 
 `I can be reached`_ in a number of ways. I'm happy to answer questions about
 using coverage.py.
 
-.. _I can be reached:  http://nedbatchelder.com/site/aboutned.html
+.. _I can be reached: https://nedbatchelder.com/site/aboutned.html
 
 
 

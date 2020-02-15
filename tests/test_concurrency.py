@@ -3,17 +3,28 @@
 
 """Tests for concurrency libraries."""
 
-import multiprocessing
+import os
+import random
+import sys
 import threading
+import time
+
+from flaky import flaky
 
 import coverage
 from coverage import env
+from coverage.backward import import_local_file
 from coverage.files import abs_file
 
 from tests.coveragetest import CoverageTest
 
 
 # These libraries aren't always available, we'll skip tests if they aren't.
+
+try:
+    import multiprocessing
+except ImportError:         # pragma: only jython
+    multiprocessing = None
 
 try:
     import eventlet
@@ -25,7 +36,10 @@ try:
 except ImportError:
     gevent = None
 
-import greenlet
+try:
+    import greenlet
+except ImportError:         # pragma: only jython
+    greenlet = None
 
 
 def measurable_line(l):
@@ -40,6 +54,9 @@ def measurable_line(l):
         return False
     if l.startswith('else:'):
         return False
+    if env.JYTHON and l.startswith(('try:', 'except:', 'except ', 'break', 'with ')):
+        # Jython doesn't measure these statements.
+        return False                    # pragma: only jython
     return True
 
 
@@ -97,7 +114,7 @@ SUM_RANGE_Q = """
 
         def run(self):
             sum = 0
-            while True:
+            while "no peephole".upper():
                 i = self.q.get()
                 if i is None:
                     break
@@ -311,7 +328,7 @@ SUM_RANGE_WORK = """
     """
 
 MULTI_CODE = """
-    # Above this will be a defintion of work().
+    # Above this will be a definition of work().
     import multiprocessing
     import os
     import time
@@ -342,8 +359,14 @@ MULTI_CODE = """
     """
 
 
+@flaky(max_runs=10)         # Sometimes a test fails due to inherent randomness. Try one more time.
 class MultiprocessingTest(CoverageTest):
     """Test support of the multiprocessing module."""
+
+    def setUp(self):
+        super(MultiprocessingTest, self).setUp()
+        if not multiprocessing:
+            self.skipTest("No multiprocessing in this Python")      # pragma: only jython
 
     def try_multiprocessing_code(
         self, code, expected_out, the_module, concurrency="multiprocessing"
@@ -353,6 +376,7 @@ class MultiprocessingTest(CoverageTest):
         self.make_file(".coveragerc", """\
             [run]
             concurrency = %s
+            source = .
             """ % concurrency)
 
         if env.PYVERSION >= (3, 4):
@@ -434,3 +458,97 @@ class MultiprocessingTest(CoverageTest):
         total = sum(x*x if x%2 else x*x*x for x in range(upto))
         expected_out = "{nprocs} pids, total = {total}".format(nprocs=nprocs, total=total)
         self.try_multiprocessing_code_with_branching(code, expected_out)
+
+
+def test_coverage_stop_in_threads():
+    has_started_coverage = []
+    has_stopped_coverage = []
+
+    def run_thread():
+        """Check that coverage is stopping properly in threads."""
+        deadline = time.time() + 5
+        ident = threading.currentThread().ident
+        if sys.gettrace() is not None:
+            has_started_coverage.append(ident)
+        while sys.gettrace() is not None:
+            # Wait for coverage to stop
+            time.sleep(0.01)
+            if time.time() > deadline:
+                return
+        has_stopped_coverage.append(ident)
+
+    cov = coverage.coverage()
+    cov.start()
+
+    t = threading.Thread(target=run_thread)
+    t.start()
+
+    time.sleep(0.1)
+    cov.stop()
+    time.sleep(0.1)
+
+    assert has_started_coverage == [t.ident]
+    assert has_stopped_coverage == [t.ident]
+    t.join()
+
+
+def test_thread_safe_save_data(tmpdir):
+    # Non-regression test for:
+    # https://bitbucket.org/ned/coveragepy/issues/581
+
+    # Create some Python modules and put them in the path
+    modules_dir = tmpdir.mkdir('test_modules')
+    module_names = ["m{0:03d}".format(i) for i in range(1000)]
+    for module_name in module_names:
+        modules_dir.join(module_name + ".py").write("def f(): pass\n")
+
+    # Shared variables for threads
+    should_run = [True]
+    imported = []
+
+    old_dir = os.getcwd()
+    os.chdir(modules_dir.strpath)
+    try:
+        # Make sure that all dummy modules can be imported.
+        for module_name in module_names:
+            import_local_file(module_name)
+
+        def random_load():
+            """Import modules randomly to stress coverage."""
+            while should_run[0]:
+                module_name = random.choice(module_names)
+                mod = import_local_file(module_name)
+                mod.f()
+                imported.append(mod)
+
+        # Spawn some threads with coverage enabled and attempt to read the
+        # results right after stopping coverage collection with the threads
+        #  still running.
+        duration = 0.01
+        for _ in range(3):
+            cov = coverage.coverage()
+            cov.start()
+
+            threads = [threading.Thread(target=random_load) for _ in range(10)]
+            should_run[0] = True
+            for t in threads:
+                t.start()
+
+            time.sleep(duration)
+
+            cov.stop()
+
+            # The following call used to crash with running background threads.
+            cov.get_data()
+
+            # Stop the threads
+            should_run[0] = False
+            for t in threads:
+                t.join()
+
+            if (not imported) and duration < 10:
+                duration *= 2
+
+    finally:
+        os.chdir(old_dir)
+        should_run[0] = False

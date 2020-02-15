@@ -20,7 +20,10 @@ differences and get a clean diff.
 
 """
 
-import json, os, sys
+import itertools
+import json
+import os
+import sys
 
 # sys.path varies by execution environments.  Coverage.py uses setuptools to
 # make console scripts, which means pkg_resources is imported.  pkg_resources
@@ -52,11 +55,6 @@ def without_same_files(filenames):
 
 cleaned_sys_path = [os.path.normcase(p) for p in without_same_files(sys.path)]
 
-# Eggs seems to go in different places for some reason. I'm going to assume
-# it's an OK difference.  Sort eggs to the end of the list to canonicalize
-# them.
-cleaned_sys_path = sorted(cleaned_sys_path, key=lambda p: p.endswith(".egg"))
-
 DATA = "xyzzy"
 
 import __main__
@@ -70,19 +68,28 @@ FN_VAL = my_function("fooey")
 loader = globals().get('__loader__')
 fullname = getattr(loader, 'fullname', None) or getattr(loader, 'name', None)
 
+# A more compact grouped-by-first-letter list of builtins.
+def word_group(w):
+    """Clump AB, CD, EF, etc."""
+    return chr((ord(w[0]) + 1) & 0xFE)
+
+builtin_dir = [" ".join(s) for _, s in itertools.groupby(dir(__builtins__), key=word_group)]
+
 globals_to_check = {
+    'os.getcwd': os.getcwd(),
     '__name__': __name__,
     '__file__': __file__,
     '__doc__': __doc__,
     '__builtins__.has_open': hasattr(__builtins__, 'open'),
-    '__builtins__.dir': dir(__builtins__),
+    '__builtins__.dir': builtin_dir,
     '__loader__ exists': loader is not None,
     '__loader__.fullname': fullname,
     '__package__': __package__,
     'DATA': DATA,
     'FN_VAL': FN_VAL,
     '__main__.DATA': getattr(__main__, "DATA", "nothing"),
-    'argv': sys.argv,
+    'argv0': sys.argv[0],
+    'argv1-n': sys.argv[1:],
     'path': cleaned_sys_path,
 }
 

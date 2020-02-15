@@ -11,11 +11,11 @@ import warnings
 
 import coverage
 from coverage import env
-from coverage.backward import StringIO
+from coverage.backward import StringIO, import_local_file
 from coverage.misc import CoverageException
 from coverage.report import Reporter
 
-from tests.coveragetest import CoverageTest
+from tests.coveragetest import CoverageTest, CoverageTestMethodsMixin, TESTS_DIR, UsingModulesMixin
 
 
 class ApiTest(CoverageTest):
@@ -35,7 +35,7 @@ class ApiTest(CoverageTest):
     def assertFiles(self, files):
         """Assert that the files here are `files`, ignoring the usual junk."""
         here = os.listdir(".")
-        here = self.clean_files(here, ["*.pyc", "__pycache__"])
+        here = self.clean_files(here, ["*.pyc", "__pycache__", "*$py.class"])
         self.assertCountEqual(here, files)
 
     def test_unexecuted_file(self):
@@ -282,19 +282,72 @@ class ApiTest(CoverageTest):
         self.check_code1_code2(cov)
 
     def test_start_save_stop(self):
-        self.skipTest("Expected failure: https://bitbucket.org/ned/coveragepy/issue/79")
         self.make_code1_code2()
         cov = coverage.Coverage()
         cov.start()
-        self.import_local_file("code1")
-        cov.save()
-        self.import_local_file("code2")
-        cov.stop()
-
+        import_local_file("code1")                                     # pragma: nested
+        cov.save()                                                     # pragma: nested
+        import_local_file("code2")                                     # pragma: nested
+        cov.stop()                                                     # pragma: nested
         self.check_code1_code2(cov)
 
-    def make_corrupt_data_files(self):
-        """Make some good and some bad data files."""
+    def test_start_save_nostop(self):
+        self.make_code1_code2()
+        cov = coverage.Coverage()
+        cov.start()
+        import_local_file("code1")                                     # pragma: nested
+        cov.save()                                                     # pragma: nested
+        import_local_file("code2")                                     # pragma: nested
+        self.check_code1_code2(cov)                                    # pragma: nested
+        # Then stop it, or the test suite gets out of whack.
+        cov.stop()                                                     # pragma: nested
+
+    def test_two_getdata_only_warn_once(self):
+        self.make_code1_code2()
+        cov = coverage.Coverage(source=["."], omit=["code1.py"])
+        cov.start()
+        import_local_file("code1")                                     # pragma: nested
+        cov.stop()                                                     # pragma: nested
+        # We didn't collect any data, so we should get a warning.
+        with self.assert_warnings(cov, ["No data was collected"]):
+            cov.get_data()
+        # But calling get_data a second time with no intervening activity
+        # won't make another warning.
+        with self.assert_warnings(cov, []):
+            cov.get_data()
+
+    def test_two_getdata_only_warn_once_nostop(self):
+        self.make_code1_code2()
+        cov = coverage.Coverage(source=["."], omit=["code1.py"])
+        cov.start()
+        import_local_file("code1")                                     # pragma: nested
+        # We didn't collect any data, so we should get a warning.
+        with self.assert_warnings(cov, ["No data was collected"]):     # pragma: nested
+            cov.get_data()                                             # pragma: nested
+        # But calling get_data a second time with no intervening activity
+        # won't make another warning.
+        with self.assert_warnings(cov, []):                            # pragma: nested
+            cov.get_data()                                             # pragma: nested
+        # Then stop it, or the test suite gets out of whack.
+        cov.stop()                                                     # pragma: nested
+
+    def test_two_getdata_warn_twice(self):
+        self.make_code1_code2()
+        cov = coverage.Coverage(source=["."], omit=["code1.py", "code2.py"])
+        cov.start()
+        import_local_file("code1")                                     # pragma: nested
+        # We didn't collect any data, so we should get a warning.
+        with self.assert_warnings(cov, ["No data was collected"]):     # pragma: nested
+            cov.save()                                                 # pragma: nested
+        import_local_file("code2")                                     # pragma: nested
+        # Calling get_data a second time after tracing some more will warn again.
+        with self.assert_warnings(cov, ["No data was collected"]):     # pragma: nested
+            cov.get_data()                                             # pragma: nested
+        # Then stop it, or the test suite gets out of whack.
+        cov.stop()                                                     # pragma: nested
+
+    def make_good_data_files(self):
+        """Make some good data files."""
         self.make_code1_code2()
         cov = coverage.Coverage(data_suffix=True)
         self.start_import_stop(cov, "code1")
@@ -304,12 +357,15 @@ class ApiTest(CoverageTest):
         self.start_import_stop(cov, "code2")
         cov.save()
 
+    def make_bad_data_file(self):
+        """Make one bad data file."""
         self.make_file(".coverage.foo", """La la la, this isn't coverage data!""")
 
     def test_combining_corrupt_data(self):
         # If you combine a corrupt data file, then you will get a warning,
         # and the file will remain.
-        self.make_corrupt_data_files()
+        self.make_good_data_files()
+        self.make_bad_data_file()
         cov = coverage.Coverage()
         warning_regex = (
             r"Couldn't read data from '.*\.coverage\.foo': "
@@ -324,8 +380,98 @@ class ApiTest(CoverageTest):
         # The bad file still exists.
         self.assert_exists(".coverage.foo")
 
+    def test_combining_twice(self):
+        self.make_good_data_files()
+        cov1 = coverage.Coverage()
+        cov1.combine()
+        cov1.save()
+        self.check_code1_code2(cov1)
 
-class NamespaceModuleTest(CoverageTest):
+        cov2 = coverage.Coverage()
+        with self.assertRaisesRegex(CoverageException, r"No data to combine"):
+            cov2.combine(strict=True)
+
+        cov3 = coverage.Coverage()
+        cov3.combine()
+        # Now the data is empty!
+        _, statements, missing, _ = cov3.analysis("code1.py")
+        self.assertEqual(statements, [1])
+        self.assertEqual(missing, [1])
+        _, statements, missing, _ = cov3.analysis("code2.py")
+        self.assertEqual(statements, [1, 2])
+        self.assertEqual(missing, [1, 2])
+
+    def test_warnings(self):
+        self.make_file("hello.py", """\
+            import sys, os
+            print("Hello")
+            """)
+        cov = coverage.Coverage(source=["sys", "xyzzy", "quux"])
+        self.start_import_stop(cov, "hello")
+        cov.get_data()
+
+        out = self.stdout()
+        self.assertIn("Hello\n", out)
+
+        err = self.stderr()
+        self.assertIn(textwrap.dedent("""\
+            Coverage.py warning: Module sys has no Python source. (module-not-python)
+            Coverage.py warning: Module xyzzy was never imported. (module-not-imported)
+            Coverage.py warning: Module quux was never imported. (module-not-imported)
+            Coverage.py warning: No data was collected. (no-data-collected)
+            """), err)
+
+    def test_warnings_suppressed(self):
+        self.make_file("hello.py", """\
+            import sys, os
+            print("Hello")
+            """)
+        self.make_file(".coveragerc", """\
+            [run]
+            disable_warnings = no-data-collected, module-not-imported
+            """)
+        cov = coverage.Coverage(source=["sys", "xyzzy", "quux"])
+        self.start_import_stop(cov, "hello")
+        cov.get_data()
+
+        out = self.stdout()
+        self.assertIn("Hello\n", out)
+
+        err = self.stderr()
+        self.assertIn(textwrap.dedent("""\
+            Coverage.py warning: Module sys has no Python source. (module-not-python)
+            """), err)
+        self.assertNotIn("module-not-imported", err)
+        self.assertNotIn("no-data-collected", err)
+
+    def test_source_and_include_dont_conflict(self):
+        # A bad fix made this case fail: https://bitbucket.org/ned/coveragepy/issues/541
+        self.make_file("a.py", "import b\na = 1")
+        self.make_file("b.py", "b = 1")
+        self.make_file(".coveragerc", """\
+            [run]
+            source = .
+            """)
+
+        # Just like: coverage run a.py
+        cov = coverage.Coverage()
+        self.start_import_stop(cov, "a")
+        cov.save()
+
+        # Run the equivalent of: coverage report --include=b.py
+        cov = coverage.Coverage(include=["b.py"])
+        cov.load()
+        # There should be no exception. At one point, report() threw:
+        # CoverageException: --include and --source are mutually exclusive
+        cov.report()
+        self.assertEqual(self.stdout(), textwrap.dedent("""\
+            Name    Stmts   Miss  Cover
+            ---------------------------
+            b.py        1      0   100%
+            """))
+
+
+class NamespaceModuleTest(UsingModulesMixin, CoverageTest):
     """Test PEP-420 namespace modules."""
 
     def setUp(self):
@@ -334,36 +480,29 @@ class NamespaceModuleTest(CoverageTest):
             self.skipTest("Python before 3.3 doesn't have namespace packages")
 
     def test_explicit_namespace_module(self):
-        self.make_file("namespace/package/module.py", "VAR = 1\n")
-        self.make_file("main.py", "import namespace\n")
+        self.make_file("main.py", "import namespace_420\n")
 
         cov = coverage.Coverage()
         self.start_import_stop(cov, "main")
 
         with self.assertRaisesRegex(CoverageException, r"Module .* has no file"):
-            cov.analysis(sys.modules['namespace'])
+            cov.analysis(sys.modules['namespace_420'])
+
+    def test_bug_572(self):
+        self.make_file("main.py", "import namespace_420\n")
+
+        # Use source=namespace_420 to trigger the check that used to fail,
+        # and use source=main so that something is measured.
+        cov = coverage.Coverage(source=["namespace_420", "main"])
+        with self.assert_warnings(cov, []):
+            self.start_import_stop(cov, "main")
+            cov.report()
 
 
-
-class UsingModulesMixin(object):
-    """A mixin for importing modules from test/modules and test/moremodules."""
+class OmitIncludeTestsMixin(UsingModulesMixin, CoverageTestMethodsMixin):
+    """Test methods for coverage methods taking include and omit."""
 
     run_in_temp_dir = False
-
-    def setUp(self):
-        super(UsingModulesMixin, self).setUp()
-
-        old_dir = os.getcwd()
-        os.chdir(self.nice_file(os.path.dirname(__file__), 'modules'))
-        self.addCleanup(os.chdir, old_dir)
-
-        # Parent class saves and restores sys.path, we can just modify it.
-        sys.path.append(".")
-        sys.path.append("../moremodules")
-
-
-class OmitIncludeTestsMixin(UsingModulesMixin):
-    """Test methods for coverage methods taking include and omit."""
 
     def filenames_in(self, summary, filenames):
         """Assert the `filenames` are in the keys of `summary`."""
@@ -429,7 +568,7 @@ class SourceOmitIncludeTest(OmitIncludeTestsMixin, CoverageTest):
         """
         cov = coverage.Coverage(**kwargs)
         cov.start()
-        import usepkgs  # pragma: nested   # pylint: disable=import-error
+        import usepkgs  # pragma: nested   # pylint: disable=import-error, unused-variable
         cov.stop()      # pragma: nested
         data = cov.get_data()
         summary = data.line_counts()
@@ -438,12 +577,25 @@ class SourceOmitIncludeTest(OmitIncludeTestsMixin, CoverageTest):
             summary[k[:-3]] = v
         return summary
 
-    def test_source_package(self):
+    def test_source_include_exclusive(self):
+        cov = coverage.Coverage(source=["pkg1"], include=["pkg2"])
+        with self.assert_warnings(cov, ["--include is ignored because --source is set"]):
+            cov.start()
+        cov.stop()
+
+    def test_source_package_as_dir(self):
+        # pkg1 is a directory, since we cd'd into tests/modules in setUp.
         lines = self.coverage_usepkgs(source=["pkg1"])
         self.filenames_in(lines, "p1a p1b")
         self.filenames_not_in(lines, "p2a p2b othera otherb osa osb")
         # Because source= was specified, we do search for unexecuted files.
         self.assertEqual(lines['p1c'], 0)
+
+    def test_source_package_as_package(self):
+        lines = self.coverage_usepkgs(source=["pkg1.sub"])
+        self.filenames_not_in(lines, "p2a p2b othera otherb osa osb")
+        # Because source= was specified, we do search for unexecuted files.
+        self.assertEqual(lines['runmod3'], 0)
 
     def test_source_package_dotted(self):
         lines = self.coverage_usepkgs(source=["pkg1.p1b"])
@@ -455,7 +607,17 @@ class SourceOmitIncludeTest(OmitIncludeTestsMixin, CoverageTest):
         # Used to be if you omitted something executed and inside the source,
         # then after it was executed but not recorded, it would be found in
         # the search for unexecuted files, and given a score of 0%.
+
+        # The omit arg is by path, so need to be in the modules directory.
+        self.chdir(self.nice_file(TESTS_DIR, 'modules'))
         lines = self.coverage_usepkgs(source=["pkg1"], omit=["pkg1/p1b.py"])
+        self.filenames_in(lines, "p1a")
+        self.filenames_not_in(lines, "p1b")
+        self.assertEqual(lines['p1c'], 0)
+
+    def test_source_package_as_package_part_omitted(self):
+        # https://bitbucket.org/ned/coveragepy/issues/638/run-omit-is-ignored-since-45
+        lines = self.coverage_usepkgs(source=["pkg1"], omit=["*/p1b.py"])
         self.filenames_in(lines, "p1a")
         self.filenames_not_in(lines, "p1b")
         self.assertEqual(lines['p1c'], 0)
@@ -468,7 +630,7 @@ class ReportIncludeOmitTest(OmitIncludeTestsMixin, CoverageTest):
         """Try coverage.report()."""
         cov = coverage.Coverage()
         cov.start()
-        import usepkgs  # pragma: nested   # pylint: disable=import-error
+        import usepkgs  # pragma: nested   # pylint: disable=import-error, unused-variable
         cov.stop()      # pragma: nested
         report = StringIO()
         cov.report(file=report, **kwargs)
@@ -487,7 +649,7 @@ class XmlIncludeOmitTest(OmitIncludeTestsMixin, CoverageTest):
         """Try coverage.xml_report()."""
         cov = coverage.Coverage()
         cov.start()
-        import usepkgs  # pragma: nested   # pylint: disable=import-error
+        import usepkgs  # pragma: nested   # pylint: disable=import-error, unused-variable
         cov.stop()      # pragma: nested
         cov.xml_report(outfile="-", **kwargs)
         return self.stdout()
