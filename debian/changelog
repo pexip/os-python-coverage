@@ -1,3 +1,9 @@
+python-coverage (4.5.2+dfsg.1-1pexip1) pexip; urgency=medium
+
+  * Migrate to Buster
+
+ -- Vincent Sanders <vince@pexip.com>  Fri, 06 Mar 2020 17:50:32 +0000
+
 python-coverage (4.5.2+dfsg.1-1) unstable; urgency=medium
 
   * The “وليد أبوالخير‎‎ (Waleed Sami Abulkhair)” release.
