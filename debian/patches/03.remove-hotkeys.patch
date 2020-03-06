@@ -1,0 +1,204 @@
+Description: Remove usage of ‘jquery.hotkeys.js’.
+ .
+ The expected API of ‘jquery.hotkeys.js’ is incompatible with the one
+ packaged in Debian as ‘libjs-jquery-hotkeys’.
+ .
+ In the absence of a correct library we need to remove usage of the
+ incompatible API.
+Bug-Debian: https://bugs.debian.org/740893
+Author: Ben Finney <bignose@debian.org>
+Last-Update: 2017-09-08
+
+diff --git a/coverage/html.py b/coverage/html.py
+index b0c61649..c7bca393 100644
+--- a/coverage/html.py
++++ b/coverage/html.py
+@@ -79,7 +79,6 @@ class HtmlReporter(Reporter):
+         ("style.css", ""),
+         ("jquery.min.js", "jquery"),
+         ("jquery.ba-throttle-debounce.min.js", "jquery-throttle-debounce"),
+-        ("jquery.hotkeys.js", "jquery-hotkeys"),
+         ("jquery.isonscreen.js", "jquery-isonscreen"),
+         ("jquery.tablesorter.min.js", "jquery-tablesorter"),
+         ("coverage_html.js", ""),
+diff --git a/coverage/htmlfiles/index.html b/coverage/htmlfiles/index.html
+index 1e3999f9..7c64ba22 100644
+--- a/coverage/htmlfiles/index.html
++++ b/coverage/htmlfiles/index.html
+@@ -13,7 +13,6 @@
+     <script type="text/javascript" src="jquery.min.js"></script>
+     <script type="text/javascript" src="jquery.ba-throttle-debounce.min.js"></script>
+     <script type="text/javascript" src="jquery.tablesorter.min.js"></script>
+-    <script type="text/javascript" src="jquery.hotkeys.js"></script>
+     <script type="text/javascript" src="coverage_html.js"></script>
+     <script type="text/javascript">
+         jQuery(document).ready(coverage.index_ready);
+@@ -26,32 +26,12 @@
+             <span class="pc_cov">{{totals.pc_covered_str}}%</span>
+         </h1>
+ 
+-        <img id="keyboard_icon" src="keybd_closed.png" alt="Show keyboard shortcuts" />
+-
+         <form id="filter_container">
+             <input id="filter" type="text" value="" placeholder="filter..." />
+         </form>
+     </div>
+ </div>
+ 
+-<div class="help_panel">
+-    <img id="panel_icon" src="keybd_open.png" alt="Hide keyboard shortcuts" />
+-    <p class="legend">Hot-keys on this page</p>
+-    <div>
+-    <p class="keyhelp">
+-        <span class="key">n</span>
+-        <span class="key">s</span>
+-        <span class="key">m</span>
+-        <span class="key">x</span>
+-        {% if has_arcs %}
+-        <span class="key">b</span>
+-        <span class="key">p</span>
+-        {% endif %}
+-        <span class="key">c</span> &nbsp; change column sorting
+-    </p>
+-    </div>
+-</div>
+-
+ <div id="index">
+     <table class="index">
+         <thead>
+diff --git a/coverage/htmlfiles/pyfile.html b/coverage/htmlfiles/pyfile.html
+index 8542a467..0abfd090 100644
+--- a/coverage/htmlfiles/pyfile.html
++++ b/coverage/htmlfiles/pyfile.html
+@@ -14,7 +14,6 @@
+         <link rel="stylesheet" href="{{ extra_css }}" type="text/css">
+     {% endif %}
+     <script type="text/javascript" src="jquery.min.js"></script>
+-    <script type="text/javascript" src="jquery.hotkeys.js"></script>
+     <script type="text/javascript" src="jquery.isonscreen.js"></script>
+     <script type="text/javascript" src="coverage_html.js"></script>
+     <script type="text/javascript">
+@@ -28,8 +28,6 @@
+             <span class="pc_cov">{{nums.pc_covered_str}}%</span>
+         </h1>
+ 
+-        <img id="keyboard_icon" src="keybd_closed.png" alt="Show keyboard shortcuts" />
+-
+         <h2 class="stats">
+             {{nums.n_statements}} statements &nbsp;
+             <span class="{{c_run}} shortkey_r button_toggle_run">{{nums.n_executed}} run</span>
+@@ -43,29 +41,6 @@
+     </div>
+ </div>
+ 
+-<div class="help_panel">
+-    <img id="panel_icon" src="keybd_open.png" alt="Hide keyboard shortcuts" />
+-    <p class="legend">Hot-keys on this page</p>
+-    <div>
+-    <p class="keyhelp">
+-        <span class="key">r</span>
+-        <span class="key">m</span>
+-        <span class="key">x</span>
+-        <span class="key">p</span> &nbsp; toggle line displays
+-    </p>
+-    <p class="keyhelp">
+-        <span class="key">j</span>
+-        <span class="key">k</span> &nbsp; next/prev highlighted chunk
+-    </p>
+-    <p class="keyhelp">
+-        <span class="key">0</span> &nbsp; (zero) top of page
+-    </p>
+-    <p class="keyhelp">
+-        <span class="key">1</span> &nbsp; (one) first highlighted chunk
+-    </p>
+-    </div>
+-</div>
+-
+ <div id="source">
+     <table>
+         <tr>
+
+diff --git a/coverage/htmlfiles/coverage_html.js b/coverage/htmlfiles/coverage_html.js
+index f6f5de20..366b39cf 100644
+--- a/coverage/htmlfiles/coverage_html.js
++++ b/coverage/htmlfiles/coverage_html.js
+@@ -7,37 +7,6 @@
+ 
+ coverage = {};
+ 
+-// Find all the elements with shortkey_* class, and use them to assign a shortcut key.
+-coverage.assign_shortkeys = function () {
+-    $("*[class*='shortkey_']").each(function (i, e) {
+-        $.each($(e).attr("class").split(" "), function (i, c) {
+-            if (/^shortkey_/.test(c)) {
+-                $(document).bind('keydown', c.substr(9), function () {
+-                    $(e).click();
+-                });
+-            }
+-        });
+-    });
+-};
+-
+-// Create the events for the help panel.
+-coverage.wire_up_help_panel = function () {
+-    $("#keyboard_icon").click(function () {
+-        // Show the help panel, and position it so the keyboard icon in the
+-        // panel is in the same place as the keyboard icon in the header.
+-        $(".help_panel").show();
+-        var koff = $("#keyboard_icon").offset();
+-        var poff = $("#panel_icon").position();
+-        $(".help_panel").offset({
+-            top: koff.top-poff.top,
+-            left: koff.left-poff.left
+-        });
+-    });
+-    $("#panel_icon").click(function () {
+-        $(".help_panel").hide();
+-    });
+-};
+-
+ // Create the events for the filter box.
+ coverage.wire_up_filter = function () {
+     // Cache elements.
+@@ -225,8 +225,6 @@ coverage.index_ready = function ($) {
+         headers: headers
+     });
+ 
+-    coverage.assign_shortkeys();
+-    coverage.wire_up_help_panel();
+     coverage.wire_up_filter();
+ 
+     // Watch for page unload events so we can save the final sort settings:
+@@ -248,21 +246,11 @@ coverage.pyfile_ready = function ($) {
+         coverage.set_sel(0);
+     }
+ 
+-    $(document)
+-        .bind('keydown', 'j', coverage.to_next_chunk_nicely)
+-        .bind('keydown', 'k', coverage.to_prev_chunk_nicely)
+-        .bind('keydown', '0', coverage.to_top)
+-        .bind('keydown', '1', coverage.to_first_chunk)
+-        ;
+-
+     $(".button_toggle_run").click(function (evt) {coverage.toggle_lines(evt.target, "run");});
+     $(".button_toggle_exc").click(function (evt) {coverage.toggle_lines(evt.target, "exc");});
+     $(".button_toggle_mis").click(function (evt) {coverage.toggle_lines(evt.target, "mis");});
+     $(".button_toggle_par").click(function (evt) {coverage.toggle_lines(evt.target, "par");});
+ 
+-    coverage.assign_shortkeys();
+-    coverage.wire_up_help_panel();
+-
+     coverage.init_scroll_markers();
+ 
+     // Rebuild scroll markers after window high changing
+
+
+Local variables:
+coding: utf-8
+mode: diff
+time-stamp-format: "%:y-%02m-%02d"
+time-stamp-start: "^Last-Update:[ 	]+"
+time-stamp-end: "$"
+time-stamp-line-limit: 20
+End:
+vim: fileencoding=utf-8 filetype=diff :

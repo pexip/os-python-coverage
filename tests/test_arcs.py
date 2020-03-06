@@ -143,10 +143,17 @@ class SimpleArcTest(CoverageTest):
             )
 
     def test_what_is_the_sound_of_no_lines_clapping(self):
+        if env.JYTHON:
+            # Jython reports no lines for an empty file.
+            arcz_missing=".1 1."                    # pragma: only jython
+        else:
+            # Other Pythons report one line.
+            arcz_missing=""
         self.check_coverage("""\
             # __init__.py
             """,
             arcz=".1 1.",
+            arcz_missing=arcz_missing,
         )
 
 
@@ -241,6 +248,10 @@ class LoopArcTest(CoverageTest):
 
     def test_while_true(self):
         # With "while 1", the loop knows it's constant.
+        if env.PYBEHAVIOR.nix_while_true:
+            arcz = ".1 13 34 45 36 63 57 7."
+        else:
+            arcz = ".1 12 23 34 45 36 63 57 7."
         self.check_coverage("""\
             a, i = 1, 0
             while 1:
@@ -250,14 +261,16 @@ class LoopArcTest(CoverageTest):
                 i += 1
             assert a == 4 and i == 3
             """,
-            arcz=".1 12 23 34 45 36 63 57 7.",
+            arcz=arcz,
             )
-        # With "while True", 2.x thinks it's computation, 3.x thinks it's
-        # constant.
-        if env.PY3:
+        # With "while True", 2.x thinks it's computation,
+        # 3.x thinks it's constant.
+        if env.PYBEHAVIOR.nix_while_true:
+            arcz = ".1 13 34 45 36 63 57 7."
+        elif env.PY3:
             arcz = ".1 12 23 34 45 36 63 57 7."
         else:
-            arcz = ".1 12 23 27 34 45 36 62 57 7."
+            arcz = ".1 12 23 34 45 36 62 57 7."
         self.check_coverage("""\
             a, i = 1, 0
             while True:
@@ -269,6 +282,46 @@ class LoopArcTest(CoverageTest):
             """,
             arcz=arcz,
         )
+
+    def test_zero_coverage_while_loop(self):
+        # https://bitbucket.org/ned/coveragepy/issue/502
+        self.make_file("main.py", "print('done')")
+        self.make_file("zero.py", """\
+            def method(self):
+                while True:
+                    return 1
+            """)
+        out = self.run_command("coverage run --branch --source=. main.py")
+        self.assertEqual(out, 'done\n')
+        if env.PYBEHAVIOR.nix_while_true:
+            num_stmts = 2
+        else:
+            num_stmts = 3
+        expected = "zero.py {n} {n} 0 0 0% 1-3".format(n=num_stmts)
+        report = self.report_from_command("coverage report -m")
+        squeezed = self.squeezed_lines(report)
+        self.assertIn(expected, squeezed[3])
+
+    def test_bug_496_continue_in_constant_while(self):
+        # https://bitbucket.org/ned/coveragepy/issue/496
+        # A continue in a while-true needs to jump to the right place.
+        if env.PYBEHAVIOR.nix_while_true:
+            arcz = ".1 13 34 45 53 46 67 7."
+        elif env.PY3:
+            arcz = ".1 12 23 34 45 53 46 67 7."
+        else:
+            arcz = ".1 12 23 34 45 52 46 67 7."
+        self.check_coverage("""\
+            up = iter('ta')
+            while True:
+                char = next(up)
+                if char == 't':
+                    continue
+                i = "line 6"
+                break
+            """,
+            arcz=arcz
+            )
 
     def test_for_if_else_for(self):
         self.check_coverage("""\
@@ -370,7 +423,7 @@ class LoopArcTest(CoverageTest):
 
     def test_other_comprehensions(self):
         if env.PYVERSION < (2, 7):
-            self.skipTest("Don't have set or dict comprehensions before 2.7")
+            self.skipTest("No set or dict comprehensions before 2.7")
         # Set comprehension:
         self.check_coverage("""\
             o = ((1,2), (3,4))
@@ -394,7 +447,7 @@ class LoopArcTest(CoverageTest):
 
     def test_multiline_dict_comp(self):
         if env.PYVERSION < (2, 7):
-            self.skipTest("Don't have set or dict comprehensions before 2.7")
+            self.skipTest("No set or dict comprehensions before 2.7")
         if env.PYVERSION < (3, 5):
             arcz = "-42 2B B-4   2-4"
         else:
@@ -589,6 +642,10 @@ class ExceptionArcTest(CoverageTest):
 
 
     def test_break_through_finally(self):
+        if env.PYBEHAVIOR.finally_jumps_back:
+            arcz = ".1 12 23 34 3D 45 56 67 68 7A 7D 8A A3 A7 BC CD D."
+        else:
+            arcz = ".1 12 23 34 3D 45 56 67 68 7A 8A A3 AD BC CD D."
         self.check_coverage("""\
             a, c, d, i = 1, 1, 1, 99
             try:
@@ -604,11 +661,15 @@ class ExceptionArcTest(CoverageTest):
                 d = 12                              # C
             assert a == 5 and c == 10 and d == 1    # D
             """,
-            arcz=".1 12 23 34 3D 45 56 67 68 7A 8A A3 AD BC CD D.",
+            arcz=arcz,
             arcz_missing="3D BC CD",
         )
 
     def test_continue_through_finally(self):
+        if env.PYBEHAVIOR.finally_jumps_back:
+            arcz = ".1 12 23 34 3D 45 56 67 68 73 7A 8A A3 A7 BC CD D."
+        else:
+            arcz = ".1 12 23 34 3D 45 56 67 68 7A 8A A3 BC CD D."
         self.check_coverage("""\
             a, b, c, d, i = 1, 1, 1, 1, 99
             try:
@@ -624,7 +685,7 @@ class ExceptionArcTest(CoverageTest):
                 d = 12                              # C
             assert (a, b, c, d) == (5, 8, 10, 1)    # D
             """,
-            arcz=".1 12 23 34 3D 45 56 67 68 7A 8A A3 BC CD D.",
+            arcz=arcz,
             arcz_missing="BC CD",
         )
 
@@ -643,10 +704,12 @@ class ExceptionArcTest(CoverageTest):
 
     def test_bug_212(self):
         # "except Exception as e" is crucial here.
+        # Bug 212 said that the "if exc" line was incorrectly marked as only
+        # partially covered.
         self.check_coverage("""\
             def b(exc):
                 try:
-                    while 1:
+                    while "no peephole".upper():
                         raise Exception(exc)    # 4
                 except Exception as e:
                     if exc != 'expected':
@@ -659,8 +722,10 @@ class ExceptionArcTest(CoverageTest):
             except:
                 pass
             """,
-            arcz=".1 .2 1A 23 34 45 56 67 68 7. 8. AB BC C. DE E.",
-            arcz_missing="C.", arcz_unpredicted="CD")
+            arcz=".1 .2 1A 23 34 3. 45 56 67 68 7. 8. AB BC C. DE E.",
+            arcz_missing="3. C.",
+            arcz_unpredicted="CD",
+        )
 
     def test_except_finally(self):
         self.check_coverage("""\
@@ -760,21 +825,44 @@ class ExceptionArcTest(CoverageTest):
         )
 
     def test_return_finally(self):
+        if env.PYBEHAVIOR.finally_jumps_back:
+            arcz = ".1 12 29 9A AB BC C-1   -23 34 45 5-2 57 75 38 8-2"
+        else:
+            arcz = ".1 12 29 9A AB BC C-1   -23 34 45 57 7-2 38 8-2"
         self.check_coverage("""\
             a = [1]
-            def func():
-                try:
-                    return 10
-                finally:
-                    a.append(6)
-
-            assert func() == 10
-            assert a == [1, 6]
+            def check_token(data):
+                if data:
+                    try:
+                        return 5
+                    finally:
+                        a.append(7)
+                return 8
+            assert check_token(False) == 8
+            assert a == [1]
+            assert check_token(True) == 5
+            assert a == [1, 7]
             """,
-            arcz=".1 12 28 89 9.  -23 34 46 6-2",
+            arcz=arcz,
         )
 
     def test_except_jump_finally(self):
+        if env.PYBEHAVIOR.finally_jumps_back:
+            arcz = (
+                ".1 1Q QR RS ST TU U. "
+                ".2 23 34 45 56 4O 6L "
+                "78 89 9A AL LA AO  8B BC CD DL LD D4  BE EF FG GL LG G.  EH HI IJ JL  HL "
+                "L4 LM "
+                "MN NO O."
+            )
+        else:
+            arcz = (
+                ".1 1Q QR RS ST TU U. "
+                ".2 23 34 45 56 4O 6L "
+                "78 89 9A AL  8B BC CD DL  BE EF FG GL  EH HI IJ JL  HL "
+                "LO L4 L. LM "
+                "MN NO O."
+            )
         self.check_coverage("""\
             def func(x):
                 a = f = g = 2
@@ -805,18 +893,30 @@ class ExceptionArcTest(CoverageTest):
             assert func('continue') == (12, 21, 2, 3)       # R
             assert func('return') == (15, 2, 2, 0)          # S
             assert func('raise') == (18, 21, 23, 0)         # T
+            assert func('other') == (2, 21, 2, 3)           # U 30
             """,
-            arcz=
-                ".1 1Q QR RS ST T. "
-                ".2 23 34 45 56 4O 6L "
-                "78 89 9A AL  8B BC CD DL  BE EF FG GL  EH HI IJ JL  HL "
-                "LO L4 L. LM "
-                "MN NO O.",
-            arcz_missing="6L HL",
+            arcz=arcz,
+            arcz_missing="6L",
             arcz_unpredicted="67",
         )
 
     def test_else_jump_finally(self):
+        if env.PYBEHAVIOR.finally_jumps_back:
+            arcz = (
+                ".1 1S ST TU UV VW W. "
+                ".2 23 34 45 56 6A 78 8N 4Q "
+                "AB BC CN NC CQ  AD DE EF FN NF F4  DG GH HI IN NI I.  GJ JK KL LN  JN "
+                "N4 NO "
+                "OP PQ Q."
+            )
+        else:
+            arcz = (
+                ".1 1S ST TU UV VW W. "
+                ".2 23 34 45 56 6A 78 8N 4Q "
+                "AB BC CN  AD DE EF FN  DG GH HI IN  GJ JK KL LN  JN "
+                "N4 NQ N. NO "
+                "OP PQ Q."
+            )
         self.check_coverage("""\
             def func(x):
                 a = f = g = 2
@@ -849,14 +949,10 @@ class ExceptionArcTest(CoverageTest):
             assert func('continue') == (14, 23, 2, 3)       # T
             assert func('return') == (17, 2, 2, 0)          # U
             assert func('raise') == (20, 23, 25, 0)         # V
+            assert func('other') == (2, 23, 2, 3)           # W 32
             """,
-            arcz=
-                ".1 1S ST TU UV V. "
-                ".2 23 34 45 56 6A 78 8N 4Q "
-                "AB BC CN  AD DE EF FN  DG GH HI IN  GJ JK KL LN  JN "
-                "NQ N4 N. NO "
-                "OP PQ Q.",
-            arcz_missing="78 8N JN",
+            arcz=arcz,
+            arcz_missing="78 8N",
             arcz_unpredicted="",
         )
 
@@ -998,6 +1094,109 @@ class YieldTest(CoverageTest):
         )
 
 
+class OptimizedIfTest(CoverageTest):
+    """Tests of if statements being optimized away."""
+
+    def test_optimized_away_if_0(self):
+        self.check_coverage("""\
+            a = 1
+            if len([2]):
+                c = 3
+            if 0:               # this line isn't in the compiled code.
+                if len([5]):
+                    d = 6
+            else:
+                e = 8
+            f = 9
+            """,
+            lines=[1, 2, 3, 8, 9],
+            arcz=".1 12 23 28 38 89 9.",
+            arcz_missing="28",
+        )
+
+    def test_optimized_away_if_1(self):
+        self.check_coverage("""\
+            a = 1
+            if len([2]):
+                c = 3
+            if 1:               # this line isn't in the compiled code,
+                if len([5]):    # but these are.
+                    d = 6
+            else:
+                e = 8
+            f = 9
+            """,
+            lines=[1, 2, 3, 5, 6, 9],
+            arcz=".1 12 23 25 35 56 69 59 9.",
+            arcz_missing="25 59",
+        )
+        self.check_coverage("""\
+            a = 1
+            if 1:
+                b = 3
+                c = 4
+            d = 5
+            """,
+            lines=[1, 3, 4, 5],
+            arcz=".1 13 34 45 5.",
+        )
+
+    def test_optimized_nested(self):
+        self.check_coverage("""\
+            a = 1
+            if 0:
+                if 0:
+                    b = 4
+                else:
+                    c = 6
+            else:
+                if 0:
+                    d = 9
+                else:
+                    if 0: e = 11
+                    f = 12
+                    if 0: g = 13
+                    h = 14
+            i = 15
+            """,
+            lines=[1, 12, 14, 15],
+            arcz=".1 1C CE EF F.",
+        )
+
+    def test_constant_if(self):
+        if env.PYPY:
+            self.skipTest("PyPy doesn't optimize away 'if __debug__:'")
+        # CPython optimizes away "if __debug__:"
+        self.check_coverage("""\
+            for value in [True, False]:
+                if value:
+                    if __debug__:
+                        x = 4
+                else:
+                    x = 6
+            """,
+            arcz=".1 12 24 41 26 61 1.",
+        )
+        # Before 3.7, no Python optimized away "if not __debug__:"
+        if env.PYVERSION < (3, 7, 0, 'alpha', 4):
+            arcz = ".1 12 23 31 34 41 26 61 1."
+            arcz_missing = "34 41"
+        else:
+            arcz = ".1 12 23 31 26 61 1."
+            arcz_missing = ""
+        self.check_coverage("""\
+            for value in [True, False]:
+                if value:
+                    if not __debug__:
+                        x = 4
+                else:
+                    x = 6
+            """,
+            arcz=arcz,
+            arcz_missing=arcz_missing,
+        )
+
+
 class MiscArcTest(CoverageTest):
     """Miscellaneous arc-measuring tests."""
 
@@ -1067,6 +1266,9 @@ class MiscArcTest(CoverageTest):
         )
 
     def test_pathologically_long_code_object(self):
+        if env.JYTHON:
+            self.skipTest("Bytecode concerns are irrelevant on Jython")
+
         # https://bitbucket.org/ned/coveragepy/issue/359
         # The structure of this file is such that an EXTENDED_ARG bytecode is
         # needed to encode the jump at the end.  We weren't interpreting those
@@ -1089,21 +1291,6 @@ class MiscArcTest(CoverageTest):
             arcs=[(-3, 1), (1, 4004), (4004, -3)],
             arcs_missing=[], arcs_unpredicted=[],
             )
-
-    def test_optimized_away_lines(self):
-        self.check_coverage("""\
-            a = 1
-            if len([2]):
-                c = 3
-            if 0:               # this line isn't in the compiled code.
-                if len([5]):
-                    d = 6
-            e = 7
-            """,
-            lines=[1, 2, 3, 7],
-            arcz=".1 12 23 27 37 7.",
-            arcz_missing="27",
-        )
 
     def test_partial_generators(self):
         # https://bitbucket.org/ned/coveragepy/issues/475/generator-expression-is-marked-as-not
@@ -1189,6 +1376,10 @@ class DecoratorArcTest(CoverageTest):
     def test_bug_466(self):
         # A bad interaction between decorators and multi-line list assignments,
         # believe it or not...!
+        if env.PYBEHAVIOR.trace_decorated_def:
+            arcz = ".1 1A A.  13 34 4.  -35 58 8-3"
+        else:
+            arcz = ".1 1A A.  13 3.     -35 58 8-3"
         self.check_coverage("""\
             class Parser(object):
 
@@ -1201,8 +1392,12 @@ class DecoratorArcTest(CoverageTest):
 
             Parser.parse()
             """,
-            arcz=".1 1A A.  13 3.  -35 58 8-3",
+            arcz=arcz,
         )
+        if env.PYBEHAVIOR.trace_decorated_def:
+            arcz = ".1 1A A.  13 34 4.  -35 58 8-3"
+        else:
+            arcz = ".1 1A A.  13 3.     -35 58 8-3"
         self.check_coverage("""\
             class Parser(object):
 
@@ -1215,7 +1410,7 @@ class DecoratorArcTest(CoverageTest):
 
             Parser.parse()
             """,
-            arcz=".1 1A A.  13 3.  -35 58 8-3",
+            arcz=arcz,
         )
 
 
@@ -1320,7 +1515,7 @@ class AsyncTest(CoverageTest):
                 )
                 print("%s + %s = %s" % (x, y, result))
 
-            loop = asyncio.get_event_loop()                 # E
+            loop = asyncio.new_event_loop()                 # E
             loop.run_until_complete(print_sum(1, 2))
             loop.close()                                    # G
             """,
@@ -1340,7 +1535,7 @@ class AsyncTest(CoverageTest):
                 def __init__(self, obj):                # 4
                     self._it = iter(obj)
 
-                async def __aiter__(self):              # 7
+                def __aiter__(self):                    # 7
                     return self
 
                 async def __anext__(self):              # A
@@ -1354,7 +1549,7 @@ class AsyncTest(CoverageTest):
                     print(letter)
                 print(".")
 
-            loop = asyncio.get_event_loop()             # L
+            loop = asyncio.new_event_loop()             # L
             loop.run_until_complete(doit())
             loop.close()
             """,

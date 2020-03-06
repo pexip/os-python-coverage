@@ -4,25 +4,27 @@
 language: python
 
 sudo: false
-
 python:
-  - 2.7
+  - '2.6'
+  - '2.7'
+  - '3.3'
+  - '3.4'
+  - '3.5'
+  - '3.6'
+  - 'pypy'
 
 env:
-  - TOXENV=py26
-  - TOXENV=py27
-  - TOXENV=py33
-  - TOXENV=py34
-  - TOXENV=pypy
-  - TOXENV=py27 COVERAGE_COVERAGE=yes
+  matrix:
+    - COVERAGE_COVERAGE=no
+    - COVERAGE_COVERAGE=yes
 
 sudo: false
 
 install:
-  - pip install -r requirements/tox.pip
+  - pip install -r requirements/ci.pip
 
 script:
   - tox
-  - if [ $COVERAGE_COVERAGE == 'yes' ]; then python igor.py combine_html; fi
-  - if [ $COVERAGE_COVERAGE == 'yes' ]; then pip install codecov; fi
-  - if [ $COVERAGE_COVERAGE == 'yes' ]; then codecov; fi
+  - if [[ $COVERAGE_COVERAGE == 'yes' ]]; then python igor.py combine_html; fi
+  - if [[ $COVERAGE_COVERAGE == 'yes' ]]; then pip install codecov; fi
+  - if [[ $COVERAGE_COVERAGE == 'yes' ]]; then codecov -X gcov --file coverage.xml; fi

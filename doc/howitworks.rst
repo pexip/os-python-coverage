@@ -33,9 +33,9 @@ Execution
 ---------
 
 At the heart of the execution phase is a Python trace function.  This is a
-function that the Python interpreter invokes for each line executed in a program.
-Coverage.py implements a trace function that records each file and line number
-as it is executed.
+function that the Python interpreter invokes for each line executed in a
+program.  Coverage.py implements a trace function that records each file and
+line number as it is executed.
 
 Executing a function for every line in your program can make execution very
 slow.  Coverage.py's trace function is implemented in C to reduce that
@@ -56,7 +56,7 @@ file, usually named ``.coverage``.  This is a JSON-based file containing all of
 the recorded file names and line numbers executed.
 
 .. _sys.settrace: https://docs.python.org/3/library/sys.html#sys.settrace
-.. _How C trace functions really work: http://nedbatchelder.com/text/trace-function.html
+.. _How C trace functions really work: https://nedbatchelder.com/text/trace-function.html
 
 
 Analysis

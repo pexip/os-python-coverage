@@ -4,13 +4,12 @@
 
 """Test the config file handling for coverage.py"""
 
-import sys
-import os
+import mock
 
 import coverage
 from coverage.misc import CoverageException
 
-from tests.coveragetest import CoverageTest
+from tests.coveragetest import CoverageTest, UsingModulesMixin
 
 
 class ConfigTest(CoverageTest):
@@ -95,6 +94,15 @@ class ConfigTest(CoverageTest):
         cov = coverage.Coverage(data_file="fromarg.dat")
         self.assertEqual(cov.config.data_file, "fromarg.dat")
 
+    def test_debug_from_environment(self):
+        self.make_file(".coveragerc", """\
+            [run]
+            debug = dataio, pids
+            """)
+        self.set_environ("COVERAGE_DEBUG", "callers, fooey")
+        cov = coverage.Coverage()
+        self.assertEqual(cov.config.debug, ["dataio", "pids", "callers", "fooey"])
+
     def test_parse_errors(self):
         # Im-parsable values raise CoverageException, with details.
         bad_configs_and_msgs = [
@@ -144,8 +152,39 @@ class ConfigTest(CoverageTest):
             ["the_$one", "anotherZZZ", "xZZZy", "xy", "huh${X}what"]
         )
 
+    def test_tilde_in_config(self):
+        # Config entries that are file paths can be tilde-expanded.
+        self.make_file(".coveragerc", """\
+            [run]
+            data_file = ~/data.file
+
+            [html]
+            directory = ~joe/html_dir
+
+            [xml]
+            output = ~/somewhere/xml.out
+
+            [report]
+            # Strings that aren't file paths are not tilde-expanded.
+            exclude_lines =
+                ~/data.file
+                ~joe/html_dir
+            """)
+        def expanduser(s):
+            """Fake tilde expansion"""
+            s = s.replace("~/", "/Users/me/")
+            s = s.replace("~joe/", "/Users/joe/")
+            return s
+
+        with mock.patch.object(coverage.config.os.path, 'expanduser', new=expanduser):
+            cov = coverage.Coverage()
+        self.assertEqual(cov.config.data_file, "/Users/me/data.file")
+        self.assertEqual(cov.config.html_dir, "/Users/joe/html_dir")
+        self.assertEqual(cov.config.xml_output, "/Users/me/somewhere/xml.out")
+        self.assertEqual(cov.config.exclude_list, ["~/data.file", "~joe/html_dir"])
+
     def test_tweaks_after_constructor(self):
-        # Arguments to the constructor are applied to the configuration.
+        # set_option can be used after construction to affect the config.
         cov = coverage.Coverage(timid=True, data_file="fooey.dat")
         cov.set_option("run:timid", False)
 
@@ -206,19 +245,13 @@ class ConfigTest(CoverageTest):
             [coverage:run]
             huh = what?
             """)
-        msg = r"Unrecognized option '\[coverage:run\] huh=' in config file setup.cfg"
+        msg = (r"Unrecognized option '\[coverage:run\] huh=' in config file setup.cfg")
         with self.assertRaisesRegex(CoverageException, msg):
             _ = coverage.Coverage()
 
 
-class ConfigFileTest(CoverageTest):
+class ConfigFileTest(UsingModulesMixin, CoverageTest):
     """Tests of the config file settings in particular."""
-
-    def setUp(self):
-        super(ConfigFileTest, self).setUp()
-        # Parent class saves and restores sys.path, we can just modify it.
-        # Add modules to the path so we can import plugins.
-        sys.path.append(self.nice_file(os.path.dirname(__file__), 'modules'))
 
     # This sample file tries to use lots of variation of syntax...
     # The {section} placeholder lets us nest these settings in another file.
@@ -230,12 +263,15 @@ class ConfigFileTest(CoverageTest):
         branch = 1
         cover_pylib = TRUE
         parallel = on
-        include = a/   ,    b/
         concurrency = thread
+        ; this omit is overriden by the omit from [report]
+        omit = twenty
         source = myapp
         plugins =
             plugins.a_plugin
             plugins.another
+        debug = callers, pids  ,     dataio
+        disable_warnings =     abcd  ,  efgh
 
         [{section}report]
         ; these settings affect reporting.
@@ -249,6 +285,7 @@ class ConfigFileTest(CoverageTest):
         omit =
             one, another, some_more,
                 yet_more
+        include = thirty
         precision = 3
 
         partial_branches =
@@ -294,20 +331,35 @@ class ConfigFileTest(CoverageTest):
                     examples/
         """
 
+    # Just some sample tox.ini text from the docs.
+    TOX_INI = """\
+        [tox]
+        envlist = py{26,27,33,34,35}-{c,py}tracer
+        skip_missing_interpreters = True
+
+        [testenv]
+        commands =
+            # Create tests/zipmods.zip, install the egg1 egg
+            python igor.py zip_mods install_egg
+        """
+
     def assert_config_settings_are_correct(self, cov):
         """Check that `cov` has all the settings from LOTSA_SETTINGS."""
         self.assertTrue(cov.config.timid)
         self.assertEqual(cov.config.data_file, "something_or_other.dat")
         self.assertTrue(cov.config.branch)
         self.assertTrue(cov.config.cover_pylib)
+        self.assertEqual(cov.config.debug, ["callers", "pids", "dataio"])
         self.assertTrue(cov.config.parallel)
         self.assertEqual(cov.config.concurrency, ["thread"])
         self.assertEqual(cov.config.source, ["myapp"])
+        self.assertEqual(cov.config.disable_warnings, ["abcd", "efgh"])
 
         self.assertEqual(cov.get_exclude_list(), ["if 0:", r"pragma:?\s+no cover", "another_tab"])
         self.assertTrue(cov.config.ignore_errors)
-        self.assertEqual(cov.config.include, ["a/", "b/"])
-        self.assertEqual(cov.config.omit, ["one", "another", "some_more", "yet_more"])
+        self.assertEqual(cov.config.run_omit, ["twenty"])
+        self.assertEqual(cov.config.report_omit, ["one", "another", "some_more", "yet_more"])
+        self.assertEqual(cov.config.report_include, ["thirty"])
         self.assertEqual(cov.config.precision, 3)
 
         self.assertEqual(cov.config.partial_list, [r"pragma:?\s+no branch"])
@@ -338,47 +390,86 @@ class ConfigFileTest(CoverageTest):
         cov = coverage.Coverage()
         self.assert_config_settings_are_correct(cov)
 
-    def test_config_file_settings_in_setupcfg(self):
-        # Configuration will be read from setup.cfg from sections prefixed with
-        # "coverage:"
+    def check_config_file_settings_in_other_file(self, fname, contents):
+        """Check config will be read from another file, with prefixed sections."""
         nested = self.LOTSA_SETTINGS.format(section="coverage:")
-        self.make_file("setup.cfg", nested + "\n" + self.SETUP_CFG)
+        fname = self.make_file(fname, nested + "\n" + contents)
         cov = coverage.Coverage()
         self.assert_config_settings_are_correct(cov)
 
-    def test_config_file_settings_in_setupcfg_if_coveragerc_specified(self):
-        # Configuration will be read from setup.cfg from sections prefixed with
-        # "coverage:", even if the API said to read from a (non-existent)
-        # .coveragerc file.
+    def test_config_file_settings_in_setupcfg(self):
+        self.check_config_file_settings_in_other_file("setup.cfg", self.SETUP_CFG)
+
+    def test_config_file_settings_in_toxini(self):
+        self.check_config_file_settings_in_other_file("tox.ini", self.TOX_INI)
+
+    def check_other_config_if_coveragerc_specified(self, fname, contents):
+        """Check that config `fname` is read if .coveragerc is missing, but specified."""
         nested = self.LOTSA_SETTINGS.format(section="coverage:")
-        self.make_file("setup.cfg", nested + "\n" + self.SETUP_CFG)
+        self.make_file(fname, nested + "\n" + contents)
         cov = coverage.Coverage(config_file=".coveragerc")
         self.assert_config_settings_are_correct(cov)
 
-    def test_setupcfg_only_if_not_coveragerc(self):
+    def test_config_file_settings_in_setupcfg_if_coveragerc_specified(self):
+        self.check_other_config_if_coveragerc_specified("setup.cfg", self.SETUP_CFG)
+
+    def test_config_file_settings_in_tox_if_coveragerc_specified(self):
+        self.check_other_config_if_coveragerc_specified("tox.ini", self.TOX_INI)
+
+    def check_other_not_read_if_coveragerc(self, fname):
+        """Check config `fname` is not read if .coveragerc exists."""
         self.make_file(".coveragerc", """\
             [run]
             include = foo
             """)
-        self.make_file("setup.cfg", """\
+        self.make_file(fname, """\
             [coverage:run]
             omit = bar
             branch = true
             """)
         cov = coverage.Coverage()
-        self.assertEqual(cov.config.include, ["foo"])
-        self.assertEqual(cov.config.omit, None)
+        self.assertEqual(cov.config.run_include, ["foo"])
+        self.assertEqual(cov.config.run_omit, None)
         self.assertEqual(cov.config.branch, False)
 
-    def test_setupcfg_only_if_prefixed(self):
-        self.make_file("setup.cfg", """\
+    def test_setupcfg_only_if_not_coveragerc(self):
+        self.check_other_not_read_if_coveragerc("setup.cfg")
+
+    def test_toxini_only_if_not_coveragerc(self):
+        self.check_other_not_read_if_coveragerc("tox.ini")
+
+    def check_other_config_need_prefixes(self, fname):
+        """Check that `fname` sections won't be read if un-prefixed."""
+        self.make_file(fname, """\
             [run]
             omit = bar
             branch = true
             """)
         cov = coverage.Coverage()
-        self.assertEqual(cov.config.omit, None)
+        self.assertEqual(cov.config.run_omit, None)
         self.assertEqual(cov.config.branch, False)
+
+    def test_setupcfg_only_if_prefixed(self):
+        self.check_other_config_need_prefixes("setup.cfg")
+
+    def test_toxini_only_if_prefixed(self):
+        self.check_other_config_need_prefixes("tox.ini")
+
+    def test_tox_ini_even_if_setup_cfg(self):
+        # There's a setup.cfg, but no coverage settings in it, so tox.ini
+        # is read.
+        nested = self.LOTSA_SETTINGS.format(section="coverage:")
+        self.make_file("tox.ini", self.TOX_INI + "\n" + nested)
+        self.make_file("setup.cfg", self.SETUP_CFG)
+        cov = coverage.Coverage()
+        self.assert_config_settings_are_correct(cov)
+
+    def test_read_prefixed_sections_from_explicit_file(self):
+        # You can point to a tox.ini, and it will find [coverage:run] sections
+        nested = self.LOTSA_SETTINGS.format(section="coverage:")
+        self.make_file("tox.ini", self.TOX_INI + "\n" + nested)
+        cov = coverage.Coverage(config_file="tox.ini")
+        self.assert_config_settings_are_correct(cov)
 
     def test_non_ascii(self):
         self.make_file(".coveragerc", """\

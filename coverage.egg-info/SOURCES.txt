@@ -1,6 +1,6 @@
 .travis.yml
-AUTHORS.txt
 CHANGES.rst
+CONTRIBUTORS.txt
 LICENSE.txt
 MANIFEST.in
 Makefile
@@ -14,12 +14,14 @@ howto.txt
 igor.py
 metacov.ini
 pylintrc
+setup.cfg
 setup.py
 tox.ini
 tox_wheels.ini
 ci/README.txt
 ci/download_appveyor.py
 ci/install.ps1
+ci/manylinux.sh
 ci/run_with_env.cmd
 coverage/__init__.py
 coverage/__main__.py
@@ -70,7 +72,7 @@ coverage/ctracer/util.h
 coverage/fullcoverage/encodings.py
 coverage/htmlfiles/coverage_html.js
 coverage/htmlfiles/index.html
-coverage/htmlfiles/jquery.debounce.min.js
+coverage/htmlfiles/jquery.ba-throttle-debounce.min.js
 coverage/htmlfiles/jquery.hotkeys.js
 coverage/htmlfiles/jquery.isonscreen.js
 coverage/htmlfiles/jquery.min.js
@@ -102,11 +104,14 @@ doc/source.rst
 doc/subprocess.rst
 doc/trouble.rst
 doc/_static/coverage.css
+requirements/ci.pip
 requirements/dev.pip
+requirements/pytest.pip
 requirements/tox.pip
 requirements/wheel.pip
 tests/__init__.py
 tests/backtest.py
+tests/conftest.py
 tests/coveragetest.py
 tests/covmodzip1.py
 tests/goldtest.py
@@ -114,6 +119,7 @@ tests/helpers.py
 tests/osinfo.py
 tests/plugin1.py
 tests/plugin2.py
+tests/plugin_config.py
 tests/stress_phystoken.tok
 tests/stress_phystoken_dos.tok
 tests/test_api.py
@@ -140,9 +146,11 @@ tests/test_plugins.py
 tests/test_process.py
 tests/test_python.py
 tests/test_results.py
+tests/test_setup.py
 tests/test_summary.py
 tests/test_templite.py
 tests/test_testing.py
+tests/test_version.py
 tests/test_xml.py
 tests/eggsrc/setup.py
 tests/eggsrc/egg1/__init__.py
@@ -223,6 +231,7 @@ tests/farm/html/src/m3.py
 tests/farm/html/src/main.py
 tests/farm/html/src/omit4.ini
 tests/farm/html/src/omit5.ini
+tests/farm/html/src/partial.ini
 tests/farm/html/src/partial.py
 tests/farm/html/src/run_a_xml_2.ini
 tests/farm/html/src/tabbed.py
@@ -250,6 +259,7 @@ tests/modules/aa/bb/bfile.py
 tests/modules/aa/bb.odd/bfile.py
 tests/modules/aa/bb/cc/__init__.py
 tests/modules/aa/bb/cc/cfile.py
+tests/modules/namespace_420/sub1/__init__.py
 tests/modules/pkg1/__init__.py
 tests/modules/pkg1/__main__.py
 tests/modules/pkg1/p1a.py
@@ -268,6 +278,7 @@ tests/modules/plugins/a_plugin.py
 tests/modules/plugins/another.py
 tests/modules/process_test/__init__.py
 tests/modules/process_test/try_execfile.py
+tests/moremodules/namespace_420/sub2/__init__.py
 tests/moremodules/othermods/__init__.py
 tests/moremodules/othermods/othera.py
 tests/moremodules/othermods/otherb.py

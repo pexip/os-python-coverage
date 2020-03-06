@@ -1,25 +1,37 @@
 # debian/tests/control
 # Control file for Debian ‘autopkgtests’.
-# Documentation: ‘/usr/share/doc/autopkgtest/README.package-tests.rst.gz’
-
-Tests: smoke-python2
-Depends:
-    python-pkg-resources,
-    python-coverage
+# Documentation: ‘/usr/share/doc/autopkgtest/README.package-tests.rst.gz’.
+#
+# This is free software, and you are welcome to redistribute it under
+# certain conditions; see the end of this file for copyright
+# information, grant of license, and disclaimer of warranty.
 
 Tests: smoke-python3
 Depends:
+    python3-coverage,
     python3-pkg-resources,
-    python3-coverage
+    python3-all
+
+Tests: smoke-python2
+Depends:
+    python-coverage,
+    python-pkg-resources,
+    python-all
+
+Tests: smoke-pypy
+Depends:
+    pypy-coverage,
+    pypy-pkg-resources
 
 Test-Command:
-    links -dump /usr/share/doc/python-coverage-doc/html/index.html > /dev/null
+    w3m -dump /usr/share/doc/python-coverage/html/index.html > /dev/null
 Depends:
     python-coverage-doc,
-    links
+    w3m
 
 Test-Command:
-    file /usr/share/doc/python-coverage-doc/html/index.html | grep -q 'HTML document'
+    file --brief /usr/share/doc/python-coverage/html/index.html
+        | grep -q 'HTML document'
 Depends:
     python-coverage-doc,
     file
@@ -27,16 +39,29 @@ Depends:
 Tests: entry-point-scripts
 Depends:
     python3-coverage,
-    python-coverage
+    python3-all,
+    python-coverage,
+    python-all
 
 Tests: module-scripts
 Depends:
     python3-coverage,
-    python-coverage
+    python3-all,
+    python-coverage,
+    python-all,
+    pypy-coverage,
+    pypy
+
+
+# Copyright © 2016–2019 Ben Finney <bignose@debian.org>
+# This is free software: you may copy, modify, and/or distribute this work
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; version 3 of that license or any later version.
+# No warranty expressed or implied.
 
 
 # Local variables:
 # coding: utf-8
-# mode: conf
+# mode: conf-space
 # End:
 # vim: fileencoding=utf-8 filetype=conf :

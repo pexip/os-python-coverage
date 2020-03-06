@@ -1,7 +1,7 @@
 To Do list for Debian packaging
 ###############################
 
-:Last-Updated: 2015-10-23
+:Last-Updated: 2019-01-22
 
 To Do
 =====
@@ -10,6 +10,10 @@ To Do
 
   * Add `tox` Build-Depends.
   * Enable Pybuild to run test suite with `tox`.
+
+
+Done
+====
 
 * Build binary packages for PyPy.
 
@@ -20,16 +24,12 @@ To Do
   * Add `sphinx` Build-Depends.
   * Enable Pybuild to build using Sphinx.
 
-
-Done
-====
-
 
 ..
     Local variables:
     coding: utf-8
-    mode: text
     mode: rst
+    mode: text
     time-stamp-format: "%:y-%02m-%02d"
     time-stamp-start: "^:Last-Updated:[ 	]+"
     time-stamp-end: "$"

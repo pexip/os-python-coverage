@@ -36,10 +36,11 @@ rather than put in your home directory.
 A different name for the configuration file can be specified with the
 ``--rcfile=FILE`` command line option.
 
-Coverage.py will read settings from a ``setup.cfg`` file if no other
-configuration file is used.  In this case, the section names have "coverage:"
+Coverage.py will read settings from other usual configuration files if no other
+configuration file is used.  It will automatically read from "setup.cfg" or
+"tox.ini" if they exist.  In this case, the section names have "coverage:"
 prefixed, so the ``[run]`` options described below will be found in the
-``[coverage:run]`` section of ``setup.cfg``.
+``[coverage:run]`` section of the file.
 
 
 Syntax
@@ -112,8 +113,8 @@ libraries in use by the product code.  If your program uses `multiprocessing`_,
 `gevent`_, `greenlet`_, or `eventlet`_, you must name that library in this
 option, or coverage.py will produce very wrong results.
 
-.. _multiprocessing: https://docs.python.org/2/library/multiprocessing.html
-.. _greenlet: http://greenlet.readthedocs.org/en/latest/
+.. _multiprocessing: https://docs.python.org/3/library/multiprocessing.html
+.. _greenlet: https://greenlet.readthedocs.io/
 .. _gevent: http://www.gevent.org/
 .. _eventlet: http://eventlet.net/
 
@@ -125,11 +126,18 @@ Before version 4.2, this option only accepted a single string.
 for storing or reporting coverage. This value can include a path to another
 directory.
 
+.. _config_run_disable_warnings:
+
+``disable_warnings`` (multi-string): a list of warnings to disable.  Warnings
+that can be disabled include a short string at the end, the name of the
+warning. See :ref:`cmd_warnings` for specific warnings.
+
 ``debug`` (multi-string): a list of debug options.  See :ref:`the run
 --debug option <cmd_run_debug>` for details.
 
 ``include`` (multi-string): a list of file name patterns, the files to include
-in measurement or reporting.  See :ref:`source` for details.
+in measurement or reporting.  Ignored if ``source`` is set.  See :ref:`source`
+for details.
 
 ``note`` (string): an arbitrary string that will be written to the data file.
 You can use the :meth:`CoverageData.run_infos` method to retrieve this string
@@ -146,10 +154,12 @@ many processes.  See :ref:`cmd_combining` for more information.
 for more information.
 
 ``source`` (multi-string): a list of packages or directories, the source to
-measure during execution.  See :ref:`source` for details.
+measure during execution.  If set, ``include`` is ignored. See :ref:`source`
+for details.
 
 ``timid`` (boolean, default False): use a simpler but slower trace method.
-Try this if you get seemingly impossible results.
+This uses PyTracer instead of CTracer, and is only needed in very unusual
+circumstances.  Try this if you get seemingly impossible results.
 
 
 .. _config_paths:
@@ -167,7 +177,7 @@ equivalent when combining data from different machines::
         c:\myproj\src
 
 The names of the entries are ignored, you may choose any name that you like.
-The value is a lists of strings.  When combining data with the ``combine``
+The value is a list of strings.  When combining data with the ``combine``
 command, two file paths will be combined if they start with paths from the same
 list.
 
@@ -192,8 +202,11 @@ reported as missing.  More details are in :ref:`excluding`.  If you use this
 option, you are replacing all the exclude regexes, so you'll need to also
 supply the "pragma: no cover" regex if you still want to use it.
 
-``fail_under`` (integer): a target coverage percentage. If the total coverage
-measurement is under this value, then exit with a status code of 2.
+``fail_under`` (float): a target coverage percentage. If the total coverage
+measurement is under this value, then exit with a status code of 2.  If you
+specify a non-integral value, you must also set ``[report] precision`` properly
+to make use of the decimal places.  A setting of 100 will fail any value under
+100, regardless of the number of decimal places of precision.
 
 ``ignore_errors`` (boolean, default False): ignore source code that can't be
 found, emitting a warning instead of an exception.
@@ -212,7 +225,8 @@ supply the "pragma: no branch" regex if you still want to use it.
 
 ``precision`` (integer): the number of digits after the decimal point to
 display for reported coverage percentages.  The default is 0, displaying for
-example "87%".  A value of 2 will display percentages like "87.32%".
+example "87%".  A value of 2 will display percentages like "87.32%".  This
+setting also affects the interpretation of the ``fail_under`` setting.
 
 ``show_missing`` (boolean, default False): when running a summary report, show
 missing lines.  See :ref:`cmd_summary` for more information.
@@ -232,7 +246,8 @@ Allowed values are "Name", "Stmts", "Miss", "Branch", "BrPart", or "Cover".
 Values particular to HTML reporting.  The values in the ``[report]`` section
 also apply to HTML output, where appropriate.
 
-``directory`` (string, default "htmlcov"): where to write the HTML report files.
+``directory`` (string, default "htmlcov"): where to write the HTML report
+files.
 
 ``extra_css`` (string): the path to a file of CSS to apply to the HTML report.
 The file will be copied into the HTML output directory.  Don't name it

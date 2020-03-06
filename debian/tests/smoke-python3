@@ -3,11 +3,10 @@
 # debian/tests/smoke-python3
 # Part of Debian ‘python-coverage’ package.
 #
-# Copyright © 2016 Ben Finney <bignose@debian.org>
-# This is free software; you may copy, modify, and/or distribute this work
-# under the terms of the Expat license as published by James Clark.
-# No warranty expressed or implied.
-#
+# This is free software, and you are welcome to redistribute it under
+# certain conditions; see the end of this file for copyright
+# information, grant of license, and disclaimer of warranty.
+
 # Smoke test for package in Python 3 environments.
 
 set -o errexit
@@ -30,6 +29,13 @@ for py in $(py3versions -i) ; do
     $py debian/tests/smoke_test.py $test_opts
     printf "\n"
 done
+
+
+# Copyright © 2016–2019 Ben Finney <bignose@debian.org>
+# This is free software: you may copy, modify, and/or distribute this work
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; version 3 of that license or any later version.
+# No warranty expressed or implied.
 
 
 # Local variables:

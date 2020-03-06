@@ -8,20 +8,20 @@ Build-Depends:
     python3-sphinx,
     python3-sphinx-rtd-theme,
     python3-sphinxcontrib.spelling,
-    python-docutils,
-    python-setuptools,
-    python-all-dev (>= 2.6.6-3~),
-    python (>= 2.6.6-3~),
     python3-setuptools,
     python3-all-dev,
     python3,
-    debhelper (>= 9~)
-Standards-Version: 3.9.8
+    python-setuptools,
+    python-all-dev (>= 2.6.6-3~),
+    python (>= 2.6.6-3~),
+    debhelper (>= 11~)
+Build-Depends-Indep:
+    pypy-setuptools,
+    pypy
+Standards-Version: 4.3.0
 Homepage: http://nedbatchelder.com/code/coverage/
-VCS-Git: https://notabug.org/bignose/debian_python-coverage.git
-VCS-Browser: https://notabug.org/bignose/debian_python-coverage/
-X-Python-Version: >= 2.6
-X-Python3-Version: >= 3.3
+VCS-Git: https://salsa.debian.org/debian/pkg-python-coverage.git
+VCS-Browser: https://salsa.debian.org/debian/pkg-python-coverage/
 XS-Pexip-Upstream: http://ftp.debian.org/debian/ buster
 
 Package: python3-coverage
@@ -32,7 +32,6 @@ Depends:
     ${shlibs:Depends},
     ${misc:Depends}
 Recommends:
-    libjs-jquery-hotkeys,
     libjs-jquery-isonscreen,
     libjs-jquery-tablesorter,
     libjs-jquery-throttle-debounce,
@@ -52,6 +51,33 @@ Description: code coverage tool for Python 3
  This package installs the Python version 3 ‘coverage’ library, and the
  ‘python3-coverage’ program to perform and report coverage tests.
 
+Package: pypy-coverage
+Architecture: all
+Depends:
+    pypy-pkg-resources,
+    ${pypy:Depends},
+    ${shlibs:Depends},
+    ${misc:Depends}
+Recommends:
+    libjs-jquery-isonscreen,
+    libjs-jquery-tablesorter,
+    libjs-jquery-throttle-debounce,
+    libjs-jquery
+Suggests:
+    python-coverage-doc
+Description: code coverage tool for Python 2 PyPy
+ Coverage.py is a tool for measuring code coverage of Python programs.
+ It monitors your program, noting which parts of the code have been
+ executed, then analyzes the source to identify code that could have
+ been executed but was not.
+ .
+ Coverage measurement is typically used to gauge the effectiveness of
+ tests. It can show which parts of your code are being exercised by
+ tests, and which are not.
+ .
+ This package installs the Python 2 ‘coverage’ library built for PyPy, and the
+ ‘pypy-coverage’ program to perform and report coverage tests.
+
 Package: python-coverage
 Architecture: any
 Depends:
@@ -60,7 +86,6 @@ Depends:
     ${shlibs:Depends},
     ${misc:Depends}
 Recommends:
-    libjs-jquery-hotkeys,
     libjs-jquery-isonscreen,
     libjs-jquery-tablesorter,
     libjs-jquery-throttle-debounce,

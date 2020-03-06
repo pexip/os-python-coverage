@@ -33,6 +33,8 @@ typedef struct CTracer {
     BOOL started;
     /* Are we tracing arcs, or just lines? */
     BOOL tracing_arcs;
+    /* Have we had any activity? */
+    BOOL activity;
 
     /*
         The data stack is a stack of dictionaries.  Each dictionary collects
@@ -54,8 +56,8 @@ typedef struct CTracer {
     int data_stacks_used;
     DataStack * pdata_stack;
 
-    /* The current file's data stack entry, copied from the stack. */
-    DataStackEntry cur_entry;
+    /* The current file's data stack entry. */
+    DataStackEntry * pcur_entry;
 
     /* The parent frame for the last exception event, to fix missing returns. */
     PyFrameObject * last_exc_back;

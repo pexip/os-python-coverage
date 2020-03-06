@@ -7,6 +7,7 @@ default:
 	@echo "* No default action *"
 
 clean:
+	-pip uninstall -y coverage
 	-rm -f *.pyd */*.pyd
 	-rm -f *.so */*.so
 	-PYTHONPATH=. python tests/test_farm.py clean
@@ -19,30 +20,40 @@ clean:
 	-rm -rf __pycache__ */__pycache__ */*/__pycache__ */*/*/__pycache__ */*/*/*/__pycache__ */*/*/*/*/__pycache__
 	-rm -f coverage/*,cover
 	-rm -f MANIFEST
-	-rm -f .coverage .coverage.* coverage.xml .metacov* .noseids
+	-rm -f .coverage .coverage.* coverage.xml .metacov*
 	-rm -f tests/zipmods.zip
 	-rm -rf tests/eggsrc/build tests/eggsrc/dist tests/eggsrc/*.egg-info
 	-rm -f setuptools-*.egg distribute-*.egg distribute-*.tar.gz
-	-rm -rf doc/_build doc/_spell
+	-rm -rf doc/_build doc/_spell doc/sample_html_beta
+	-rm -rf .tox_kits
 
 sterile: clean
 	-rm -rf .tox*
 
-LINTABLE = coverage igor.py setup.py tests ci/*.py
+LINTABLE = coverage tests igor.py setup.py __main__.py
 
 lint:
-	-pylint $(LINTABLE)
-	python -m tabnanny $(LINTABLE)
-	python igor.py check_eol
+	tox -e lint
+
+todo:
+	-grep -R --include=*.py TODO $(LINTABLE)
 
 spell:
 	-pylint --disable=all --enable=spelling $(LINTABLE)
 
 pep8:
-	pep8 --filename=*.py --repeat $(LINTABLE)
+	pycodestyle --filename=*.py --repeat $(LINTABLE)
 
 test:
 	tox -e py27,py35 $(ARGS)
+
+TOX_SMOKE_ARGS = -n 6 -m "not expensive" --maxfail=3 $(ARGS)
+
+smoke:
+	COVERAGE_NO_PYTRACER=1 tox -e py26,py33 -- $(TOX_SMOKE_ARGS)
+
+pysmoke:
+	COVERAGE_NO_CTRACER=1 tox -e py26,py33 -- $(TOX_SMOKE_ARGS)
 
 metacov:
 	COVERAGE_COVERAGE=yes tox $(ARGS)
@@ -53,10 +64,17 @@ metahtml:
 # Kitting
 
 kit:
-	python setup.py sdist --formats=gztar,zip
+	python setup.py sdist --formats=gztar
 
 wheel:
 	tox -c tox_wheels.ini $(ARGS)
+
+manylinux_clean:
+	docker image rm quay.io/pypa/manylinux1_i686 quay.io/pypa/manylinux1_x86_64
+
+manylinux:
+	docker run -it --init --rm -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/ci/manylinux.sh build
+	docker run -it --init --rm -v `pwd`:/io quay.io/pypa/manylinux1_i686 /io/ci/manylinux.sh build
 
 kit_upload:
 	twine upload dist/*
@@ -72,9 +90,6 @@ kit_local:
 
 download_appveyor:
 	python ci/download_appveyor.py nedbat/coveragepy
-
-pypi:
-	python setup.py register
 
 build_ext:
 	python setup.py build_ext
@@ -98,7 +113,7 @@ docreqs:
 	pip install -r doc/requirements.pip
 
 dochtml:
-	$(SPHINXBUILD) -b html $(SPHINXOPTS) doc/_build/html
+	PYTHONPATH=$(CURDIR) $(SPHINXBUILD) -b html $(SPHINXOPTS) doc/_build/html
 	@echo
 	@echo "Build finished. The HTML pages are in doc/_build/html."
 

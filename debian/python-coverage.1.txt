@@ -7,16 +7,16 @@ measure code coverage of Python program execution
 -------------------------------------------------
 
 :Author: |author|
-:Date: 2016-07-12
+:Date: 2017-09-08
 :Copyright:
-    Copyright © 2010–2016 Ben Finney <bignose@debian.org>
+    Copyright © 2010–2017 Ben Finney <bignose@debian.org>
 :Manual section: 1
 :Manual group: Coverage
 
 ..  |command| replace:: **python-coverage**
 ..  |license| replace::
-    `Apache license, version 2.0
-    <http://www.apache.org/licenses/LICENSE-2.0>`__
+    `GNU General Public License, version 3 or later
+    <http://www.gnu.org/licenses/>`__
 
 
 SYNOPSIS
@@ -221,19 +221,19 @@ COVERAGE_OPTIONS
 HISTORY
 =======
 
-The |command| command is a Python program which calls the ``coverage``
-Python library to do all the work.
+The |command| command is a Python program which calls the ``coverage`` Python
+library to do all the work.
 
-The library was originally developed by Gareth Rees, and is now developed
-by Ned Batchelder.
+The library was originally developed by Gareth Rees, and is now developed by
+Ned Batchelder.
 
-This manual page was written to document the |command| command for
-Debian. This is free software: you may copy, modify and/or distribute
-this work under the terms of the |license| as published by the Apache
-Software Foundation. No warranty expressed or implied.
+This manual page was written to document the |command| command for Debian. This
+is free software: you may copy, modify and/or distribute this work under the
+terms of the |license| as published by the Free Software Foundation, version 3
+or later. No warranty expressed or implied.
 
-On Debian systems, the complete text of version 2.0 of the Apache
-License can be found in `/usr/share/common-licenses/Apache-2.0`.
+On Debian systems, the complete text of the GNU General Public License version
+3 can be found in the file `/usr/share/common-licenses/GPL-3`.
 
 ..  |author| replace:: |authorname| |authoremail|
 ..  |authorname| replace:: Ben Finney

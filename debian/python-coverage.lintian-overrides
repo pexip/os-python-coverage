@@ -1,5 +1,5 @@
 # debian/python-coverage.lintian-overrides
-# Overrides for Lintian checks.
+# Overrides for Lintian checks of ‘python-coverage’ package.
 # Documentation: ‘/usr/share/doc/lintian/lintian’ §2.4.
 
 # The Coverage.py library is not an application, despite these commands.

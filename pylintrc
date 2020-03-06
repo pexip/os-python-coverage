@@ -2,13 +2,13 @@
 # For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
 
 # lint Python modules using external checkers.
-# 
-# This is the main checker controling the other ones and the reports
+#
+# This is the main checker controlling the other ones and the reports
 # generation. It is itself both a raw checker and an astng checker in order
 # to:
 # * handle message activation / deactivation at the module level
 # * handle some basic but necessary stats'data (number of classes, methods...)
-# 
+#
 [MASTER]
 
 # Specify a configuration file.
@@ -32,6 +32,8 @@ cache-size=500
 # usually to register additional checkers.
 load-plugins=
 
+extension-pkg-whitelist=
+    greenlet
 
 [MESSAGES CONTROL]
 
@@ -54,7 +56,7 @@ enable=
     useless-suppression
 
 # Disable the message(s) with the given id(s).
-disable= 
+disable=
     spelling,
 # Messages that are just silly:
     locally-disabled,
@@ -63,11 +65,13 @@ disable=
     bad-whitespace,
     global-statement,
     broad-except,
+    no-else-return,
 # Messages that may be silly:
     no-self-use,
     no-member,
     using-constant-test,
     too-many-nested-blocks,
+    too-many-ancestors,
 # Formatting stuff
     superfluous-parens,bad-continuation,
 # I'm fine deciding my own import order,
@@ -95,9 +99,12 @@ files-output=no
 # Tells wether to display a full report or only the messages
 reports=no
 
+# I don't need a score, thanks.
+score=no
+
 # Python expression which should return a note less than 10 (10 is the highest
 # note).You have access to the variables errors warning, statement which
-# respectivly contain the number of errors / warnings messages and the total
+# respectively contain the number of errors / warnings messages and the total
 # number of statements analyzed. This is used by the global evaluation report
 # (R0004).
 evaluation=10.0 - ((float(5 * error + warning + refactor + convention) / statement) * 10)
@@ -118,7 +125,7 @@ evaluation=10.0 - ((float(5 * error + warning + refactor + convention) / stateme
 # * dangerous default values as arguments
 # * redefinition of function / method / class
 # * uses of the global statement
-# 
+#
 [BASIC]
 
 # Regular expression which should only match functions or classes name which do
@@ -126,8 +133,9 @@ evaluation=10.0 - ((float(5 * error + warning + refactor + convention) / stateme
 # Special methods don't: __foo__
 # Test methods don't: testXXXX
 # TestCase overrides don't: setUp, tearDown
+# Nested decorator implementations: _decorator, _wrapped
 # Dispatched methods don't: _xxx__Xxxx
-no-docstring-rgx=__.*__|test[A-Z_].*|setUp|tearDown|_.*__.*
+no-docstring-rgx=__.*__|test[A-Z_].*|setUp|tearDown|_decorator|_wrapped|_.*__.*
 
 # Regular expression which should only match correct module names
 module-rgx=(([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+))$
@@ -168,7 +176,7 @@ bad-functions=
 
 
 # try to find bugs in the code using type inference
-# 
+#
 [TYPECHECK]
 
 # Tells wether missing members accessed in mixin class should be ignored. A
@@ -189,14 +197,15 @@ acquired-members=REQUEST,acl_users,aq_parent
 # * undefined variables
 # * redefinition of variable from builtins or from an outer scope
 # * use of variable before assigment
-# 
+#
 [VARIABLES]
 
 # Tells wether we should check for unused import in __init__ files.
 init-import=no
 
-# A regular expression matching names used for dummy variables (i.e. not used).
-dummy-variables-rgx=_|dummy|unused|.*_unused
+# A regular expression matching names of unused arguments.
+ignored-argument-names=_|unused|.*_unused
+dummy-variables-rgx=_|unused|.*_unused
 
 # List of additional names supposed to be defined in builtins. Remember that
 # you should avoid to define new builtins when possible.
@@ -206,11 +215,11 @@ additional-builtins=
 # checks for :
 # * methods without self as first argument
 # * overridden methods signature
-# * access only to existant members via self
+# * access only to existent members via self
 # * attributes not defined in the __init__ method
 # * supported interfaces implementation
 # * unreachable code
-# 
+#
 [CLASSES]
 
 # List of method names used to declare (i.e. assign) instance attributes.
@@ -220,7 +229,7 @@ defining-attr-methods=__init__,__new__,setUp,reset
 # checks for sign of poor/misdesign:
 # * number of methods, attributes, local variables...
 # * size, complexity of functions, methods
-# 
+#
 [DESIGN]
 
 # Maximum number of arguments for function / method
@@ -256,7 +265,7 @@ max-public-methods=500
 # * relative / wildcard imports
 # * cyclic imports
 # * uses of deprecated modules
-# 
+#
 [IMPORTS]
 
 # Deprecated modules which should not be used, separated by a comma
@@ -280,7 +289,7 @@ int-import-graph=
 # * strict indentation
 # * line length
 # * use of <> instead of !=
-# 
+#
 [FORMAT]
 
 # Maximum number of characters on a single line.
@@ -297,7 +306,7 @@ indent-string='    '
 # checks for:
 # * warning notes in the code like FIXME, XXX
 # * PEP 263: source code with non ascii character but no encoding declaration
-# 
+#
 [MISCELLANEOUS]
 
 # List of note tags to take in consideration, separated by a comma.
@@ -307,7 +316,7 @@ notes=FIXME,XXX,TODO
 # checks for similarities and duplicated code. This computation may be
 # memory / CPU intensive, so you should disable it if you experiments some
 # problems.
-# 
+#
 [SIMILARITIES]
 
 # Minimum lines number of a similarity.

@@ -3,11 +3,10 @@
 
 """Tests of miscellaneous stuff."""
 
-import sys
+import pytest
 
-import coverage
-from coverage.version import _make_url, _make_version
-from coverage.misc import Hasher, file_be_gone
+from coverage.misc import contract, dummy_decorator_with_args, file_be_gone
+from coverage.misc import format_lines, Hasher, one_of
 
 from tests.coveragetest import CoverageTest
 
@@ -32,6 +31,13 @@ class HasherTest(CoverageTest):
         h1.update(b"Hello, world!")
         h2 = Hasher()
         h2.update(b"Goodbye!")
+        self.assertNotEqual(h1.hexdigest(), h2.hexdigest())
+
+    def test_unicode_hashing(self):
+        h1 = Hasher()
+        h1.update(u"Hello, world! \N{SNOWMAN}")
+        h2 = Hasher()
+        h2.update(u"Goodbye!")
         self.assertNotEqual(h1.hexdigest(), h2.hexdigest())
 
     def test_dict_hashing(self):
@@ -62,63 +68,63 @@ class RemoveFileTest(CoverageTest):
             file_be_gone(".")
 
 
-class VersionTest(CoverageTest):
-    """Tests of version.py"""
+class ContractTest(CoverageTest):
+    """Tests of our contract decorators."""
 
     run_in_temp_dir = False
 
-    def test_version_info(self):
-        # Make sure we didn't screw up the version_info tuple.
-        self.assertIsInstance(coverage.version_info, tuple)
-        self.assertEqual([type(d) for d in coverage.version_info], [int, int, int, str, int])
-        self.assertIn(coverage.version_info[3], ['alpha', 'beta', 'candidate', 'final'])
+    def test_bytes(self):
+        @contract(text='bytes|None')
+        def need_bytes(text=None):                      # pylint: disable=missing-docstring
+            return text
 
-    def test_make_version(self):
-        self.assertEqual(_make_version(4, 0, 0, 'alpha', 0), "4.0a0")
-        self.assertEqual(_make_version(4, 0, 0, 'alpha', 1), "4.0a1")
-        self.assertEqual(_make_version(4, 0, 0, 'final', 0), "4.0")
-        self.assertEqual(_make_version(4, 1, 2, 'beta', 3), "4.1.2b3")
-        self.assertEqual(_make_version(4, 1, 2, 'final', 0), "4.1.2")
-        self.assertEqual(_make_version(5, 10, 2, 'candidate', 7), "5.10.2rc7")
+        assert need_bytes(b"Hey") == b"Hey"
+        assert need_bytes() is None
+        with pytest.raises(Exception):
+            need_bytes(u"Oops")
 
-    def test_make_url(self):
-        self.assertEqual(
-            _make_url(4, 0, 0, 'final', 0),
-            "https://coverage.readthedocs.io"
-        )
-        self.assertEqual(
-            _make_url(4, 1, 2, 'beta', 3),
-            "https://coverage.readthedocs.io/en/coverage-4.1.2b3"
-        )
+    def test_unicode(self):
+        @contract(text='unicode|None')
+        def need_unicode(text=None):                    # pylint: disable=missing-docstring
+            return text
+
+        assert need_unicode(u"Hey") == u"Hey"
+        assert need_unicode() is None
+        with pytest.raises(Exception):
+            need_unicode(b"Oops")
+
+    def test_one_of(self):
+        @one_of("a, b, c")
+        def give_me_one(a=None, b=None, c=None):        # pylint: disable=missing-docstring
+            return (a, b, c)
+
+        assert give_me_one(a=17) == (17, None, None)
+        assert give_me_one(b=set()) == (None, set(), None)
+        assert give_me_one(c=17) == (None, None, 17)
+        with pytest.raises(AssertionError):
+            give_me_one(a=17, b=set())
+        with pytest.raises(AssertionError):
+            give_me_one()
+
+    def test_dummy_decorator_with_args(self):
+        @dummy_decorator_with_args("anything", this=17, that="is fine")
+        def undecorated(a=None, b=None):                # pylint: disable=missing-docstring
+            return (a, b)
+
+        assert undecorated() == (None, None)
+        assert undecorated(17) == (17, None)
+        assert undecorated(b=23) == (None, 23)
+        assert undecorated(b=42, a=3) == (3, 42)
 
 
-class SetupPyTest(CoverageTest):
-    """Tests of setup.py"""
-
-    run_in_temp_dir = False
-
-    def test_metadata(self):
-        status, output = self.run_command_status(
-            "python setup.py --description --version --url --author"
-            )
-        self.assertEqual(status, 0)
-        out = output.splitlines()
-        self.assertIn("measurement", out[0])
-        self.assertEqual(out[1], coverage.__version__)
-        self.assertEqual(out[2], coverage.__url__)
-        self.assertIn("Ned Batchelder", out[3])
-
-    def test_more_metadata(self):
-        # Let's be sure we pick up our own setup.py
-        # CoverageTest restores the original sys.path for us.
-        sys.path.insert(0, '')
-        from setup import setup_args
-
-        classifiers = setup_args['classifiers']
-        self.assertGreater(len(classifiers), 7)
-        self.assert_starts_with(classifiers[-1], "Development Status ::")
-
-        long_description = setup_args['long_description'].splitlines()
-        self.assertGreater(len(long_description), 7)
-        self.assertNotEqual(long_description[0].strip(), "")
-        self.assertNotEqual(long_description[-1].strip(), "")
+@pytest.mark.parametrize("statements, lines, result", [
+    (set([1,2,3,4,5,10,11,12,13,14]), set([1,2,5,10,11,13,14]), "1-2, 5-11, 13-14"),
+    ([1,2,3,4,5,10,11,12,13,14,98,99], [1,2,5,10,11,13,14,99], "1-2, 5-11, 13-14, 99"),
+    ([1,2,3,4,98,99,100,101,102,103,104], [1,2,99,102,103,104], "1-2, 99, 102-104"),
+    ([17], [17], "17"),
+    ([90,91,92,93,94,95], [90,91,92,93,94,95], "90-95"),
+    ([1, 2, 3, 4, 5], [], ""),
+    ([1, 2, 3, 4, 5], [4], "4"),
+])
+def test_format_lines(statements, lines, result):
+    assert format_lines(statements, lines) == result

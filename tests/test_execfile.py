@@ -8,15 +8,15 @@ import json
 import os
 import os.path
 import re
-import sys
 
+from coverage import env
 from coverage.backward import binary_bytes
 from coverage.execfile import run_python_file, run_python_module
 from coverage.misc import NoCode, NoSource
 
-from tests.coveragetest import CoverageTest
+from tests.coveragetest import CoverageTest, TESTS_DIR, UsingModulesMixin
 
-TRY_EXECFILE = os.path.join(os.path.dirname(__file__), "modules/process_test/try_execfile.py")
+TRY_EXECFILE = os.path.join(TESTS_DIR, "modules/process_test/try_execfile.py")
 
 
 class RunFileTest(CoverageTest):
@@ -43,7 +43,8 @@ class RunFileTest(CoverageTest):
         self.assertEqual(mod_globs['__main__.DATA'], "xyzzy")
 
         # Argv should have the proper values.
-        self.assertEqual(mod_globs['argv'], [TRY_EXECFILE, "arg1", "arg2"])
+        self.assertEqual(mod_globs['argv0'], TRY_EXECFILE)
+        self.assertEqual(mod_globs['argv1-n'], ["arg1", "arg2"])
 
         # __builtins__ should have the right values, like open().
         self.assertEqual(mod_globs['__builtins__.has_open'], True)
@@ -100,8 +101,11 @@ class RunFileTest(CoverageTest):
 class RunPycFileTest(CoverageTest):
     """Test cases for `run_python_file`."""
 
-    def make_pyc(self):
+    def make_pyc(self):                     # pylint: disable=inconsistent-return-statements
         """Create a .pyc file, and return the relative path to it."""
+        if env.JYTHON:
+            self.skipTest("Can't make .pyc files on Jython")
+
         self.make_file("compiled.py", """\
             def doit():
                 print("I am here!")
@@ -145,16 +149,30 @@ class RunPycFileTest(CoverageTest):
         with self.assertRaisesRegex(NoCode, "No file to run: 'xyzzy.pyc'"):
             run_python_file("xyzzy.pyc", [])
 
+    def test_running_py_from_binary(self):
+        # Use make_file to get the bookkeeping. Ideally, it would
+        # be able to write binary files.
+        bf = self.make_file("binary")
+        with open(bf, "wb") as f:
+            f.write(b'\x7fELF\x02\x01\x01\x00\x00\x00')
 
-class RunModuleTest(CoverageTest):
+        msg = (
+            r"Couldn't run 'binary' as Python code: "
+            r"(TypeError|ValueError): "
+            r"("
+            r"compile\(\) expected string without null bytes"    # for py2
+            r"|"
+            r"source code string cannot contain null bytes"     # for py3
+            r")"
+        )
+        with self.assertRaisesRegex(Exception, msg):
+            run_python_file(bf, [bf])
+
+
+class RunModuleTest(UsingModulesMixin, CoverageTest):
     """Test run_python_module."""
 
     run_in_temp_dir = False
-
-    def setUp(self):
-        super(RunModuleTest, self).setUp()
-        # Parent class saves and restores sys.path, we can just modify it.
-        sys.path.append(self.nice_file(os.path.dirname(__file__), 'modules'))
 
     def test_runmod1(self):
         run_python_module("runmod1", ["runmod1", "hello"])
