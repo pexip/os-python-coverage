@@ -1,3 +1,9 @@
+python-coverage (4.5.2+dfsg.1-1pexip2) pexip; urgency=medium
+
+  * Rebuild in buster environment
+
+ -- Steve McIntyre <steve.mcintyre@pexip.com>  Thu, 16 Jul 2020 03:40:33 +0000
+
 python-coverage (4.5.2+dfsg.1-1pexip1) pexip; urgency=medium
 
   * Migrate to Buster
