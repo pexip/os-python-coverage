@@ -1,8 +1,9 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Oddball cases for testing coverage.py"""
 
+import os.path
 import sys
 
 from flaky import flaky
@@ -118,14 +119,14 @@ class RecursionTest(CoverageTest):
         cov = coverage.Coverage()
         self.start_import_stop(cov, "recur")
 
-        pytrace = (cov.collector.tracer_name() == "PyTracer")
+        pytrace = (cov._collector.tracer_name() == "PyTracer")
         expected_missing = [3]
         if pytrace:                                 # pragma: no metacov
             expected_missing += [9, 10, 11]
 
         _, statements, missing, _ = cov.analysis("recur.py")
         self.assertEqual(statements, [1, 2, 3, 5, 7, 8, 9, 10, 11])
-        self.assertEqual(missing, expected_missing)
+        self.assertEqual(expected_missing, missing)
 
         # Get a warning about the stackoverflow effect on the tracing function.
         if pytrace:                                 # pragma: no metacov
@@ -398,15 +399,6 @@ class ExceptionTest(CoverageTest):
 class DoctestTest(CoverageTest):
     """Tests invoked with doctest should measure properly."""
 
-    def setUp(self):
-        super(DoctestTest, self).setUp()
-
-        # This test case exists because Python 2.4's doctest module didn't play
-        # well with coverage. Nose fixes the problem by monkeypatching doctest.
-        # I want to be sure there's no monkeypatch and that I'm getting the
-        # doctest module that users of coverage will get.
-        assert 'doctest' not in sys.modules
-
     def test_doctest(self):
         self.check_coverage('''\
             def return_arg_or_void(arg):
@@ -550,7 +542,7 @@ class ExecTest(CoverageTest):
         # but now it's fixed. :)
         self.make_file("to_exec.py", """\
             \n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n
-            print("var is {0}".format(var))         # line 31
+            print("var is {}".format(var))         # line 31
             """)
         self.make_file("main.py", """\
             namespace = {'var': 17}
@@ -570,6 +562,18 @@ class ExecTest(CoverageTest):
         _, statements, missing, _ = cov.analysis("to_exec.py")
         self.assertEqual(statements, [31])
         self.assertEqual(missing, [])
+
+    def test_unencodable_filename(self):
+        # https://github.com/nedbat/coveragepy/issues/891
+        if env.PYVERSION < (3, 0):
+            self.skipTest("Python 2 can't seem to compile the file.")
+        self.make_file("bug891.py", r"""exec(compile("pass", "\udcff.py", "exec"))""")
+        cov = coverage.Coverage()
+        self.start_import_stop(cov, "bug891")
+        # Saving would fail trying to encode \udcff.py
+        cov.save()
+        files = [os.path.basename(f) for f in cov.get_data().measured_files()]
+        assert "bug891.py" in files
 
 
 class MockingProtectionTest(CoverageTest):

@@ -1,12 +1,11 @@
 # coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """XML reporting for coverage.py"""
 
 import os
 import os.path
-import re
 import sys
 import time
 import xml.dom.minidom
@@ -15,7 +14,7 @@ from coverage import env
 from coverage import __url__, __version__, files
 from coverage.backward import iitems
 from coverage.misc import isolate_module
-from coverage.report import Reporter
+from coverage.report import get_analysis_to_report
 
 os = isolate_module(os)
 
@@ -31,20 +30,22 @@ def rate(hit, num):
         return "%.4g" % (float(hit) / num)
 
 
-class XmlReporter(Reporter):
+class XmlReporter(object):
     """A reporter for writing Cobertura-style XML coverage results."""
 
-    def __init__(self, coverage, config):
-        super(XmlReporter, self).__init__(coverage, config)
+    def __init__(self, coverage):
+        self.coverage = coverage
+        self.config = self.coverage.config
 
         self.source_paths = set()
-        if config.source:
-            for src in config.source:
+        if self.config.source:
+            for src in self.config.source:
                 if os.path.exists(src):
-                    self.source_paths.add(files.canonical_filename(src))
+                    if not self.config.relative_files:
+                        src = files.canonical_filename(src)
+                    self.source_paths.add(src)
         self.packages = {}
         self.xml_out = None
-        self.has_arcs = coverage.data.has_arcs()
 
     def report(self, morfs, outfile=None):
         """Generate a Cobertura-compatible XML report for `morfs`.
@@ -56,6 +57,7 @@ class XmlReporter(Reporter):
         """
         # Initial setup.
         outfile = outfile or sys.stdout
+        has_arcs = self.coverage.get_data().has_arcs()
 
         # Create the DOM that will store the data.
         impl = xml.dom.minidom.getDOMImplementation()
@@ -71,7 +73,8 @@ class XmlReporter(Reporter):
         xcoverage.appendChild(self.xml_out.createComment(" Based on %s " % DTD_URL))
 
         # Call xml_file for each file in the data.
-        self.report_files(self.xml_file, morfs)
+        for fr, analysis in get_analysis_to_report(self.coverage, morfs):
+            self.xml_file(fr, analysis, has_arcs)
 
         xsources = self.xml_out.createElement("sources")
         xcoverage.appendChild(xsources)
@@ -100,7 +103,7 @@ class XmlReporter(Reporter):
                 xclasses.appendChild(class_elt)
             xpackage.setAttribute("name", pkg_name.replace(os.sep, '.'))
             xpackage.setAttribute("line-rate", rate(lhits, lnum))
-            if self.has_arcs:
+            if has_arcs:
                 branch_rate = rate(bhits, bnum)
             else:
                 branch_rate = "0"
@@ -115,7 +118,7 @@ class XmlReporter(Reporter):
         xcoverage.setAttribute("lines-valid", str(lnum_tot))
         xcoverage.setAttribute("lines-covered", str(lhits_tot))
         xcoverage.setAttribute("line-rate", rate(lhits_tot, lnum_tot))
-        if self.has_arcs:
+        if has_arcs:
             xcoverage.setAttribute("branches-valid", str(bnum_tot))
             xcoverage.setAttribute("branches-covered", str(bhits_tot))
             xcoverage.setAttribute("branch-rate", rate(bhits_tot, bnum_tot))
@@ -136,25 +139,25 @@ class XmlReporter(Reporter):
             pct = 100.0 * (lhits_tot + bhits_tot) / denom
         return pct
 
-    def xml_file(self, fr, analysis):
+    def xml_file(self, fr, analysis, has_arcs):
         """Add to the XML report for a single file."""
 
         # Create the 'lines' and 'package' XML elements, which
         # are populated later.  Note that a package == a directory.
         filename = fr.filename.replace("\\", "/")
         for source_path in self.source_paths:
+            source_path = files.canonical_filename(source_path)
             if filename.startswith(source_path.replace("\\", "/") + "/"):
                 rel_name = filename[len(source_path)+1:]
                 break
         else:
             rel_name = fr.relative_filename()
+            self.source_paths.add(fr.filename[:-len(rel_name)].rstrip(r"\/"))
 
         dirname = os.path.dirname(rel_name) or u"."
         dirname = "/".join(dirname.split("/")[:self.config.xml_package_depth])
         package_name = dirname.replace("/", ".")
 
-        if rel_name != fr.filename:
-            self.source_paths.add(fr.filename[:-len(rel_name)].rstrip(r"\/"))
         package = self.packages.setdefault(package_name, [{}, 0, 0, 0, 0])
 
         xclass = self.xml_out.createElement("class")
@@ -180,7 +183,7 @@ class XmlReporter(Reporter):
             # executed?  If so, that should be recorded here.
             xline.setAttribute("hits", str(int(line not in analysis.missing)))
 
-            if self.has_arcs:
+            if has_arcs:
                 if line in branch_stats:
                     total, taken = branch_stats[line]
                     xline.setAttribute("branch", "true")
@@ -196,7 +199,7 @@ class XmlReporter(Reporter):
         class_lines = len(analysis.statements)
         class_hits = class_lines - len(analysis.missing)
 
-        if self.has_arcs:
+        if has_arcs:
             class_branches = sum(t for t, k in branch_stats.values())
             missing_branches = sum(t - k for t, k in branch_stats.values())
             class_br_hits = class_branches - missing_branches
@@ -206,7 +209,7 @@ class XmlReporter(Reporter):
 
         # Finalize the statistics that are collected in the XML DOM.
         xclass.setAttribute("line-rate", rate(class_hits, class_lines))
-        if self.has_arcs:
+        if has_arcs:
             branch_rate = rate(class_br_hits, class_branches)
         else:
             branch_rate = "0"
@@ -224,16 +227,4 @@ def serialize_xml(dom):
     out = dom.toprettyxml()
     if env.PY2:
         out = out.encode("utf8")
-    # In Python 3.8, minidom lost the sorting of attributes: https://bugs.python.org/issue34160
-    # For the limited kinds of XML we produce, this re-sorts them.
-    if env.PYVERSION >= (3, 8):
-        rx_attr = r' [\w-]+="[^"]*"'
-        rx_attrs = r'(' + rx_attr + ')+'
-        fixed_lines = []
-        for line in out.splitlines(True):
-            hollow_line = re.sub(rx_attrs, u"☺", line)
-            attrs = sorted(re.findall(rx_attr, line))
-            new_line = hollow_line.replace(u"☺", "".join(attrs))
-            fixed_lines.append(new_line)
-        out = "".join(fixed_lines)
     return out

@@ -1,19 +1,567 @@
 .. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+.. For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 ==============================
-Change history for Coverage.py
+Change history for coverage.py
 ==============================
+
+These changes are listed in decreasing version number order. Note this can be
+different from a strict chronological order when there are two branches in
+development at the same time, such as 4.5.x and 5.0.
+
+This list is detailed and covers changes in each pre-release version.  If you
+want to know what's different in 5.0 since 4.5.x, see :ref:`whatsnew5x`.
+
 
     .. When updating the "Unreleased" header to a specific version, use this
     .. format.  Don't forget the jump target:
     ..
+    ..  .. _changes_981:
     ..
-    ..  .. _changes_781:
-    ..
-    ..
-    ..  Version 7.8.1 --- 2021-07-27
+    ..  Version 9.8.1 --- 2027-07-27
     ..  ----------------------------
+
+
+.. _changes_51:
+
+Version 5.1 --- 2020-04-12
+--------------------------
+
+- The JSON report now includes counts of covered and missing branches. Thanks,
+  Salvatore Zagaria.
+
+- On Python 3.8, try-finally-return reported wrong branch coverage with
+  decorated async functions (`issue 946`_).  This is now fixed. Thanks, Kjell
+  Braden.
+
+- The :meth:`~coverage.Coverage.get_option` and
+  :meth:`~coverage.Coverage.set_option` methods can now manipulate the
+  ``[paths]`` configuration setting.  Thanks to Bernát Gábor for the fix for
+  `issue 967`_.
+
+.. _issue 946: https://github.com/nedbat/coveragepy/issues/946
+.. _issue 967: https://github.com/nedbat/coveragepy/issues/967
+
+
+.. _changes_504:
+
+Version 5.0.4 --- 2020-03-16
+----------------------------
+
+- If using the ``[run] relative_files`` setting, the XML report will use
+  relative files in the ``<source>`` elements indicating the location of source
+  code.  Closes `issue 948`_.
+
+- The textual summary report could report missing lines with negative line
+  numbers on PyPy3 7.1 (`issue 943`_).  This is now fixed.
+
+- Windows wheels for Python 3.8 were incorrectly built, but are now fixed.
+  (`issue 949`_)
+
+- Updated Python 3.9 support to 3.9a4.
+
+- HTML reports couldn't be sorted if localStorage wasn't available. This is now
+  fixed: sorting works even though the sorting setting isn't retained. (`issue
+  944`_ and `pull request 945`_). Thanks, Abdeali Kothari.
+
+.. _issue 943: https://github.com/nedbat/coveragepy/issues/943
+.. _issue 944: https://github.com/nedbat/coveragepy/issues/944
+.. _pull request 945: https://github.com/nedbat/coveragepy/pull/945
+.. _issue 948: https://github.com/nedbat/coveragepy/issues/948
+.. _issue 949: https://github.com/nedbat/coveragepy/issues/949
+
+
+.. _changes_503:
+
+Version 5.0.3 --- 2020-01-12
+----------------------------
+
+- A performance improvement in 5.0.2 didn't work for test suites that changed
+  directory before combining data, causing "Couldn't use data file: no such
+  table: meta" errors (`issue 916`_).  This is now fixed.
+
+- Coverage could fail to run your program with some form of "ModuleNotFound" or
+  "ImportError" trying to import from the current directory. This would happen
+  if coverage had been packaged into a zip file (for example, on Windows), or
+  was found indirectly (for example, by pyenv-virtualenv).  A number of
+  different scenarios were described in `issue 862`_ which is now fixed.  Huge
+  thanks to Agbonze O. Jeremiah for reporting it, and Alexander Waters and
+  George-Cristian Bîrzan for protracted debugging sessions.
+
+- Added the "premain" debug option.
+
+- Added SQLite compile-time options to the "debug sys" output.
+
+.. _issue 862: https://github.com/nedbat/coveragepy/issues/862
+.. _issue 916: https://github.com/nedbat/coveragepy/issues/916
+
+
+.. _changes_502:
+
+Version 5.0.2 --- 2020-01-05
+----------------------------
+
+- Programs that used multiprocessing and changed directories would fail under
+  coverage.  This is now fixed (`issue 890`_).  A side effect is that debug
+  information about the config files read now shows absolute paths to the
+  files.
+
+- When running programs as modules (``coverage run -m``) with ``--source``,
+  some measured modules were imported before coverage starts.  This resulted in
+  unwanted warnings ("Already imported a file that will be measured") and a
+  reduction in coverage totals (`issue 909`_).  This is now fixed.
+
+- If no data was collected, an exception about "No data to report" could happen
+  instead of a 0% report being created (`issue 884`_).  This is now fixed.
+
+- The handling of source files with non-encodable file names has changed.
+  Previously, if a file name could not be encoded as UTF-8, an error occurred,
+  as described in `issue 891`_.  Now, those files will not be measured, since
+  their data would not be recordable.
+
+- A new warning ("dynamic-conflict") is issued if two mechanisms are trying to
+  change the dynamic context.  Closes `issue 901`_.
+
+- ``coverage run --debug=sys`` would fail with an AttributeError. This is now
+  fixed (`issue 907`_).
+
+.. _issue 884: https://github.com/nedbat/coveragepy/issues/884
+.. _issue 890: https://github.com/nedbat/coveragepy/issues/890
+.. _issue 891: https://github.com/nedbat/coveragepy/issues/891
+.. _issue 901: https://github.com/nedbat/coveragepy/issues/901
+.. _issue 907: https://github.com/nedbat/coveragepy/issues/907
+.. _issue 909: https://github.com/nedbat/coveragepy/issues/909
+
+
+.. _changes_501:
+
+Version 5.0.1 --- 2019-12-22
+----------------------------
+
+- If a 4.x data file is the cause of a "file is not a database" error, then use
+  a more specific error message, "Looks like a coverage 4.x data file, are you
+  mixing versions of coverage?"  Helps diagnose the problems described in
+  `issue 886`_.
+
+- Measurement contexts and relative file names didn't work together, as
+  reported in `issue 899`_ and `issue 900`_.  This is now fixed, thanks to
+  David Szotten.
+
+- When using ``coverage run --concurrency=multiprocessing``, all data files
+  should be named with parallel-ready suffixes.  5.0 mistakenly named the main
+  process' file with no suffix when using ``--append``.  This is now fixed,
+  closing `issue 880`_.
+
+- Fixed a problem on Windows when the current directory is changed to a
+  different drive (`issue 895`_).  Thanks, Olivier Grisel.
+
+- Updated Python 3.9 support to 3.9a2.
+
+.. _issue 880: https://github.com/nedbat/coveragepy/issues/880
+.. _issue 886: https://github.com/nedbat/coveragepy/issues/886
+.. _issue 895: https://github.com/nedbat/coveragepy/issues/895
+.. _issue 899: https://github.com/nedbat/coveragepy/issues/899
+.. _issue 900: https://github.com/nedbat/coveragepy/issues/900
+
+
+.. _changes_50:
+
+Version 5.0 --- 2019-12-14
+--------------------------
+
+Nothing new beyond 5.0b2.
+
+
+.. _changes_50b2:
+
+Version 5.0b2 --- 2019-12-08
+----------------------------
+
+- An experimental ``[run] relative_files`` setting tells coverage to store
+  relative file names in the data file. This makes it easier to run tests in
+  one (or many) environments, and then report in another.  It has not had much
+  real-world testing, so it may change in incompatible ways in the future.
+
+- When constructing a :class:`coverage.Coverage` object, `data_file` can be
+  specified as None to prevent writing any data file at all.  In previous
+  versions, an explicit `data_file=None` argument would use the default of
+  ".coverage". Fixes `issue 871`_.
+
+- Python files run with ``-m`` now have ``__spec__`` defined properly.  This
+  fixes `issue 745`_ (about not being able to run unittest tests that spawn
+  subprocesses), and `issue 838`_, which described the problem directly.
+
+- The ``[paths]`` configuration section is now ordered. If you specify more
+  than one list of patterns, the first one that matches will be used.  Fixes
+  `issue 649`_.
+
+- The :func:`.coverage.numbits.register_sqlite_functions` function now also
+  registers `numbits_to_nums` for use in SQLite queries.  Thanks, Simon
+  Willison.
+
+- Python 3.9a1 is supported.
+
+- Coverage.py has a mascot: :ref:`Sleepy Snake <sleepy>`.
+
+.. _issue 649: https://github.com/nedbat/coveragepy/issues/649
+.. _issue 745: https://github.com/nedbat/coveragepy/issues/745
+.. _issue 838: https://github.com/nedbat/coveragepy/issues/838
+.. _issue 871: https://github.com/nedbat/coveragepy/issues/871
+
+
+.. _changes_50b1:
+
+Version 5.0b1 --- 2019-11-11
+----------------------------
+
+- The HTML and textual reports now have a ``--skip-empty`` option that skips
+  files with no statements, notably ``__init__.py`` files.  Thanks, Reya B.
+
+- Configuration can now be read from `TOML`_ files.  This requires installing
+  coverage.py with the ``[toml]`` extra.  The standard "pyproject.toml" file
+  will be read automatically if no other configuration file is found, with
+  settings in the ``[tool.coverage.]`` namespace.  Thanks to Frazer McLean for
+  implementation and persistence.  Finishes `issue 664`_.
+
+- The ``[run] note`` setting has been deprecated. Using it will result in a
+  warning, and the note will not be written to the data file.  The
+  corresponding :class:`.CoverageData` methods have been removed.
+
+- The HTML report has been reimplemented (no more table around the source
+  code). This allowed for a better presentation of the context information,
+  hopefully resolving `issue 855`_.
+
+- Added sqlite3 module version information to ``coverage debug sys`` output.
+
+- Asking the HTML report to show contexts (``[html] show_contexts=True`` or
+  ``coverage html --show-contexts``) will issue a warning if there were no
+  contexts measured (`issue 851`_).
+
+.. _TOML: https://github.com/toml-lang/toml#readme
+.. _issue 664: https://github.com/nedbat/coveragepy/issues/664
+.. _issue 851: https://github.com/nedbat/coveragepy/issues/851
+.. _issue 855: https://github.com/nedbat/coveragepy/issues/855
+
+
+.. _changes_50a8:
+
+Version 5.0a8 --- 2019-10-02
+----------------------------
+
+- The :class:`.CoverageData` API has changed how queries are limited to
+  specific contexts.  Now you use :meth:`.CoverageData.set_query_context` to
+  set a single exact-match string, or :meth:`.CoverageData.set_query_contexts`
+  to set a list of regular expressions to match contexts.  This changes the
+  command-line ``--contexts`` option to use regular expressions instead of
+  filename-style wildcards.
+
+
+.. _changes_50a7:
+
+Version 5.0a7 --- 2019-09-21
+----------------------------
+
+- Data can now be "reported" in JSON format, for programmatic use, as requested
+  in `issue 720`_.  The new ``coverage json`` command writes raw and summarized
+  data to a JSON file.  Thanks, Matt Bachmann.
+
+- Dynamic contexts are now supported in the Python tracer, which is important
+  for PyPy users.  Closes `issue 846`_.
+
+- The compact line number representation introduced in 5.0a6 is called a
+  "numbits."  The :mod:`coverage.numbits` module provides functions for working
+  with them.
+
+- The reporting methods used to permanently apply their arguments to the
+  configuration of the Coverage object.  Now they no longer do.  The arguments
+  affect the operation of the method, but do not persist.
+
+- A class named "test_something" no longer confuses the ``test_function``
+  dynamic context setting.  Fixes `issue 829`_.
+
+- Fixed an unusual tokenizing issue with backslashes in comments.  Fixes
+  `issue 822`_.
+
+- ``debug=plugin`` didn't properly support configuration or dynamic context
+  plugins, but now it does, closing `issue 834`_.
+
+.. _issue 720: https://github.com/nedbat/coveragepy/issues/720
+.. _issue 822: https://github.com/nedbat/coveragepy/issues/822
+.. _issue 834: https://github.com/nedbat/coveragepy/issues/834
+.. _issue 829: https://github.com/nedbat/coveragepy/issues/829
+.. _issue 846: https://github.com/nedbat/coveragepy/issues/846
+
+
+.. _changes_50a6:
+
+Version 5.0a6 --- 2019-07-16
+----------------------------
+
+- Reporting on contexts. Big thanks to Stephan Richter and Albertas Agejevas
+  for the contribution.
+
+  - The ``--contexts`` option is available on the ``report`` and ``html``
+    commands.  It's a comma-separated list of shell-style wildcards, selecting
+    the contexts to report on.  Only contexts matching one of the wildcards
+    will be included in the report.
+
+  - The ``--show-contexts`` option for the ``html`` command adds context
+    information to each covered line.  Hovering over the "ctx" marker at the
+    end of the line reveals a list of the contexts that covered the line.
+
+- Database changes:
+
+  - Line numbers are now stored in a much more compact way.  For each file and
+    context, a single binary string is stored with a bit per line number.  This
+    greatly improves memory use, but makes ad-hoc use difficult.
+
+  - Dynamic contexts with no data are no longer written to the database.
+
+  - SQLite data storage is now faster.  There's no longer a reason to keep the
+    JSON data file code, so it has been removed.
+
+- Changes to the :class:`.CoverageData` interface:
+
+  - The new :meth:`.CoverageData.dumps` method serializes the data to a string,
+    and a corresponding :meth:`.CoverageData.loads` method reconstitutes this
+    data.  The format of the data string is subject to change at any time, and
+    so should only be used between two installations of the same version of
+    coverage.py.
+
+  - The :meth:`CoverageData constructor<.CoverageData.__init__>` has a new
+    argument, `no_disk` (default: False).  Setting it to True prevents writing
+    any data to the disk.  This is useful for transient data objects.
+
+- Added the classmethod :meth:`.Coverage.current` to get the latest started
+  Coverage instance.
+
+- Multiprocessing support in Python 3.8 was broken, but is now fixed.  Closes
+  `issue 828`_.
+
+- Error handling during reporting has changed slightly.  All reporting methods
+  now behave the same.  The ``--ignore-errors`` option keeps errors from
+  stopping the reporting, but files that couldn't parse as Python will always
+  be reported as warnings.  As with other warnings, you can suppress them with
+  the ``[run] disable_warnings`` configuration setting.
+
+- Coverage.py no longer fails if the user program deletes its current
+  directory. Fixes `issue 806`_.  Thanks, Dan Hemberger.
+
+- The scrollbar markers in the HTML report now accurately show the highlighted
+  lines, regardless of what categories of line are highlighted.
+
+- The hack to accommodate ShiningPanda_ looking for an obsolete internal data
+  file has been removed, since ShiningPanda 0.22 fixed it four years ago.
+
+- The deprecated `Reporter.file_reporters` property has been removed.
+
+.. _ShiningPanda: https://wiki.jenkins.io/display/JENKINS/ShiningPanda+Plugin
+.. _issue 806: https://github.com/nedbat/coveragepy/pull/806
+.. _issue 828: https://github.com/nedbat/coveragepy/issues/828
+
+
+.. _changes_50a5:
+
+Version 5.0a5 --- 2019-05-07
+----------------------------
+
+- Drop support for Python 3.4
+
+- Dynamic contexts can now be set two new ways, both thanks to Justas
+  Sadzevičius.
+
+  - A plugin can implement a ``dynamic_context`` method to check frames for
+    whether a new context should be started.  See
+    :ref:`dynamic_context_plugins` for more details.
+
+  - Another tool (such as a test runner) can use the new
+    :meth:`.Coverage.switch_context` method to explicitly change the context.
+
+- The ``dynamic_context = test_function`` setting now works with Python 2
+  old-style classes, though it only reports the method name, not the class it
+  was defined on.  Closes `issue 797`_.
+
+- ``fail_under`` values more than 100 are reported as errors.  Thanks to Mike
+  Fiedler for closing `issue 746`_.
+
+- The "missing" values in the text output are now sorted by line number, so
+  that missing branches are reported near the other lines they affect. The
+  values used to show all missing lines, and then all missing branches.
+
+- Access to the SQLite database used for data storage is now thread-safe.
+  Thanks, Stephan Richter. This closes `issue 702`_.
+
+- Combining data stored in SQLite is now about twice as fast, fixing `issue
+  761`_.  Thanks, Stephan Richter.
+
+- The ``filename`` attribute on :class:`.CoverageData` objects has been made
+  private.  You can use the ``data_filename`` method to get the actual file
+  name being used to store data, and the ``base_filename`` method to get the
+  original filename before parallelizing suffixes were added.  This is part of
+  fixing `issue 708`_.
+
+- Line numbers in the HTML report now align properly with source lines, even
+  when Chrome's minimum font size is set, fixing `issue 748`_.  Thanks Wen Ye.
+
+.. _issue 702: https://github.com/nedbat/coveragepy/issues/702
+.. _issue 708: https://github.com/nedbat/coveragepy/issues/708
+.. _issue 746: https://github.com/nedbat/coveragepy/issues/746
+.. _issue 748: https://github.com/nedbat/coveragepy/issues/748
+.. _issue 761: https://github.com/nedbat/coveragepy/issues/761
+.. _issue 797: https://github.com/nedbat/coveragepy/issues/797
+
+
+.. _changes_50a4:
+
+Version 5.0a4 --- 2018-11-25
+----------------------------
+
+- You can specify the command line to run your program with the ``[run]
+  command_line`` configuration setting, as requested in `issue 695`_.
+
+- Coverage will create directories as needed for the data file if they don't
+  exist, closing `issue 721`_.
+
+- The ``coverage run`` command has always adjusted the first entry in sys.path,
+  to properly emulate how Python runs your program.  Now this adjustment is
+  skipped if sys.path[0] is already different than Python's default.  This
+  fixes `issue 715`_.
+
+- Improvements to context support:
+
+  - The "no such table: meta" error is fixed.: `issue 716`_.
+
+  - Combining data files is now much faster.
+
+- Python 3.8 (as of today!) passes all tests.
+
+.. _issue 695: https://github.com/nedbat/coveragepy/issues/695
+.. _issue 715: https://github.com/nedbat/coveragepy/issues/715
+.. _issue 716: https://github.com/nedbat/coveragepy/issues/716
+.. _issue 721: https://github.com/nedbat/coveragepy/issues/721
+
+
+.. _changes_50a3:
+
+Version 5.0a3 --- 2018-10-06
+----------------------------
+
+- Context support: static contexts let you specify a label for a coverage run,
+  which is recorded in the data, and retained when you combine files.  See
+  :ref:`contexts` for more information.
+
+- Dynamic contexts: specifying ``[run] dynamic_context = test_function`` in the
+  config file will record the test function name as a dynamic context during
+  execution.  This is the core of "Who Tests What" (`issue 170`_).  Things to
+  note:
+
+  - There is no reporting support yet.  Use SQLite to query the .coverage file
+    for information.  Ideas are welcome about how reporting could be extended
+    to use this data.
+
+  - There's a noticeable slow-down before any test is run.
+
+  - Data files will now be roughly N times larger, where N is the number of
+    tests you have.  Combining data files is therefore also N times slower.
+
+  - No other values for ``dynamic_context`` are recognized yet.  Let me know
+    what else would be useful.  I'd like to use a pytest plugin to get better
+    information directly from pytest, for example.
+
+.. _issue 170: https://github.com/nedbat/coveragepy/issues/170
+
+- Environment variable substitution in configuration files now supports two
+  syntaxes for controlling the behavior of undefined variables: if ``VARNAME``
+  is not defined, ``${VARNAME?}`` will raise an error, and ``${VARNAME-default
+  value}`` will use "default value".
+
+- Partial support for Python 3.8, which has not yet released an alpha. Fixes
+  `issue 707`_ and `issue 714`_.
+
+.. _issue 707: https://github.com/nedbat/coveragepy/issues/707
+.. _issue 714: https://github.com/nedbat/coveragepy/issues/714
+
+
+.. _changes_50a2:
+
+Version 5.0a2 --- 2018-09-03
+----------------------------
+
+- Coverage's data storage has changed.  In version 4.x, .coverage files were
+  basically JSON.  Now, they are SQLite databases.  This means the data file
+  can be created earlier than it used to.  A large amount of code was
+  refactored to support this change.
+
+  - Because the data file is created differently than previous releases, you
+    may need ``parallel=true`` where you didn't before.
+
+  - The old data format is still available (for now) by setting the environment
+    variable COVERAGE_STORAGE=json. Please tell me if you think you need to
+    keep the JSON format.
+
+  - The database schema is guaranteed to change in the future, to support new
+    features.  I'm looking for opinions about making the schema part of the
+    public API to coverage.py or not.
+
+- Development moved from `Bitbucket`_ to `GitHub`_.
+
+- HTML files no longer have trailing and extra whitespace.
+
+- The sort order in the HTML report is stored in local storage rather than
+  cookies, closing `issue 611`_.  Thanks, Federico Bond.
+
+- pickle2json, for converting v3 data files to v4 data files, has been removed.
+
+.. _Bitbucket: https://bitbucket.org/ned/coveragepy
+.. _GitHub: https://github.com/nedbat/coveragepy
+
+.. _issue 611: https://github.com/nedbat/coveragepy/issues/611
+
+
+.. _changes_50a1:
+
+Version 5.0a1 --- 2018-06-05
+----------------------------
+
+- Coverage.py no longer supports Python 2.6 or 3.3.
+
+- The location of the configuration file can now be specified with a
+  ``COVERAGE_RCFILE`` environment variable, as requested in `issue 650`_.
+
+- Namespace packages are supported on Python 3.7, where they used to cause
+  TypeErrors about path being None. Fixes `issue 700`_.
+
+- A new warning (``already-imported``) is issued if measurable files have
+  already been imported before coverage.py started measurement.  See
+  :ref:`cmd_warnings` for more information.
+
+- Running coverage many times for small runs in a single process should be
+  faster, closing `issue 625`_.  Thanks, David MacIver.
+
+- Large HTML report pages load faster.  Thanks, Pankaj Pandey.
+
+.. _issue 625: https://bitbucket.org/ned/coveragepy/issues/625/lstat-dominates-in-the-case-of-small
+.. _issue 650: https://bitbucket.org/ned/coveragepy/issues/650/allow-setting-configuration-file-location
+.. _issue 700: https://github.com/nedbat/coveragepy/issues/700
+
+
+.. _changes_454:
+
+Version 4.5.4 --- 2019-07-29
+----------------------------
+
+- Multiprocessing support in Python 3.8 was broken, but is now fixed.  Closes
+  `issue 828`_.
+
+.. _issue 828: https://github.com/nedbat/coveragepy/issues/828
+
+
+.. _changes_453:
+
+Version 4.5.3 --- 2019-03-09
+----------------------------
+
+- Only packaging metadata changes.
 
 
 .. _changes_452:
@@ -24,7 +572,7 @@ Version 4.5.2 --- 2018-11-12
 - Namespace packages are supported on Python 3.7, where they used to cause
   TypeErrors about path being None. Fixes `issue 700`_.
 
-- Python 3.8 (as of today!) passes all tests.  Fixes `issue 707` and
+- Python 3.8 (as of today!) passes all tests.  Fixes `issue 707`_ and
   `issue 714`_.
 
 - Development moved from `Bitbucket`_ to `GitHub`_.
@@ -62,7 +610,7 @@ Version 4.5.1 --- 2018-02-10
 Version 4.5 --- 2018-02-03
 --------------------------
 
-- A new kind of plugin is supported: configurators are invoked at start-up to
+- A new kind of plugin is supported: configurers are invoked at start-up to
   allow more complex configuration than the .coveragerc file can easily do.
   See :ref:`api_plugin` for details.  This solves the complex configuration
   problem described in `issue 563`_.
@@ -279,7 +827,7 @@ Version 4.3.2 --- 2017-01-16
 
 .. _issue 322: https://bitbucket.org/ned/coveragepy/issues/322/cannot-use-coverage-with-jython
 .. _issue 426: https://bitbucket.org/ned/coveragepy/issues/426/difference-between-coverage-results-with
-.. _issue 522: https://bitbucket.org/ned/coveragepy/issues/522/incorrect-branch-reporting-with-__debug__
+.. _issue 522: https://bitbucket.org/ned/coveragepy/issues/522/incorrect-branch-reporting
 .. _issue 549: https://bitbucket.org/ned/coveragepy/issues/549/skip-covered-with-100-coverage-throws-a-no
 .. _issue 551: https://bitbucket.org/ned/coveragepy/issues/551/coveragepy-cannot-be-imported-in-jython27
 
@@ -506,7 +1054,7 @@ Work from the PyCon 2016 Sprints!
 .. _issue 478: https://bitbucket.org/ned/coveragepy/issues/478/help-shows-silly-program-name-when-running
 .. _issue 484: https://bitbucket.org/ned/coveragepy/issues/484/multiprocessing-greenlet-concurrency
 .. _issue 492: https://bitbucket.org/ned/coveragepy/issues/492/subprocess-coverage-strange-detection-of
-.. _unittest-mixins: https://pypi.python.org/pypi/unittest-mixins
+.. _unittest-mixins: https://pypi.org/project/unittest-mixins/
 
 
 .. _changes_41:
@@ -593,9 +1141,9 @@ Version 4.1b2 --- 2016-01-23
   - Class docstrings were considered executable.  Now they no longer are.
 
   - ``yield from`` and ``await`` were considered returns from functions, since
-    they could tranfer control to the caller.  This produced unhelpful "missing
-    branch" reports in a number of circumstances.  Now they no longer are
-    considered returns.
+    they could transfer control to the caller.  This produced unhelpful
+    "missing branch" reports in a number of circumstances.  Now they no longer
+    are considered returns.
 
   - In unusual situations, a missing branch to a negative number was reported.
     This has been fixed, closing `issue 466`_.
@@ -676,7 +1224,7 @@ Version 4.0.3 --- 2015-11-24
 
 - The XML report now has correct ``<source>`` elements when using a
   ``--source=`` option somewhere besides the current directory.  This fixes
-  `issue 439`_. Thanks, Arcady Ivanov.
+  `issue 439`_. Thanks, Arcadiy Ivanov.
 
 - Fixed an unusual edge case of detecting source encodings, described in
   `issue 443`_.
@@ -775,7 +1323,7 @@ Version 4.0b3 --- 2015-09-07
 - Reporting on an unmeasured file would fail with a traceback.  This is now
   fixed, closing `issue 403`_.
 
-- The Jenkins ShiningPanda plugin looks for an obsolete file name to find the
+- The Jenkins ShiningPanda_ plugin looks for an obsolete file name to find the
   HTML reports to publish, so it was failing under coverage.py 4.0.  Now we
   create that file if we are running under Jenkins, to keep things working
   smoothly. `issue 404`_.
@@ -1825,7 +2373,7 @@ Version 3.2b4 --- 2009-12-01
 
 - On Python 3.x, setuptools has been replaced by `Distribute`_.
 
-.. _Distribute: https://pypi.python.org/pypi/distribute
+.. _Distribute: https://pypi.org/project/distribute/
 
 
 Version 3.2b3 --- 2009-11-23
@@ -2038,7 +2586,7 @@ Major overhaul.
 
 - The singleton coverage object is only created if the module-level functions
   are used.  This maintains the old interface while allowing better
-  programmatic use of Coverage.py.
+  programmatic use of coverage.py.
 
 - The minimum supported Python version is 2.3.
 

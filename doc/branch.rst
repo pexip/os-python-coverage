@@ -1,5 +1,5 @@
 .. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+.. For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 .. _branch:
 
@@ -7,14 +7,8 @@
 Branch coverage measurement
 ===========================
 
-.. :history: 20091127T201300, new for version 3.2
-.. :history: 20100725T211700, updated for 3.4.
-.. :history: 20110604T181700, updated for 3.5.
-.. :history: 20111214T181800, Fix a bug that Guido pointed out.
-
 .. highlight:: python
    :linenothreshold: 5
-
 
 In addition to the usual statement coverage, coverage.py also supports branch
 coverage measurement. Where a line in your program could jump to more than one
@@ -55,8 +49,9 @@ The HTML report gives information about which lines had missing branches. Lines
 that were missing some branches are shown in yellow, with an annotation at the
 far right showing branch destination line numbers that were not exercised.
 
-The XML report produced by ``coverage xml`` also includes branch information,
-including separate statement and branch coverage percentages.
+The XML and JSON reports produced by ``coverage xml`` and ``coverage json``
+also include branch information, including separate statement and branch
+coverage percentages.
 
 
 How it works

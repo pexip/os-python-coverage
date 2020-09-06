@@ -1,12 +1,13 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests of miscellaneous stuff."""
 
 import pytest
 
 from coverage.misc import contract, dummy_decorator_with_args, file_be_gone
-from coverage.misc import format_lines, Hasher, one_of
+from coverage.misc import Hasher, one_of, substitute_variables
+from coverage.misc import CoverageException, USE_CONTRACTS
 
 from tests.coveragetest import CoverageTest
 
@@ -47,6 +48,13 @@ class HasherTest(CoverageTest):
         h2.update({'b': 23, 'a': 17})
         self.assertEqual(h1.hexdigest(), h2.hexdigest())
 
+    def test_dict_collision(self):
+        h1 = Hasher()
+        h1.update({'a': 17, 'b': {'c': 1, 'd': 2}})
+        h2 = Hasher()
+        h2.update({'a': 17, 'b': {'c': 1}, 'd': 2})
+        self.assertNotEqual(h1.hexdigest(), h2.hexdigest())
+
 
 class RemoveFileTest(CoverageTest):
     """Tests of misc.file_be_gone."""
@@ -73,9 +81,14 @@ class ContractTest(CoverageTest):
 
     run_in_temp_dir = False
 
+    def setUp(self):
+        super(ContractTest, self).setUp()
+        if not USE_CONTRACTS:
+            self.skipTest("Contracts are disabled")
+
     def test_bytes(self):
         @contract(text='bytes|None')
-        def need_bytes(text=None):                      # pylint: disable=missing-docstring
+        def need_bytes(text=None):
             return text
 
         assert need_bytes(b"Hey") == b"Hey"
@@ -85,7 +98,7 @@ class ContractTest(CoverageTest):
 
     def test_unicode(self):
         @contract(text='unicode|None')
-        def need_unicode(text=None):                    # pylint: disable=missing-docstring
+        def need_unicode(text=None):
             return text
 
         assert need_unicode(u"Hey") == u"Hey"
@@ -95,7 +108,7 @@ class ContractTest(CoverageTest):
 
     def test_one_of(self):
         @one_of("a, b, c")
-        def give_me_one(a=None, b=None, c=None):        # pylint: disable=missing-docstring
+        def give_me_one(a=None, b=None, c=None):
             return (a, b, c)
 
         assert give_me_one(a=17) == (17, None, None)
@@ -108,7 +121,7 @@ class ContractTest(CoverageTest):
 
     def test_dummy_decorator_with_args(self):
         @dummy_decorator_with_args("anything", this=17, that="is fine")
-        def undecorated(a=None, b=None):                # pylint: disable=missing-docstring
+        def undecorated(a=None, b=None):
             return (a, b)
 
         assert undecorated() == (None, None)
@@ -117,14 +130,31 @@ class ContractTest(CoverageTest):
         assert undecorated(b=42, a=3) == (3, 42)
 
 
-@pytest.mark.parametrize("statements, lines, result", [
-    (set([1,2,3,4,5,10,11,12,13,14]), set([1,2,5,10,11,13,14]), "1-2, 5-11, 13-14"),
-    ([1,2,3,4,5,10,11,12,13,14,98,99], [1,2,5,10,11,13,14,99], "1-2, 5-11, 13-14, 99"),
-    ([1,2,3,4,98,99,100,101,102,103,104], [1,2,99,102,103,104], "1-2, 99, 102-104"),
-    ([17], [17], "17"),
-    ([90,91,92,93,94,95], [90,91,92,93,94,95], "90-95"),
-    ([1, 2, 3, 4, 5], [], ""),
-    ([1, 2, 3, 4, 5], [4], "4"),
+VARS = {
+    'FOO': 'fooey',
+    'BAR': 'xyzzy',
+}
+
+@pytest.mark.parametrize("before, after", [
+    ("Nothing to do", "Nothing to do"),
+    ("Dollar: $$", "Dollar: $"),
+    ("Simple: $FOO is fooey", "Simple: fooey is fooey"),
+    ("Braced: X${FOO}X.", "Braced: XfooeyX."),
+    ("Missing: x${NOTHING}y is xy", "Missing: xy is xy"),
+    ("Multiple: $$ $FOO $BAR ${FOO}", "Multiple: $ fooey xyzzy fooey"),
+    ("Ill-formed: ${%5} ${{HI}} ${", "Ill-formed: ${%5} ${{HI}} ${"),
+    ("Strict: ${FOO?} is there", "Strict: fooey is there"),
+    ("Defaulted: ${WUT-missing}!", "Defaulted: missing!"),
+    ("Defaulted empty: ${WUT-}!", "Defaulted empty: !"),
 ])
-def test_format_lines(statements, lines, result):
-    assert format_lines(statements, lines) == result
+def test_substitute_variables(before, after):
+    assert substitute_variables(before, VARS) == after
+
+@pytest.mark.parametrize("text", [
+    "Strict: ${NOTHING?} is an error",
+])
+def test_substitute_variables_errors(text):
+    with pytest.raises(CoverageException) as exc_info:
+        substitute_variables(text, VARS)
+    assert text in str(exc_info.value)
+    assert "Variable NOTHING is undefined" in str(exc_info.value)

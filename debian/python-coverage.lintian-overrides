@@ -1,14 +1,0 @@
-# debian/python-coverage.lintian-overrides
-# Overrides for Lintian checks of ‘python-coverage’ package.
-# Documentation: ‘/usr/share/doc/lintian/lintian’ §2.4.
-
-# The Coverage.py library is not an application, despite these commands.
-library-package-name-for-application usr/bin/python-coverage usr/bin/python2-coverage usr/bin/python2.7-coverage
-application-in-library-section python usr/bin/python-coverage usr/bin/python2-coverage usr/bin/python2.7-coverage
-
-
-# Local variables:
-# coding: utf-8
-# mode: conf-space
-# End:
-# vim: fileencoding=utf-8 filetype=conf :

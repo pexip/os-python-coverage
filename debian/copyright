@@ -13,7 +13,7 @@ Files-Excluded:
 
 Files: *
 Copyright:
-    © 2004–2019 Ned Batchelder <ned@nedbatchelder.com>
+    © 2004–2020 Ned Batchelder <ned@nedbatchelder.com>
     © 2001 Gareth Rees
 License: Apache-2
 License-Grant:
@@ -53,7 +53,7 @@ Comment:
 
 Files: debian/*
 Copyright:
-    © 2008–2019 Ben Finney <bignose@debian.org>
+    © 2008–2020 Ben Finney <bignose@debian.org>
     © 2007–2008 Lars Wirzenius <liw@iki.fi>
 License: GPL-3+
 License-Grant:

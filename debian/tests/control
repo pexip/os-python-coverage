@@ -12,48 +12,37 @@ Depends:
     python3-pkg-resources,
     python3-all
 
-Tests: smoke-python2
-Depends:
-    python-coverage,
-    python-pkg-resources,
-    python-all
-
-Tests: smoke-pypy
-Depends:
-    pypy-coverage,
-    pypy-pkg-resources
-
 Test-Command:
-    w3m -dump /usr/share/doc/python-coverage/html/index.html > /dev/null
+    w3m -dump /usr/share/doc/python-coverage-doc/html/index.html > /dev/null
 Depends:
     python-coverage-doc,
     w3m
+Restrictions:
+    build-needed
 
 Test-Command:
-    file --brief /usr/share/doc/python-coverage/html/index.html
+    file --brief /usr/share/doc/python-coverage-doc/html/index.html
         | grep -q 'HTML document'
 Depends:
     python-coverage-doc,
     file
+Restrictions:
+    build-needed
 
 Tests: entry-point-scripts
 Depends:
     python3-coverage,
-    python3-all,
-    python-coverage,
-    python-all
+    python3-all
 
 Tests: module-scripts
 Depends:
     python3-coverage,
     python3-all,
-    python-coverage,
-    python-all,
     pypy-coverage,
     pypy
 
 
-# Copyright © 2016–2019 Ben Finney <bignose@debian.org>
+# Copyright © 2016–2020 Ben Finney <bignose@debian.org>
 # This is free software: you may copy, modify, and/or distribute this work
 # under the terms of the GNU General Public License as published by the
 # Free Software Foundation; version 3 of that license or any later version.

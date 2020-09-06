@@ -7,7 +7,7 @@ measure code coverage of Python program execution
 -------------------------------------------------
 
 :Author: |author|
-:Date: 2017-09-08
+:Date: 2020-09-06
 :Copyright:
     Copyright © 2010–2017 Ben Finney <bignose@debian.org>
 :Manual section: 1

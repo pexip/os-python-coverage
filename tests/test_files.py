@@ -1,6 +1,6 @@
 # coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests for files.py"""
 
@@ -56,6 +56,19 @@ class FilesTest(CoverageTest):
         trick = os.path.splitdrive(d)[1].lstrip(os.path.sep)
         rel = os.path.join('sub', trick, 'file1.py')
         self.assertEqual(files.relative_filename(abs_file(rel)), rel)
+
+    def test_canonical_filename_ensure_cache_hit(self):
+        self.make_file("sub/proj1/file1.py")
+        d = actual_path(self.abs_path("sub/proj1"))
+        self.chdir(d)
+        files.set_relative_directory()
+        canonical_path = files.canonical_filename('sub/proj1/file1.py')
+        self.assertEqual(canonical_path, self.abs_path('file1.py'))
+        # After the filename has been converted, it should be in the cache.
+        self.assertIn('sub/proj1/file1.py', files.CANONICAL_FILENAME_CACHE)
+        self.assertEqual(
+            files.canonical_filename('sub/proj1/file1.py'),
+            self.abs_path('file1.py'))
 
 
 @pytest.mark.parametrize("original, flat", [
@@ -344,7 +357,7 @@ class PathAliasesTest(CoverageTest):
         self.assert_mapped(aliases, '/foo/bar/d2/y.py', './mysrc2/y.py')
 
     def test_dot(self):
-        cases = ['.', '..', '../other', '~']
+        cases = ['.', '..', '../other']
         if not env.WINDOWS:
             # The root test case was added for the manylinux Docker images,
             # and I'm not sure how it should work on Windows, so skip it.

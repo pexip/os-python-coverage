@@ -16,7 +16,6 @@ export PYBUILD_DISABLE = test
 export PYBUILD_SYSTEM = distutils
 
 PYTHON3_PACKAGE_NAME = python3-${PYBUILD_NAME}
-PYTHON2_PACKAGE_NAME = python-${PYBUILD_NAME}
 PYPY_PACKAGE_NAME = pypy-${PYBUILD_NAME}
 package_working_root = debian
 package_install_root = debian/{package}
@@ -38,9 +37,7 @@ manpage_tempfile_suffix = ${MANPAGE_SUFFIX}.tmp
 default_manpage_name = python-coverage${MANPAGE_SUFFIX}
 python3_command_names = $(sort $(notdir $(wildcard \
 	${package_working_root}/*/usr/bin/python3*-coverage)))
-python2_command_names = $(sort $(notdir $(wildcard \
-	${package_working_root}/*/usr/bin/python2*-coverage)))
-versioned_command_names = ${python3_command_names} ${python2_command_names}
+versioned_command_names = ${python3_command_names}
 versioned_manpage_names = $(addsuffix ${MANPAGE_SUFFIX}, \
 	${versioned_command_names})
 versioned_manpage_paths = $(addprefix ${DOCUMENTATION_DIR}/, \
@@ -63,12 +60,12 @@ RST_SUFFIX = .txt
 
 RST2MAN = rst2man
 
-SPHINX = sphinx-build
+SPHINX = python3 -m sphinx
 SPHINX_OPTS = -N
 
 
 %:
-	dh $@ --with python3,python2,pypy,sphinxdoc --buildsystem=pybuild
+	dh $@ --with python3,pypy,sphinxdoc --buildsystem=pybuild
 
 
 .PHONY: remove-bundled-libraries
@@ -106,8 +103,6 @@ override_dh_auto_install:
 	dh_auto_install --buildsystem=pybuild
 	$(RM) $(addprefix ${package_working_root}/${PYTHON3_PACKAGE_NAME}/, \
 	    usr/bin/python-coverage usr/bin/pypy-coverage)
-	$(RM) $(addprefix ${package_working_root}/${PYTHON_PACKAGE_NAME}/, \
-	    usr/bin/python3*-coverage)
 	$(RM) $(addprefix ${package_working_root}/${PYPY_PACKAGE_NAME}/, \
 	    usr/bin/python*-coverage)
 
@@ -134,7 +129,7 @@ override_dh_auto_clean:
 	$(RM) -r ${GENERATED_FILES}
 
 
-# Copyright © 2010–2019 Ben Finney <bignose@debian.org>
+# Copyright © 2010–2020 Ben Finney <bignose@debian.org>
 #
 # This is free software: you may copy, modify, and/or distribute this work
 # under the terms of the GNU General Public License as published by the

@@ -10,7 +10,6 @@ Packages
 The Python `“coverage” library`_ is packaged in Debian separately for each
 Python major version in Debian:
 
-* `python-coverage` for Python 2.
 * `python3-coverage` for Python 3.
 
 ..  _“coverage” library: https://pypi.python.org/pypi/coverage/
@@ -21,11 +20,7 @@ Command-line programs
 The Debian “python-coverage” source package provides the command-line
 program by the following names:
 
-* For Debian's default Python 2 version, the program
-  `/usr/bin/python-coverage`.
-
-* For Debian's default Python 2 and Python 3, the programs
-  `/usr/bin/python2-coverage` and `/usr/bin/python3-coverage`.
+* For Debian's default Python 3, the program `/usr/bin/python3-coverage`.
 
 * For other Python versions, the program `/usr/bin/pythonN.M-coverage`
   (where “N.M” is the major and minor Python version, e.g.
@@ -35,7 +30,7 @@ Manual pages are in section 1 under the corresponding names.
 
 
 ..
-    Copyright © 2013–2019 Ben Finney <bignose@debian.org>
+    Copyright © 2013–2020 Ben Finney <bignose@debian.org>
     This is free software: you may copy, modify, and/or distribute this work
     under the terms of the GNU General Public License as published by the
     Free Software Foundation; version 3 of that license or any later version.

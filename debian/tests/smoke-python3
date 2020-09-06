@@ -24,14 +24,14 @@ for mod in ${MODULE_NAMES[@]} ; do
     test_opts="$test_opts --module=$mod"
 done
 
-for py in $(py3versions -i) ; do
+for py in $(py3versions --supported) ; do
     printf "Python command: %s\n" $py
     $py debian/tests/smoke_test.py $test_opts
     printf "\n"
 done
 
 
-# Copyright © 2016–2019 Ben Finney <bignose@debian.org>
+# Copyright © 2016–2020 Ben Finney <bignose@debian.org>
 # This is free software: you may copy, modify, and/or distribute this work
 # under the terms of the GNU General Public License as published by the
 # Free Software Foundation; version 3 of that license or any later version.

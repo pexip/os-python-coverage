@@ -1,14 +1,11 @@
 .. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+.. For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 .. _source:
 
 =======================
 Specifying source files
 =======================
-
-.. :history: 20100725T172000, new in 3.4
-
 
 When coverage.py is running your program and measuring its execution, it needs
 to know what code to measure and what code not to.  Measurement imposes a speed
@@ -80,11 +77,11 @@ reported.  Usually you want to see all the code that was measured, but if you
 are measuring a large project, you may want to get reports for just certain
 parts.
 
-The report commands (``report``, ``html``, ``annotate``, and ``xml``) all take
-optional ``modules`` arguments, and ``--include`` and ``--omit`` switches. The
-``modules`` arguments specify particular modules to report on.  The ``include``
-and ``omit`` values are lists of file name patterns, just as with the ``run``
-command.
+The report commands (``report``, ``html``, ``json``, ``annotate``, and ``xml``)
+all take optional ``modules`` arguments, and ``--include`` and ``--omit``
+switches. The ``modules`` arguments specify particular modules to report on.
+The ``include`` and ``omit`` values are lists of file name patterns, just as
+with the ``run`` command.
 
 Remember that the reporting commands can only report on the data that has been
 collected, so the data you're looking for may not be in the data available for

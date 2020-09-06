@@ -1,5 +1,5 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 # lint Python modules using external checkers.
 #
@@ -72,11 +72,17 @@ disable=
     using-constant-test,
     too-many-nested-blocks,
     too-many-ancestors,
+    unnecessary-pass,
+    no-else-break,
+    no-else-continue,
+# Questionable things, but it's ok, I don't need to be told:
+    import-outside-toplevel,
+    self-assigning-variable,
 # Formatting stuff
-    superfluous-parens,bad-continuation,
-# I'm fine deciding my own import order,
-    wrong-import-position,
-    wrong-import-order,
+    superfluous-parens,
+    bad-continuation,
+# Disable while we still support Python 2:
+    useless-object-inheritance,
 # Messages that are noisy for now, eventually maybe we'll turn them on:
     invalid-name,
     protected-access,
@@ -133,9 +139,9 @@ evaluation=10.0 - ((float(5 * error + warning + refactor + convention) / stateme
 # Special methods don't: __foo__
 # Test methods don't: testXXXX
 # TestCase overrides don't: setUp, tearDown
-# Nested decorator implementations: _decorator, _wrapped
+# Nested decorator implementations: _decorator, _wrapper
 # Dispatched methods don't: _xxx__Xxxx
-no-docstring-rgx=__.*__|test[A-Z_].*|setUp|tearDown|_decorator|_wrapped|_.*__.*
+no-docstring-rgx=__.*__|test[A-Z_].*|setUp|tearDown|_decorator|_wrapper|_.*__.*
 
 # Regular expression which should only match correct module names
 module-rgx=(([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+))$
@@ -327,13 +333,3 @@ ignore-comments=yes
 
 # Ignore docstrings when computing similarities.
 ignore-docstrings=yes
-
-#
-# SPELLING
-#
-
-spelling-dict=en_US
-# pylint doesn't strip the words, so insert a dummy x at the beginning to make
-# the other words work properly.
-# https://bitbucket.org/logilab/pylint/issue/398/spelling-words-need-to-be-stripped-or-the
-spelling-private-dict-file=doc/dict.txt

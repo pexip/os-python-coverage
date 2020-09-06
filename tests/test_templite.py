@@ -1,6 +1,6 @@
 # coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests for coverage.templite."""
 
@@ -10,7 +10,7 @@ from coverage.templite import Templite, TempliteSyntaxError, TempliteValueError
 
 from tests.coveragetest import CoverageTest
 
-# pylint: disable=unused-variable
+# pylint: disable=possibly-unused-variable
 
 class AnyOldObject(object):
     """Simple testing object.
@@ -64,7 +64,7 @@ class TempliteTest(CoverageTest):
 
     def test_undefined_variables(self):
         # Using undefined names is an error.
-        with self.assertRaises(Exception):
+        with self.assertRaisesRegex(Exception, "'name'"):
             self.try_render("Hi, {{name}}!")
 
     def test_pipes(self):
@@ -252,12 +252,40 @@ class TempliteTest(CoverageTest):
             "@{% for n in nums -%}\n"
             " {% for a in abc -%}\n"
             "  {# this disappears completely -#}\n"
-            "  {{a -}}\n"
+            "  {{a-}}\n"
             "  {{n -}}\n"
+            "  {{n    -}}\n"
             " {% endfor %}\n"
             "{% endfor %}!\n",
             {'nums': [0, 1, 2], 'abc': ['a', 'b', 'c']},
-            "@a0b0c0\na1b1c1\na2b2c2\n!\n"
+            "@a00b00c00\na11b11c11\na22b22c22\n!\n"
+            )
+        self.try_render(
+            "@{% for n in nums -%}\n"
+            "  {{n -}}\n"
+            "  x\n"
+            "{% endfor %}!\n",
+            {'nums': [0, 1, 2]},
+            "@0x\n1x\n2x\n!\n"
+            )
+        self.try_render("  hello  ", {}, "  hello  ")
+
+    def test_eat_whitespace(self):
+        self.try_render(
+            "Hey!\n"
+            "{% joined %}\n"
+            "@{% for n in nums %}\n"
+            " {% for a in abc %}\n"
+            "  {# this disappears completely #}\n"
+            "  X\n"
+            "  Y\n"
+            "  {{a}}\n"
+            "  {{n }}\n"
+            " {% endfor %}\n"
+            "{% endfor %}!\n"
+            "{% endjoined %}\n",
+            {'nums': [0, 1, 2], 'abc': ['a', 'b', 'c']},
+            "Hey!\n@XYa0XYb0XYc0XYa1XYb1XYc1XYa2XYb2XYc2!\n"
             )
 
     def test_non_ascii(self):
@@ -269,8 +297,8 @@ class TempliteTest(CoverageTest):
 
     def test_exception_during_evaluation(self):
         # TypeError: Couldn't evaluate {{ foo.bar.baz }}:
-        msg = "Couldn't evaluate None.bar"
-        with self.assertRaisesRegex(TempliteValueError, msg):
+        regex = "^Couldn't evaluate None.bar$"
+        with self.assertRaisesRegex(TempliteValueError, regex):
             self.try_render(
                 "Hey {{foo.bar.baz}} there", {'foo': None}, "Hey ??? there"
             )

@@ -1,6 +1,6 @@
 # coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Test text-based summary reporting for coverage.py"""
 
@@ -13,7 +13,6 @@ import re
 import coverage
 from coverage import env
 from coverage.backward import StringIO
-from coverage.config import CoverageConfig
 from coverage.control import Coverage
 from coverage.data import CoverageData
 from coverage.misc import CoverageException, output_encoding
@@ -32,6 +31,14 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
             import covmodzip1
             a = 1
             print('done')
+            """)
+        self.omit_site_packages()
+
+    def omit_site_packages(self):
+        """Write a .coveragerc file that will omit site-packages from reports."""
+        self.make_file(".coveragerc", """\
+            [report]
+            omit = */site-packages/*
             """)
 
     def test_report(self):
@@ -92,7 +99,8 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
         # Try reporting while omitting some modules
         self.make_mycode()
         self.run_command("coverage run mycode.py")
-        report = self.report_from_command("coverage report --omit '%s/*'" % TESTS_DIR)
+        omit = '{}/*,*/site-packages/*'.format(TESTS_DIR)
+        report = self.report_from_command("coverage report --omit '{}'".format(omit))
 
         # Name        Stmts   Miss  Cover
         # -------------------------------
@@ -152,7 +160,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
 
         # Read the data written, to see that the right files have been omitted from running.
         covdata = CoverageData()
-        covdata.read_file(".coverage")
+        covdata.read()
         files = [os.path.basename(p) for p in covdata.measured_files()]
         self.assertIn("covmod1.py", files)
         self.assertNotIn("covmodzip1.py", files)
@@ -165,7 +173,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
                 return x
             branch(1)
             """)
-        out = self.run_command("coverage run --branch mybranch.py")
+        out = self.run_command("coverage run --source=. --branch mybranch.py")
         self.assertEqual(out, 'x\n')
         report = self.report_from_command("coverage report")
 
@@ -194,7 +202,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
                 return x
             missing(0, 1)
             """)
-        out = self.run_command("coverage run mymissing.py")
+        out = self.run_command("coverage run --source=. mymissing.py")
         self.assertEqual(out, 'y\nz\n')
         report = self.report_from_command("coverage report --show-missing")
 
@@ -215,6 +223,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
                     print("y")
             branch(1, 1)
             """)
+        self.omit_site_packages()
         out = self.run_command("coverage run --branch mybranch.py")
         self.assertEqual(out, 'x\ny\n')
         report = self.report_from_command("coverage report --show-missing")
@@ -243,6 +252,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
                 return x
             branch(1, 1, 0)
             """)
+        self.omit_site_packages()
         out = self.run_command("coverage run --branch main.py")
         self.assertEqual(out, 'x\ny\n')
         report = self.report_from_command("coverage report --show-missing")
@@ -252,11 +262,11 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
             'Name          Stmts   Miss Branch BrPart  Cover   Missing',
             '---------------------------------------------------------',
             'main.py           1      0      0      0   100%',
-            'mybranch.py      10      2      8      3    61%   7-8, 2->4, 4->6, 6->7',
+            'mybranch.py      10      2      8      3    61%   2->4, 4->6, 6->7, 7-8',
             '---------------------------------------------------------',
             'TOTAL            11      2      8      3    63%',
         ]
-        self.assertEqual(report_lines, expected)
+        self.assertEqual(expected, report_lines)
 
     def test_report_skip_covered_no_branches(self):
         self.make_file("main.py", """
@@ -265,11 +275,12 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
             def normal():
                 print("z")
             normal()
-        """)
+            """)
         self.make_file("not_covered.py", """
             def not_covered():
                 print("n")
-        """)
+            """)
+        self.omit_site_packages()
         out = self.run_command("coverage run main.py")
         self.assertEqual(out, "z\n")
         report = self.report_from_command("coverage report --skip-covered --fail-under=70")
@@ -298,18 +309,19 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
                     print("z")
             normal(True)
             normal(False)
-        """)
+            """)
         self.make_file("not_covered.py", """
             def not_covered(n):
                 if n:
                     print("n")
             not_covered(True)
-        """)
+            """)
         self.make_file("covered.py", """
             def foo():
                 pass
             foo()
-        """)
+            """)
+        self.omit_site_packages()
         out = self.run_command("coverage run --branch main.py")
         self.assertEqual(out, "n\nz\n")
         report = self.report_from_command("coverage report --skip-covered")
@@ -338,17 +350,18 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
                     print("z")
             normal(True)
             normal(False)
-        """)
+            """)
         self.make_file("not_covered.py", """
             def not_covered(n):
                 if n:
                     print("n")
             not_covered(True)
-        """)
+            """)
         self.make_file("also_not_run.py", """
             def does_not_appear_in_this_film(ni):
                 print("Ni!")
             """)
+        self.omit_site_packages()
         out = self.run_command("coverage run --branch main.py")
         self.assertEqual(out, "n\nz\n")
         report = self.report_from_command("coverage report --skip-covered")
@@ -374,8 +387,8 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
             def foo():
                 pass
             foo()
-        """)
-        out = self.run_command("coverage run --branch main.py")
+            """)
+        out = self.run_command("coverage run --source=. --branch main.py")
         self.assertEqual(out, "")
         report = self.report_from_command("coverage report --skip-covered")
 
@@ -393,8 +406,8 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
             def foo():
                 pass
             foo()
-        """)
-        out = self.run_command("coverage run --branch long_______________filename.py")
+            """)
+        out = self.run_command("coverage run --source=. --branch long_______________filename.py")
         self.assertEqual(out, "")
         report = self.report_from_command("coverage report --skip-covered")
 
@@ -412,18 +425,62 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
     def test_report_skip_covered_no_data(self):
         report = self.report_from_command("coverage report --skip-covered")
 
-        # Name      Stmts   Miss Branch BrPart  Cover
-        # -------------------------------------------
         # No data to report.
 
-        self.assertEqual(self.line_count(report), 3, report)
+        self.assertEqual(self.line_count(report), 1, report)
         squeezed = self.squeezed_lines(report)
-        self.assertEqual(squeezed[2], "No data to report.")
+        self.assertEqual(squeezed[0], "No data to report.")
+
+    def test_report_skip_empty(self):
+        self.make_file("main.py", """
+            import submodule
+
+            def normal():
+                print("z")
+            normal()
+            """)
+        self.make_file("submodule/__init__.py", "")
+        self.omit_site_packages()
+        out = self.run_command("coverage run main.py")
+        self.assertEqual(out, "z\n")
+        report = self.report_from_command("coverage report --skip-empty")
+
+        # Name             Stmts   Miss  Cover
+        # ------------------------------------
+        # main.py              4      0   100%
+        # ------------------------------------
+        # TOTAL                4      0   100%
+        #
+        # 1 empty file skipped.
+
+        self.assertEqual(self.line_count(report), 7, report)
+        squeezed = self.squeezed_lines(report)
+        self.assertEqual(squeezed[2], "main.py 4 0 100%")
+        self.assertEqual(squeezed[4], "TOTAL 4 0 100%")
+        self.assertEqual(squeezed[6], "1 empty file skipped.")
+        self.assertEqual(self.last_command_status, 0)
+
+    def test_report_skip_empty_no_data(self):
+        self.make_file("__init__.py", "")
+        self.omit_site_packages()
+        out = self.run_command("coverage run __init__.py")
+        self.assertEqual(out, "")
+        report = self.report_from_command("coverage report --skip-empty")
+
+        # Name             Stmts   Miss  Cover
+        # ------------------------------------
+        #
+        # 1 empty file skipped.
+
+        self.assertEqual(self.line_count(report), 4, report)
+        lines = self.report_lines(report)
+        self.assertEqual(lines[3], "1 empty file skipped.")
 
     def test_report_precision(self):
         self.make_file(".coveragerc", """\
             [report]
             precision = 3
+            omit = */site-packages/*
             """)
         self.make_file("main.py", """
             import not_covered, covered
@@ -433,18 +490,18 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
                     print("z")
             normal(True)
             normal(False)
-        """)
+            """)
         self.make_file("not_covered.py", """
             def not_covered(n):
                 if n:
                     print("n")
             not_covered(True)
-        """)
+            """)
         self.make_file("covered.py", """
             def foo():
                 pass
             foo()
-        """)
+            """)
         out = self.run_command("coverage run --branch main.py")
         self.assertEqual(out, "n\nz\n")
         report = self.report_from_command("coverage report")
@@ -472,7 +529,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
         self.make_file("mycode.py", "This isn't python at all!")
         report = self.report_from_command("coverage report mycode.py")
 
-        # mycode   NotPython: Couldn't parse '...' as Python source: 'invalid syntax' at line 1
+        # Couldn't parse '...' as Python source: 'invalid syntax' at line 1
         # Name     Stmts   Miss  Cover
         # ----------------------------
         # No data to report.
@@ -483,8 +540,8 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
         # The actual error message varies version to version
         errmsg = re.sub(r": '.*' at", ": 'error' at", errmsg)
         self.assertEqual(
+            "Couldn't parse 'mycode.py' as Python source: 'error' at line 1",
             errmsg,
-            "mycode.py NotPython: Couldn't parse 'mycode.py' as Python source: 'error' at line 1"
         )
 
     def test_accenteddotpy_not_python(self):
@@ -499,7 +556,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
         self.make_file(u"accented\xe2.py", "This isn't python at all!")
         report = self.report_from_command(u"coverage report accented\xe2.py")
 
-        # xxxx   NotPython: Couldn't parse '...' as Python source: 'invalid syntax' at line 1
+        # Couldn't parse '...' as Python source: 'invalid syntax' at line 1
         # Name     Stmts   Miss  Cover
         # ----------------------------
         # No data to report.
@@ -509,27 +566,28 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
         errmsg = re.sub(r"parse '.*(accented.*?\.py)", r"parse '\1", errmsg)
         # The actual error message varies version to version
         errmsg = re.sub(r": '.*' at", ": 'error' at", errmsg)
-        expected = (
-            u"accented\xe2.py NotPython: "
-            u"Couldn't parse 'accented\xe2.py' as Python source: 'error' at line 1"
-        )
+        expected = u"Couldn't parse 'accented\xe2.py' as Python source: 'error' at line 1"
         if env.PY2:
             expected = expected.encode(output_encoding())
-        self.assertEqual(errmsg, expected)
+        self.assertEqual(expected, errmsg)
 
     def test_dotpy_not_python_ignored(self):
         # We run a .py file, and when reporting, we can't parse it as Python,
-        # but we've said to ignore errors, so there's no error reported.
+        # but we've said to ignore errors, so there's no error reported,
+        # though we still get a warning.
         self.make_mycode()
         self.run_command("coverage run mycode.py")
         self.make_file("mycode.py", "This isn't python at all!")
         report = self.report_from_command("coverage report -i mycode.py")
 
+        # Coverage.py warning: Couldn't parse Python file blah_blah/mycode.py (couldnt-parse)
         # Name     Stmts   Miss  Cover
         # ----------------------------
+        # No data to report.
 
-        self.assertEqual(self.line_count(report), 3)
+        self.assertEqual(self.line_count(report), 4)
         self.assertIn('No data to report.', report)
+        self.assertIn('(couldnt-parse)', report)
 
     def test_dothtml_not_python(self):
         # We run a .html file, and when reporting, we can't parse it as
@@ -548,6 +606,36 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
 
         self.assertEqual(self.line_count(report), 3)
         self.assertIn('No data to report.', report)
+
+    def test_report_no_extension(self):
+        self.make_file("xxx", """\
+            # This is a python file though it doesn't look like it, like a main script.
+            a = b = c = d = 0
+            a = 3
+            b = 4
+            if not b:
+                c = 6
+            d = 7
+            print("xxx: %r %r %r %r" % (a, b, c, d))
+            """)
+        out = self.run_command("coverage run --source=. xxx")
+        self.assertEqual(out, "xxx: 3 4 0 7\n")
+        report = self.report_from_command("coverage report")
+        self.assertEqual(self.last_line_squeezed(report), "xxx 7 1 86%")
+
+    def test_report_with_chdir(self):
+        self.make_file("chdir.py", """\
+            import os
+            print("Line One")
+            os.chdir("subdir")
+            print("Line Two")
+            print(open("something").read())
+            """)
+        self.make_file("subdir/something", "hello")
+        out = self.run_command("coverage run --source=. chdir.py")
+        self.assertEqual(out, "Line One\nLine Two\nhello\n")
+        report = self.report_from_command("coverage report")
+        self.assertEqual(self.last_line_squeezed(report), "chdir.py 5 0 100%")
 
     def get_report(self, cov):
         """Get the report from `cov`, and canonicalize it."""
@@ -571,7 +659,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
             """)
         cov = coverage.Coverage(branch=True, source=["."])
         cov.start()
-        import main     # pragma: nested # pylint: disable=import-error, unused-variable
+        import main     # pragma: nested # pylint: disable=unused-import
         cov.stop()      # pragma: nested
         report = self.get_report(cov).splitlines()
         self.assertIn("mybranch.py 5 5 2 0 0%", report)
@@ -580,7 +668,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
         """A helper for the next few tests."""
         cov = coverage.Coverage()
         cov.start()
-        import TheCode  # pragma: nested # pylint: disable=import-error, unused-variable
+        import TheCode  # pragma: nested # pylint: disable=import-error, unused-import
         cov.stop()      # pragma: nested
         return self.get_report(cov)
 
@@ -615,7 +703,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
             """)
         cov = coverage.Coverage()
         cov.start()
-        import start    # pragma: nested # pylint: disable=import-error, unused-variable
+        import start    # pragma: nested # pylint: disable=import-error, unused-import
         cov.stop()      # pragma: nested
 
         report = self.get_report(cov)
@@ -635,7 +723,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
         # Run the program.
         cov = coverage.Coverage()
         cov.start()
-        import main     # pragma: nested # pylint: disable=import-error, unused-variable
+        import main     # pragma: nested # pylint: disable=unused-import
         cov.stop()      # pragma: nested
 
         report = self.get_report(cov).splitlines()
@@ -643,7 +731,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
 
     def test_missing_py_file_during_run(self):
         # PyPy2 doesn't run bare .pyc files.
-        if env.PYPY and env.PY2:
+        if env.PYPY2:
             self.skipTest("PyPy2 doesn't run bare .pyc files")
 
         # Create two Python files.
@@ -665,7 +753,7 @@ class SummaryTest(UsingModulesMixin, CoverageTest):
         # Run the program.
         cov = coverage.Coverage()
         cov.start()
-        import main     # pragma: nested # pylint: disable=import-error, unused-variable
+        import main     # pragma: nested # pylint: disable=unused-import
         cov.stop()      # pragma: nested
 
         # Put back the missing Python file.
@@ -687,7 +775,7 @@ class SummaryTest2(UsingModulesMixin, CoverageTest):
         # statements, not one statement.
         cov = coverage.Coverage(branch=True)
         cov.start()
-        import usepkgs  # pragma: nested # pylint: disable=import-error, unused-variable
+        import usepkgs  # pragma: nested # pylint: disable=import-error, unused-import
         cov.stop()      # pragma: nested
 
         repout = StringIO()
@@ -737,27 +825,37 @@ class ReportingReturnValueTest(CoverageTest):
 class TestSummaryReporterConfiguration(CoverageTest):
     """Tests of SummaryReporter."""
 
-    run_in_temp_dir = False
+    def make_rigged_file(self, filename, stmts, miss):
+        """Create a file that will have specific results.
 
-    LINES_1 = {
-        os.path.join(TESTS_DIR, "test_api.py"): dict.fromkeys(range(400)),
-        os.path.join(TESTS_DIR, "test_backward.py"): dict.fromkeys(range(20)),
-        os.path.join(TESTS_DIR, "test_coverage.py"): dict.fromkeys(range(15)),
-    }
+        `stmts` and `miss` are ints, the number of statements, and
+        missed statements that should result.
+        """
+        run = stmts - miss - 1
+        dont_run = miss
+        source = ""
+        source += "a = 1\n" * run
+        source += "if a == 99:\n"
+        source += "    a = 2\n" * dont_run
+        self.make_file(filename, source)
 
-    def get_coverage_data(self, lines):
-        """Get a CoverageData object that includes the requested lines."""
-        data = CoverageData()
-        data.add_lines(lines)
-        return data
+    def get_summary_text(self, *options):
+        """Get text output from the SummaryReporter.
 
-    def get_summary_text(self, coverage_data, options):
-        """Get text output from the SummaryReporter."""
-        cov = Coverage()
+        The arguments are tuples: (name, value) for Coverage.set_option.
+        """
+        self.make_rigged_file("file1.py", 339, 155)
+        self.make_rigged_file("file2.py", 13, 3)
+        self.make_rigged_file("file3.py", 234, 228)
+        self.make_file("doit.py", "import file1, file2, file3")
+
+        cov = Coverage(source=["."], omit=["doit.py"])
         cov.start()
+        import doit             # pragma: nested # pylint: disable=import-error, unused-import
         cov.stop()              # pragma: nested
-        cov.data = coverage_data
-        printer = SummaryReporter(cov, options)
+        for name, value in options:
+            cov.set_option(name, value)
+        printer = SummaryReporter(cov)
         destination = StringIO()
         printer.report([], destination)
         return destination.getvalue()
@@ -766,8 +864,7 @@ class TestSummaryReporterConfiguration(CoverageTest):
         # We use our own test files as test data. Check that our assumptions
         # about them are still valid.  We want the three columns of numbers to
         # sort in three different orders.
-        data = self.get_coverage_data(self.LINES_1)
-        report = self.get_summary_text(data, CoverageConfig())
+        report = self.get_summary_text()
         print(report)
         # Name                     Stmts   Miss  Cover
         # --------------------------------------------
@@ -791,18 +888,13 @@ class TestSummaryReporterConfiguration(CoverageTest):
 
     def test_defaults(self):
         """Run the report with no configuration options."""
-        data = self.get_coverage_data(self.LINES_1)
-        opts = CoverageConfig()
-        report = self.get_summary_text(data, opts)
+        report = self.get_summary_text()
         self.assertNotIn('Missing', report)
         self.assertNotIn('Branch', report)
 
     def test_print_missing(self):
         """Run the report printing the missing lines."""
-        data = self.get_coverage_data(self.LINES_1)
-        opts = CoverageConfig()
-        opts.from_args(show_missing=True)
-        report = self.get_summary_text(data, opts)
+        report = self.get_summary_text(('report:show_missing', True))
         self.assertIn('Missing', report)
         self.assertNotIn('Branch', report)
 
@@ -816,33 +908,21 @@ class TestSummaryReporterConfiguration(CoverageTest):
 
     def test_sort_report_by_stmts(self):
         # Sort the text report by the Stmts column.
-        data = self.get_coverage_data(self.LINES_1)
-        opts = CoverageConfig()
-        opts.from_args(sort='Stmts')
-        report = self.get_summary_text(data, opts)
+        report = self.get_summary_text(('report:sort', 'Stmts'))
         self.assert_ordering(report, "test_backward.py", "test_coverage.py", "test_api.py")
 
     def test_sort_report_by_missing(self):
         # Sort the text report by the Missing column.
-        data = self.get_coverage_data(self.LINES_1)
-        opts = CoverageConfig()
-        opts.from_args(sort='Miss')
-        report = self.get_summary_text(data, opts)
+        report = self.get_summary_text(('report:sort', 'Miss'))
         self.assert_ordering(report, "test_backward.py", "test_api.py", "test_coverage.py")
 
     def test_sort_report_by_cover(self):
         # Sort the text report by the Cover column.
-        data = self.get_coverage_data(self.LINES_1)
-        opts = CoverageConfig()
-        opts.from_args(sort='Cover')
-        report = self.get_summary_text(data, opts)
+        report = self.get_summary_text(('report:sort', 'Cover'))
         self.assert_ordering(report, "test_coverage.py", "test_api.py", "test_backward.py")
 
     def test_sort_report_by_invalid_option(self):
         # Sort the text report by a nonsense column.
-        data = self.get_coverage_data(self.LINES_1)
-        opts = CoverageConfig()
-        opts.from_args(sort='Xyzzy')
         msg = "Invalid sorting option: 'Xyzzy'"
         with self.assertRaisesRegex(CoverageException, msg):
-            self.get_summary_text(data, opts)
+            self.get_summary_text(('report:sort', 'Xyzzy'))
