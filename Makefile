@@ -1,45 +1,57 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 # Makefile for utility work on coverage.py.
 
-default:
-	@echo "* No default action *"
+help:					## Show this help.
+	@echo "Available targets:"
+	@grep '^[a-zA-Z]' $(MAKEFILE_LIST) | sort | awk -F ':.*?## ' 'NF==2 {printf "  %-26s%s\n", $$1, $$2}'
 
-clean:
+clean_platform:                         ## Remove files that clash across platforms.
+	rm -f *.so */*.so
+	rm -rf __pycache__ */__pycache__ */*/__pycache__ */*/*/__pycache__ */*/*/*/__pycache__ */*/*/*/*/__pycache__
+	rm -f *.pyc */*.pyc */*/*.pyc */*/*/*.pyc */*/*/*/*.pyc */*/*/*/*/*.pyc
+	rm -f *.pyo */*.pyo */*/*.pyo */*/*/*.pyo */*/*/*/*.pyo */*/*/*/*/*.pyo
+
+clean: clean_platform                   ## Remove artifacts of test execution, installation, etc.
 	-pip uninstall -y coverage
-	-rm -f *.pyd */*.pyd
-	-rm -f *.so */*.so
-	-PYTHONPATH=. python tests/test_farm.py clean
-	-rm -rf tests/farm/*/out
-	-rm -rf build coverage.egg-info dist htmlcov
-	-rm -f *.pyc */*.pyc */*/*.pyc */*/*/*.pyc */*/*/*/*.pyc */*/*/*/*/*.pyc
-	-rm -f *.pyo */*.pyo */*/*.pyo */*/*/*.pyo */*/*/*/*.pyo */*/*/*/*/*.pyo
-	-rm -f *.bak */*.bak */*/*.bak */*/*/*.bak */*/*/*/*.bak */*/*/*/*/*.bak
-	-rm -f *$$py.class */*$$py.class */*/*$$py.class */*/*/*$$py.class */*/*/*/*$$py.class */*/*/*/*/*$$py.class
-	-rm -rf __pycache__ */__pycache__ */*/__pycache__ */*/*/__pycache__ */*/*/*/__pycache__ */*/*/*/*/__pycache__
-	-rm -f coverage/*,cover
-	-rm -f MANIFEST
-	-rm -f .coverage .coverage.* coverage.xml .metacov*
-	-rm -f tests/zipmods.zip
-	-rm -rf tests/eggsrc/build tests/eggsrc/dist tests/eggsrc/*.egg-info
-	-rm -f setuptools-*.egg distribute-*.egg distribute-*.tar.gz
-	-rm -rf doc/_build doc/_spell doc/sample_html_beta
-	-rm -rf .tox_kits
+	rm -f *.pyd */*.pyd
+	rm -rf build coverage.egg-info dist htmlcov
+	rm -f *.bak */*.bak */*/*.bak */*/*/*.bak */*/*/*/*.bak */*/*/*/*/*.bak
+	rm -f *$$py.class */*$$py.class */*/*$$py.class */*/*/*$$py.class */*/*/*/*$$py.class */*/*/*/*/*$$py.class
+	rm -f coverage/*,cover
+	rm -f MANIFEST
+	rm -f .coverage .coverage.* coverage.xml .metacov*
+	rm -f .tox/*/lib/*/site-packages/zzz_metacov.pth
+	rm -f */.coverage */*/.coverage */*/*/.coverage */*/*/*/.coverage */*/*/*/*/.coverage */*/*/*/*/*/.coverage
+	rm -f tests/covmain.zip tests/zipmods.zip
+	rm -rf tests/eggsrc/build tests/eggsrc/dist tests/eggsrc/*.egg-info
+	rm -f setuptools-*.egg distribute-*.egg distribute-*.tar.gz
+	rm -rf doc/_build doc/_spell doc/sample_html_beta
+	rm -rf .cache .pytest_cache .hypothesis
+	rm -rf $$TMPDIR/coverage_test
+	-make -C tests/gold/html clean
 
-sterile: clean
-	-rm -rf .tox*
+sterile: clean                          ## Remove all non-controlled content, even if expensive.
+	rm -rf .tox
+	-docker image rm -f quay.io/pypa/manylinux1_i686 quay.io/pypa/manylinux1_x86_64
+
+
+CSS = coverage/htmlfiles/style.css
+SCSS = coverage/htmlfiles/style.scss
+
+css: $(CSS)				## Compile .scss into .css.
+$(CSS): $(SCSS)
+	sass --style=compact --sourcemap=none --no-cache $(SCSS) $@
+	cp $@ tests/gold/html/styled
 
 LINTABLE = coverage tests igor.py setup.py __main__.py
 
-lint:
+lint:					## Run linters and checkers.
 	tox -e lint
 
 todo:
 	-grep -R --include=*.py TODO $(LINTABLE)
-
-spell:
-	-pylint --disable=all --enable=spelling $(LINTABLE)
 
 pep8:
 	pycodestyle --filename=*.py --repeat $(LINTABLE)
@@ -47,37 +59,54 @@ pep8:
 test:
 	tox -e py27,py35 $(ARGS)
 
-TOX_SMOKE_ARGS = -n 6 -m "not expensive" --maxfail=3 $(ARGS)
+PYTEST_SMOKE_ARGS = -n 6 -m "not expensive" --maxfail=3 $(ARGS)
 
-smoke:
-	COVERAGE_NO_PYTRACER=1 tox -e py26,py33 -- $(TOX_SMOKE_ARGS)
+smoke: 					## Run tests quickly with the C tracer in the lowest supported Python versions.
+	COVERAGE_NO_PYTRACER=1 tox -q -e py27,py35 -- $(PYTEST_SMOKE_ARGS)
 
-pysmoke:
-	COVERAGE_NO_CTRACER=1 tox -e py26,py33 -- $(TOX_SMOKE_ARGS)
+pysmoke: 				## Run tests quickly with the Python tracer in the lowest supported Python versions.
+	COVERAGE_NO_CTRACER=1 tox -q -e py27,py35 -- $(PYTEST_SMOKE_ARGS)
 
-metacov:
+DOCKER_RUN = docker run -it --init --rm -v `pwd`:/io
+RUN_MANYLINUX_X86 = $(DOCKER_RUN) quay.io/pypa/manylinux1_x86_64 /io/ci/manylinux.sh
+RUN_MANYLINUX_I686 = $(DOCKER_RUN) quay.io/pypa/manylinux1_i686 /io/ci/manylinux.sh
+
+test_linux:				## Run the tests in Linux under Docker.
+	# The Linux .pyc files clash with the host's because of file path
+	# changes, so clean them before and after running tests.
+	make clean_platform
+	$(RUN_MANYLINUX_X86) test $(ARGS)
+	make clean_platform
+
+meta_linux:				## Run meta-coverage in Linux under Docker.
+	ARGS="meta $(ARGS)" make test_linux
+
+# Coverage measurement of coverage.py itself (meta-coverage). See metacov.ini
+# for details.
+
+metacov:				## Run meta-coverage, measuring ourself.
 	COVERAGE_COVERAGE=yes tox $(ARGS)
 
-metahtml:
+metahtml:				## Produce meta-coverage HTML reports.
 	python igor.py combine_html
 
 # Kitting
 
-kit:
-	python setup.py sdist --formats=gztar
+kit:					## Make the source distribution.
+	python setup.py sdist
 
-wheel:
+wheel:					## Make the wheels for distribution.
 	tox -c tox_wheels.ini $(ARGS)
 
-manylinux_clean:
-	docker image rm quay.io/pypa/manylinux1_i686 quay.io/pypa/manylinux1_x86_64
+kit_linux:				## Make the Linux wheels.
+	$(RUN_MANYLINUX_X86) build
+	$(RUN_MANYLINUX_I686) build
 
-manylinux:
-	docker run -it --init --rm -v `pwd`:/io quay.io/pypa/manylinux1_x86_64 /io/ci/manylinux.sh build
-	docker run -it --init --rm -v `pwd`:/io quay.io/pypa/manylinux1_i686 /io/ci/manylinux.sh build
+kit_upload:				## Upload the built distributions to PyPI.
+	twine upload --verbose dist/*
 
-kit_upload:
-	twine upload dist/*
+test_upload:				## Upload the distrubutions to PyPI's testing server.
+	twine upload --verbose --repository testpypi dist/*
 
 kit_local:
 	# pip.conf looks like this:
@@ -88,37 +117,34 @@ kit_local:
 	# don't go crazy trying to figure out why our new code isn't installing.
 	find ~/Library/Caches/pip/wheels -name 'coverage-*' -delete
 
-download_appveyor:
+download_appveyor:			## Download the latest Windows artifacts from AppVeyor.
 	python ci/download_appveyor.py nedbat/coveragepy
 
 build_ext:
 	python setup.py build_ext
 
-install:
-	python setup.py install
-
-uninstall:
-	-rm -rf $(PYHOME)/lib/site-packages/coverage*
-	-rm -rf $(PYHOME)/scripts/coverage*
-
 # Documentation
 
-SPHINXBUILD = sphinx-build
-SPHINXOPTS = -a -E doc
+DOCBIN = .tox/doc/bin
+SPHINXOPTS = -aE
+SPHINXBUILD = $(DOCBIN)/sphinx-build $(SPHINXOPTS)
+SPHINXAUTOBUILD = $(DOCBIN)/sphinx-autobuild -p 9876 --ignore '.git/**' --open-browser
 WEBHOME = ~/web/stellated/
 WEBSAMPLE = $(WEBHOME)/files/sample_coverage_html
 WEBSAMPLEBETA = $(WEBHOME)/files/sample_coverage_html_beta
 
 docreqs:
-	pip install -r doc/requirements.pip
+	tox -q -e doc --notest
 
-dochtml:
-	PYTHONPATH=$(CURDIR) $(SPHINXBUILD) -b html $(SPHINXOPTS) doc/_build/html
-	@echo
-	@echo "Build finished. The HTML pages are in doc/_build/html."
+dochtml: docreqs			## Build the docs HTML output.
+	$(DOCBIN)/python doc/check_copied_from.py doc/*.rst
+	$(SPHINXBUILD) -b html doc doc/_build/html
 
-docspell:
-	$(SPHINXBUILD) -b spelling $(SPHINXOPTS) doc/_spell
+docdev: dochtml				## Build docs, and auto-watch for changes.
+	PATH=$(DOCBIN):$(PATH) $(SPHINXAUTOBUILD) -b html doc doc/_build/html
+
+docspell: docreqs
+	$(SPHINXBUILD) -b spelling doc doc/_spell
 
 publish:
 	rm -f $(WEBSAMPLE)/*.*
@@ -129,3 +155,8 @@ publishbeta:
 	rm -f $(WEBSAMPLEBETA)/*.*
 	mkdir -p $(WEBSAMPLEBETA)
 	cp doc/sample_html_beta/*.* $(WEBSAMPLEBETA)
+
+upload_relnotes: docreqs		## Upload parsed release notes to Tidelift.
+	$(SPHINXBUILD) -b rst doc /tmp/rst_rst
+	pandoc -frst -tmarkdown_strict --atx-headers /tmp/rst_rst/changes.rst > /tmp/rst_rst/changes.md
+	python ci/upload_relnotes.py /tmp/rst_rst/changes.md pypi/coverage

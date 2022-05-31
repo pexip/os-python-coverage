@@ -1,16 +1,11 @@
 .. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+.. For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 .. _plugins:
 
 ========
 Plug-ins
 ========
-
-.. :history: 20150124T143000, new page.
-.. :history: 20150802T174600, updated for 4.0b1
-.. :history: 20171228T213800, updated for configurer plugins
-
 
 Coverage.py's behavior can be extended with third-party plug-ins.  A plug-in is
 a separately installed Python class that you register in your .coveragerc.
@@ -66,7 +61,15 @@ Some coverage.py plug-ins you might find useful:
 * `Django template coverage.py plug-in`__: for measuring coverage in Django
   templates.
 
-  .. __: https://pypi.python.org/pypi/django_coverage_plugin
+  .. __: https://pypi.org/project/django_coverage_plugin/
+
+* `Conditional coverage plug-in`__: for measuring coverage based
+  on any rules you define!
+  Can exclude different lines of code that are only executed
+  on different platforms, python versions,
+  and with different dependencies installed.
+
+  .. __: https://github.com/wemake-services/coverage-conditional-plugin
 
 * `Mako template coverage plug-in`__: for measuring coverage in Mako templates.
   Doesn't work yet, probably needs some changes in Mako itself.

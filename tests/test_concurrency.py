@@ -1,8 +1,9 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests for concurrency libraries."""
 
+import glob
 import os
 import random
 import sys
@@ -14,9 +15,11 @@ from flaky import flaky
 import coverage
 from coverage import env
 from coverage.backward import import_local_file
+from coverage.data import line_counts
 from coverage.files import abs_file
 
 from tests.coveragetest import CoverageTest
+from tests.helpers import remove_files
 
 
 # These libraries aren't always available, we'll skip tests if they aren't.
@@ -68,7 +71,7 @@ def line_count(s):
 def print_simple_annotation(code, linenos):
     """Print the lines in `code` with X for each line number in `linenos`."""
     for lineno, line in enumerate(code.splitlines(), start=1):
-        print(" {0} {1}".format("X" if lineno in linenos else " ", line))
+        print(" {} {}".format("X" if lineno in linenos else " ", line))
 
 
 class LineCountTest(CoverageTest):
@@ -235,17 +238,17 @@ class ConcurrencyTest(CoverageTest):
 
             # Read the coverage file and see that try_it.py has all its lines
             # executed.
-            data = coverage.CoverageData()
-            data.read_file(".coverage")
+            data = coverage.CoverageData(".coverage")
+            data.read()
 
             # If the test fails, it's helpful to see this info:
             fname = abs_file("try_it.py")
             linenos = data.lines(fname)
-            print("{0}: {1}".format(len(linenos), linenos))
+            print("{}: {}".format(len(linenos), linenos))
             print_simple_annotation(code, linenos)
 
             lines = line_count(code)
-            self.assertEqual(data.line_counts()['try_it.py'], lines)
+            self.assertEqual(line_counts(data)['try_it.py'], lines)
 
     def test_threads(self):
         code = (THREAD + SUM_RANGE_Q + PRINT_SUM_RANGE).format(QLIMIT=self.QLIMIT)
@@ -335,7 +338,7 @@ MULTI_CODE = """
     import sys
 
     def process_worker_main(args):
-        # Need to pause, or the tasks go too quick, and some processes
+        # Need to pause, or the tasks go too quickly, and some processes
         # in the pool don't get any work, and then don't record data.
         time.sleep(0.02)
         ret = work(*args)
@@ -359,17 +362,17 @@ MULTI_CODE = """
     """
 
 
-@flaky(max_runs=10)         # Sometimes a test fails due to inherent randomness. Try one more time.
+@flaky(max_runs=30)         # Sometimes a test fails due to inherent randomness. Try more times.
 class MultiprocessingTest(CoverageTest):
     """Test support of the multiprocessing module."""
 
     def setUp(self):
-        super(MultiprocessingTest, self).setUp()
         if not multiprocessing:
             self.skipTest("No multiprocessing in this Python")      # pragma: only jython
+        super(MultiprocessingTest, self).setUp()
 
     def try_multiprocessing_code(
-        self, code, expected_out, the_module, concurrency="multiprocessing"
+        self, code, expected_out, the_module, nprocs, concurrency="multiprocessing", args=""
     ):
         """Run code using multiprocessing, it should produce `expected_out`."""
         self.make_file("multi.py", code)
@@ -388,13 +391,18 @@ class MultiprocessingTest(CoverageTest):
             if start_method and start_method not in multiprocessing.get_all_start_methods():
                 continue
 
-            out = self.run_command("coverage run multi.py %s" % (start_method,))
+            remove_files(".coverage", ".coverage.*")
+            cmd = "coverage run {args} multi.py {start_method}".format(
+                args=args, start_method=start_method,
+            )
+            out = self.run_command(cmd)
             expected_cant_trace = cant_trace_msg(concurrency, the_module)
 
             if expected_cant_trace is not None:
                 self.assertEqual(out, expected_cant_trace)
             else:
                 self.assertEqual(out.rstrip(), expected_out)
+                self.assertEqual(len(glob.glob(".coverage.*")), nprocs + 1)
 
                 out = self.run_command("coverage combine")
                 self.assertEqual(out, "")
@@ -403,13 +411,21 @@ class MultiprocessingTest(CoverageTest):
                 last_line = self.squeezed_lines(out)[-1]
                 self.assertRegex(last_line, r"multi.py \d+ 0 100%")
 
-    def test_multiprocessing(self):
+    def test_multiprocessing_simple(self):
         nprocs = 3
         upto = 30
         code = (SQUARE_OR_CUBE_WORK + MULTI_CODE).format(NPROCS=nprocs, UPTO=upto)
         total = sum(x*x if x%2 else x*x*x for x in range(upto))
         expected_out = "{nprocs} pids, total = {total}".format(nprocs=nprocs, total=total)
-        self.try_multiprocessing_code(code, expected_out, threading)
+        self.try_multiprocessing_code(code, expected_out, threading, nprocs)
+
+    def test_multiprocessing_append(self):
+        nprocs = 3
+        upto = 30
+        code = (SQUARE_OR_CUBE_WORK + MULTI_CODE).format(NPROCS=nprocs, UPTO=upto)
+        total = sum(x*x if x%2 else x*x*x for x in range(upto))
+        expected_out = "{nprocs} pids, total = {total}".format(nprocs=nprocs, total=total)
+        self.try_multiprocessing_code(code, expected_out, threading, nprocs, args="--append")
 
     def test_multiprocessing_and_gevent(self):
         nprocs = 3
@@ -420,7 +436,7 @@ class MultiprocessingTest(CoverageTest):
         total = sum(sum(range((x + 1) * 100)) for x in range(upto))
         expected_out = "{nprocs} pids, total = {total}".format(nprocs=nprocs, total=total)
         self.try_multiprocessing_code(
-            code, expected_out, eventlet, concurrency="multiprocessing,eventlet"
+            code, expected_out, eventlet, nprocs, concurrency="multiprocessing,eventlet"
         )
 
     def try_multiprocessing_code_with_branching(self, code, expected_out):
@@ -430,6 +446,7 @@ class MultiprocessingTest(CoverageTest):
             [run]
             concurrency = multiprocessing
             branch = True
+            omit = */site-packages/*
             """)
 
         if env.PYVERSION >= (3, 4):
@@ -459,12 +476,48 @@ class MultiprocessingTest(CoverageTest):
         expected_out = "{nprocs} pids, total = {total}".format(nprocs=nprocs, total=total)
         self.try_multiprocessing_code_with_branching(code, expected_out)
 
+    def test_multiprocessing_bootstrap_error_handling(self):
+        # An exception during bootstrapping will be reported.
+        self.make_file("multi.py", """\
+            import multiprocessing
+            if __name__ == "__main__":
+                with multiprocessing.Manager():
+                    pass
+            """)
+        self.make_file(".coveragerc", """\
+            [run]
+            concurrency = multiprocessing
+            _crash = _bootstrap
+            """)
+        out = self.run_command("coverage run multi.py")
+        self.assertIn("Exception during multiprocessing bootstrap init", out)
+        self.assertIn("Exception: Crashing because called by _bootstrap", out)
+
+    def test_bug890(self):
+        # chdir in multiprocessing shouldn't keep us from finding the
+        # .coveragerc file.
+        self.make_file("multi.py", """\
+            import multiprocessing, os, os.path
+            if __name__ == "__main__":
+                if not os.path.exists("./tmp"): os.mkdir("./tmp")
+                os.chdir("./tmp")
+                with multiprocessing.Manager():
+                    pass
+                print("ok")
+            """)
+        self.make_file(".coveragerc", """\
+            [run]
+            concurrency = multiprocessing
+            """)
+        out = self.run_command("coverage run multi.py")
+        self.assertEqual(out.splitlines()[-1], "ok")
+
 
 def test_coverage_stop_in_threads():
     has_started_coverage = []
     has_stopped_coverage = []
 
-    def run_thread():
+    def run_thread():           # pragma: nested
         """Check that coverage is stopping properly in threads."""
         deadline = time.time() + 5
         ident = threading.currentThread().ident
@@ -477,19 +530,18 @@ def test_coverage_stop_in_threads():
                 return
         has_stopped_coverage.append(ident)
 
-    cov = coverage.coverage()
+    cov = coverage.Coverage()
     cov.start()
 
-    t = threading.Thread(target=run_thread)
-    t.start()
+    t = threading.Thread(target=run_thread)             # pragma: nested
+    t.start()                                           # pragma: nested
 
-    time.sleep(0.1)
-    cov.stop()
-    time.sleep(0.1)
+    time.sleep(0.1)                                     # pragma: nested
+    cov.stop()                                          # pragma: nested
+    t.join()
 
     assert has_started_coverage == [t.ident]
     assert has_stopped_coverage == [t.ident]
-    t.join()
 
 
 def test_thread_safe_save_data(tmpdir):
@@ -498,7 +550,7 @@ def test_thread_safe_save_data(tmpdir):
 
     # Create some Python modules and put them in the path
     modules_dir = tmpdir.mkdir('test_modules')
-    module_names = ["m{0:03d}".format(i) for i in range(1000)]
+    module_names = ["m{:03d}".format(i) for i in range(1000)]
     for module_name in module_names:
         modules_dir.join(module_name + ".py").write("def f(): pass\n")
 
@@ -513,7 +565,7 @@ def test_thread_safe_save_data(tmpdir):
         for module_name in module_names:
             import_local_file(module_name)
 
-        def random_load():
+        def random_load():                              # pragma: nested
             """Import modules randomly to stress coverage."""
             while should_run[0]:
                 module_name = random.choice(module_names)
@@ -526,17 +578,17 @@ def test_thread_safe_save_data(tmpdir):
         #  still running.
         duration = 0.01
         for _ in range(3):
-            cov = coverage.coverage()
+            cov = coverage.Coverage()
             cov.start()
 
-            threads = [threading.Thread(target=random_load) for _ in range(10)]
-            should_run[0] = True
-            for t in threads:
+            threads = [threading.Thread(target=random_load) for _ in range(10)]     # pragma: nested
+            should_run[0] = True                    # pragma: nested
+            for t in threads:                       # pragma: nested
                 t.start()
 
-            time.sleep(duration)
+            time.sleep(duration)                    # pragma: nested
 
-            cov.stop()
+            cov.stop()                              # pragma: nested
 
             # The following call used to crash with running background threads.
             cov.get_data()
@@ -546,7 +598,7 @@ def test_thread_safe_save_data(tmpdir):
             for t in threads:
                 t.join()
 
-            if (not imported) and duration < 10:
+            if (not imported) and duration < 10:    # pragma: only failure
                 duration *= 2
 
     finally:

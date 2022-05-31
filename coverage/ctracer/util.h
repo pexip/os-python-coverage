@@ -1,5 +1,5 @@
 /* Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0 */
-/* For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt */
+/* For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt */
 
 #ifndef _COVERAGE_UTIL_H
 #define _COVERAGE_UTIL_H
@@ -44,7 +44,7 @@
 
 #endif /* Py3k */
 
-// Undocumented, and not in 2.6, so our own copy of it.
+// Undocumented, and not in all 2.7.x, so our own copy of it.
 #define My_XSETREF(op, op2)                     \
     do {                                        \
         PyObject *_py_tmp = (PyObject *)(op);   \

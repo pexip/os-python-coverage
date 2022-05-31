@@ -1,15 +1,16 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests for coverage.py's code parsing."""
 
 import textwrap
 
-from tests.coveragetest import CoverageTest
-
 from coverage import env
 from coverage.misc import NotPython
 from coverage.parser import PythonParser
+
+from tests.coveragetest import CoverageTest, xfail
+from tests.helpers import arcz_to_arcs
 
 
 class PythonParserTest(CoverageTest):
@@ -136,6 +137,11 @@ class PythonParserTest(CoverageTest):
                 '''
                 """)
 
+
+    @xfail(
+        env.PYPY3 and env.PYPYVERSION >= (7, 3, 0),
+        "https://bitbucket.org/pypy/pypy/issues/3139",
+    )
     def test_decorator_pragmas(self):
         parser = self.parse_source("""\
             # 1
@@ -167,7 +173,7 @@ class PythonParserTest(CoverageTest):
             """)
         raw_statements = set([3, 4, 5, 6, 8, 9, 10, 13, 15, 16, 17, 20, 22, 23, 25, 26])
         if env.PYBEHAVIOR.trace_decorated_def:
-            raw_statements.update([11, 19, 25])
+            raw_statements.update([11, 19])
         self.assertEqual(parser.raw_statements, raw_statements)
         self.assertEqual(parser.statements, set([8]))
 
@@ -200,22 +206,22 @@ class PythonParserTest(CoverageTest):
             """)
 
         if env.PYBEHAVIOR.trace_decorated_def:
-            expected_statements = set([1, 2, 4, 5, 8, 9, 10])
-            expected_arcs = set(self.arcz_to_arcs(".1 14 45 58 89 9.  .2 2.  -8A A-8"))
+            expected_statements = {1, 2, 4, 5, 8, 9, 10}
+            expected_arcs = set(arcz_to_arcs(".1 14 45 58 89 9.  .2 2.  -8A A-8"))
             expected_exits = {1: 1, 2: 1, 4: 1, 5: 1, 8: 1, 9: 1, 10: 1}
         else:
-            expected_statements = set([1, 2, 4, 8, 10])
-            expected_arcs = set(self.arcz_to_arcs(".1 14 48 8.  .2 2.  -8A A-8"))
+            expected_statements = {1, 2, 4, 8, 10}
+            expected_arcs = set(arcz_to_arcs(".1 14 48 8.  .2 2.  -8A A-8"))
             expected_exits = {1: 1, 2: 1, 4: 1, 8: 1, 10: 1}
 
         if env.PYVERSION >= (3, 7, 0, 'beta', 5):
-            # 3.7 changed how functions with only docstrings were numbered.
-            expected_arcs.update(set(self.arcz_to_arcs("-46 6-4")))
+            # 3.7 changed how functions with only docstrings are numbered.
+            expected_arcs.update(set(arcz_to_arcs("-46 6-4")))
             expected_exits.update({6: 1})
 
-        self.assertEqual(parser.statements, expected_statements)
-        self.assertEqual(parser.arcs(), expected_arcs)
-        self.assertEqual(parser.exit_counts(), expected_exits)
+        self.assertEqual(expected_statements, parser.statements)
+        self.assertEqual(expected_arcs, parser.arcs())
+        self.assertEqual(expected_exits, parser.exit_counts())
 
 
 class ParserMissingArcDescriptionTest(CoverageTest):
@@ -273,10 +279,6 @@ class ParserMissingArcDescriptionTest(CoverageTest):
         )
 
     def test_missing_arc_descriptions_for_small_callables(self):
-        # We use 2.7 features here, so just skip this test on 2.6
-        if env.PYVERSION < (2, 7):
-            self.skipTest("No dict or set comps in 2.6")
-
         parser = self.parse_text(u"""\
             callables = [
                 lambda: 2,

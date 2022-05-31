@@ -1,6 +1,6 @@
 # coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Helper for building, testing, and linting coverage.py.
 
@@ -74,8 +74,10 @@ def label_for_tracer(tracer):
 def should_skip(tracer):
     """Is there a reason to skip these tests?"""
     if tracer == "py":
+        # $set_env.py: COVERAGE_NO_PYTRACER - Don't run the tests under the Python tracer.
         skipper = os.environ.get("COVERAGE_NO_PYTRACER")
     else:
+        # $set_env.py: COVERAGE_NO_CTRACER - Don't run the tests under the C tracer.
         skipper = os.environ.get("COVERAGE_NO_CTRACER")
 
     if skipper:
@@ -88,10 +90,23 @@ def should_skip(tracer):
     return msg
 
 
+def make_env_id(tracer):
+    """An environment id that will keep all the test runs distinct."""
+    impl = platform.python_implementation().lower()
+    version = "%s%s" % sys.version_info[:2]
+    if '__pypy__' in sys.builtin_module_names:
+        version += "_%s%s" % sys.pypy_version_info[:2]
+    env_id = "%s%s_%s" % (impl, version, tracer)
+    return env_id
+
+
 def run_tests(tracer, *runner_args):
     """The actual running of tests."""
     if 'COVERAGE_TESTING' not in os.environ:
         os.environ['COVERAGE_TESTING'] = "True"
+    # $set_env.py: COVERAGE_ENV_ID - Use environment-specific test directories.
+    if 'COVERAGE_ENV_ID' in os.environ:
+        os.environ['COVERAGE_ENV_ID'] = make_env_id(tracer)
     print_banner(label_for_tracer(tracer))
     return pytest.main(list(runner_args))
 
@@ -106,27 +121,19 @@ def run_tests_with_coverage(tracer, *runner_args):
     # Create the .pth file that will let us measure coverage in sub-processes.
     # The .pth file seems to have to be alphabetically after easy-install.pth
     # or the sys.path entries aren't created right?
+    # There's an entry in "make clean" to get rid of this file.
     pth_dir = os.path.dirname(pytest.__file__)
     pth_path = os.path.join(pth_dir, "zzz_metacov.pth")
     with open(pth_path, "w") as pth_file:
         pth_file.write("import coverage; coverage.process_startup()\n")
 
-    # Make names for the data files that keep all the test runs distinct.
-    impl = platform.python_implementation().lower()
-    version = "%s%s" % sys.version_info[:2]
-    if '__pypy__' in sys.builtin_module_names:
-        version += "_%s%s" % sys.pypy_version_info[:2]
-    suffix = "%s%s_%s_%s" % (impl, version, tracer, platform.platform())
-
+    suffix = "%s_%s" % (make_env_id(tracer), platform.platform())
     os.environ['COVERAGE_METAFILE'] = os.path.abspath(".metacov."+suffix)
 
     import coverage
-    cov = coverage.Coverage(config_file="metacov.ini", data_suffix=False)
-    # Cheap trick: the coverage.py code itself is excluded from measurement,
-    # but if we clobber the cover_prefix in the coverage object, we can defeat
-    # the self-detection.
-    cov.cover_prefix = "Please measure coverage.py!"
+    cov = coverage.Coverage(config_file="metacov.ini")
     cov._warn_unimported_source = False
+    cov._warn_preimported_source = False
     cov.start()
 
     try:
@@ -167,7 +174,8 @@ def do_combine_html():
     cov.load()
     cov.combine()
     cov.save()
-    cov.html_report()
+    show_contexts = bool(os.environ.get('COVERAGE_CONTEXT'))
+    cov.html_report(show_contexts=show_contexts)
     cov.xml_report()
 
 
@@ -180,7 +188,7 @@ def do_test_with_tracer(tracer, *runner_args):
         return None
 
     os.environ["COVERAGE_TEST_TRACER"] = tracer
-    if os.environ.get("COVERAGE_COVERAGE", ""):
+    if os.environ.get("COVERAGE_COVERAGE", "no") == "yes":
         return run_tests_with_coverage(tracer, *runner_args)
     else:
         return run_tests(tracer, *runner_args)
@@ -210,18 +218,21 @@ def do_zip_mods():
         (u'cp1252', u'“hi”'),
     ]
     for encoding, text in details:
-        filename = 'encoded_{0}.py'.format(encoding)
+        filename = 'encoded_{}.py'.format(encoding)
         ords = [ord(c) for c in text]
         source_text = source.format(encoding=encoding, text=text, ords=ords)
         zf.writestr(filename, source_text.encode(encoding))
 
     zf.close()
 
+    zf = zipfile.ZipFile("tests/covmain.zip", "w")
+    zf.write("coverage/__main__.py", "__main__.py")
+    zf.close()
+
 
 def do_install_egg():
     """Install the egg1 egg for tests."""
     # I am pretty certain there are easier ways to install eggs...
-    # pylint: disable=import-error,no-name-in-module
     cur_dir = os.getcwd()
     os.chdir("tests/eggsrc")
     with ignore_warnings():
@@ -242,6 +253,7 @@ def do_check_eol():
         '.tox*',
         '*.egg-info',
         '_build',
+        '_spell',
     ]
     checked = set()
 
@@ -289,15 +301,13 @@ def do_check_eol():
 
     check_files("coverage", ["*.py"])
     check_files("coverage/ctracer", ["*.c", "*.h"])
-    check_files("coverage/htmlfiles", ["*.html", "*.css", "*.js"])
-    check_file("tests/farm/html/src/bom.py", crlf=False)
+    check_files("coverage/htmlfiles", ["*.html", "*.scss", "*.css", "*.js"])
     check_files("tests", ["*.py"])
     check_files("tests", ["*,cover"], trail_white=False)
     check_files("tests/js", ["*.js", "*.html"])
     check_file("setup.py")
     check_file("igor.py")
     check_file("Makefile")
-    check_file(".hgignore")
     check_file(".travis.yml")
     check_files(".", ["*.rst", "*.txt"])
     check_files(".", ["*.pip"])
@@ -346,7 +356,9 @@ def analyze_args(function):
         getargspec = inspect.getfullargspec
     except AttributeError:
         getargspec = inspect.getargspec
-    argspec = getargspec(function)
+    with ignore_warnings():
+        # DeprecationWarning: Use inspect.signature() instead of inspect.getfullargspec()
+        argspec = getargspec(function)
     return bool(argspec[1]), len(argspec[0])
 
 

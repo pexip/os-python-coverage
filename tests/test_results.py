@@ -1,11 +1,12 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests for coverage.py's results analysis."""
 
 import pytest
 
-from coverage.results import Numbers, should_fail_under
+from coverage.misc import CoverageException
+from coverage.results import format_lines, Numbers, should_fail_under
 
 from tests.coveragetest import CoverageTest
 
@@ -105,3 +106,45 @@ class NumbersTest(CoverageTest):
 ])
 def test_should_fail_under(total, fail_under, precision, result):
     assert should_fail_under(float(total), float(fail_under), precision) == result
+
+
+def test_should_fail_under_invalid_value():
+    with pytest.raises(CoverageException, match=r"fail_under=101"):
+        should_fail_under(100.0, 101, 0)
+
+
+@pytest.mark.parametrize("statements, lines, result", [
+    (set([1,2,3,4,5,10,11,12,13,14]), set([1,2,5,10,11,13,14]), "1-2, 5-11, 13-14"),
+    ([1,2,3,4,5,10,11,12,13,14,98,99], [1,2,5,10,11,13,14,99], "1-2, 5-11, 13-14, 99"),
+    ([1,2,3,4,98,99,100,101,102,103,104], [1,2,99,102,103,104], "1-2, 99, 102-104"),
+    ([17], [17], "17"),
+    ([90,91,92,93,94,95], [90,91,92,93,94,95], "90-95"),
+    ([1, 2, 3, 4, 5], [], ""),
+    ([1, 2, 3, 4, 5], [4], "4"),
+])
+def test_format_lines(statements, lines, result):
+    assert format_lines(statements, lines) == result
+
+
+@pytest.mark.parametrize("statements, lines, arcs, result", [
+    (
+        set([1,2,3,4,5,10,11,12,13,14]),
+        set([1,2,5,10,11,13,14]),
+        (),
+        "1-2, 5-11, 13-14"
+        ),
+    (
+        [1,2,3,4,5,10,11,12,13,14,98,99],
+        [1,2,5,10,11,13,14,99],
+        [(3, [4]), (5, [10, 11]), (98, [100, -1])],
+        "1-2, 3->4, 5-11, 13-14, 98->100, 98->exit, 99"
+        ),
+    (
+        [1,2,3,4,98,99,100,101,102,103,104],
+        [1,2,99,102,103,104],
+        [(3, [4]), (104, [-1])],
+        "1-2, 3->4, 99, 102-104"
+        ),
+])
+def test_format_lines_with_arcs(statements, lines, arcs, result):
+    assert format_lines(statements, lines, arcs) == result

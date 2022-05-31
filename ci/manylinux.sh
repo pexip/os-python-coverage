@@ -16,6 +16,10 @@ if [[ $action == "build" ]]; then
     # Compile wheels
     cd /io
     for PYBIN in /opt/python/*/bin; do
+        if [[ $PYBIN == *cp34* ]]; then
+            # manylinux docker images have Python 3.4, but we don't use it.
+            continue
+        fi
         "$PYBIN/pip" install -r requirements/wheel.pip
         "$PYBIN/python" setup.py clean -a
         "$PYBIN/python" setup.py bdist_wheel -d ~/wheelhouse/
@@ -30,16 +34,25 @@ if [[ $action == "build" ]]; then
 elif [[ $action == "test" ]]; then
     # Create "pythonX.Y" links
     for PYBIN in /opt/python/*/bin/; do
+        if [[ $PYBIN == *cp34* ]]; then
+            # manylinux docker images have Python 3.4, but we don't use it.
+            continue
+        fi
         PYNAME=$("$PYBIN/python" -c "import sys; print('python{0[0]}.{0[1]}'.format(sys.version_info))")
         ln -sf "$PYBIN/$PYNAME" /usr/local/bin/$PYNAME
     done
 
     # Install packages and test
-    TOXBIN=/opt/python/cp27-cp27m/bin
-    "$TOXBIN/pip" install -r /io/requirements/ci.pip
+    TOXBIN=/opt/python/cp36-cp36m/bin
+    "$TOXBIN/pip" install -r /io/requirements/tox.pip
 
     cd /io
-    TOXWORKDIR=.tox_linux "$TOXBIN/tox" "$@" || true
+    export PYTHONPYCACHEPREFIX=/opt/pyc
+    if [[ $1 == "meta" ]]; then
+        shift
+        export COVERAGE_COVERAGE=yes
+    fi
+    TOXWORKDIR=.tox/linux "$TOXBIN/tox" "$@" || true
     cd ~
 
 else

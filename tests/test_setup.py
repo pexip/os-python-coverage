@@ -1,5 +1,5 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests of miscellaneous stuff."""
 
@@ -28,7 +28,7 @@ class SetupPyTest(CoverageTest):
         out = output.splitlines()
         self.assertIn("measurement", out[0])
         self.assertEqual(coverage.__version__, out[1])
-        self.assertIn("bitbucket.org/ned/coveragepy", out[2])
+        self.assertIn("github.com/nedbat/coveragepy", out[2])
         self.assertIn("Ned Batchelder", out[3])
 
     def test_more_metadata(self):
@@ -40,6 +40,8 @@ class SetupPyTest(CoverageTest):
         classifiers = setup_args['classifiers']
         self.assertGreater(len(classifiers), 7)
         self.assert_starts_with(classifiers[-1], "Development Status ::")
+        self.assertIn("Programming Language :: Python :: %d" % sys.version_info[:1], classifiers)
+        self.assertIn("Programming Language :: Python :: %d.%d" % sys.version_info[:2], classifiers)
 
         long_description = setup_args['long_description'].splitlines()
         self.assertGreater(len(long_description), 7)

@@ -1,5 +1,5 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests of coverage/debug.py"""
 
@@ -10,13 +10,15 @@ import pytest
 import coverage
 from coverage.backward import StringIO
 from coverage.debug import filter_text, info_formatter, info_header, short_id, short_stack
+from coverage.debug import clipped_repr
+from coverage.env import C_TRACER
 
 from tests.coveragetest import CoverageTest
-from tests.helpers import re_lines
+from tests.helpers import re_line, re_lines
 
 
 class InfoFormatterTest(CoverageTest):
-    """Tests of misc.info_formatter."""
+    """Tests of debug.info_formatter."""
 
     run_in_temp_dir = False
 
@@ -27,19 +29,29 @@ class InfoFormatterTest(CoverageTest):
             ('regular', ['abc', 'def', 'ghi', 'jkl']),
             ('nothing', []),
         ]))
-        self.assertEqual(lines, [
-            '              x: hello there',
-            'very long label: one element',
-            '        regular: abc',
-            '                 def',
-            '                 ghi',
-            '                 jkl',
-            '        nothing: -none-',
-        ])
+        expected = [
+            '                             x: hello there',
+            '               very long label: one element',
+            '                       regular: abc',
+            '                                def',
+            '                                ghi',
+            '                                jkl',
+            '                       nothing: -none-',
+        ]
+        self.assertEqual(expected, lines)
 
     def test_info_formatter_with_generator(self):
         lines = list(info_formatter(('info%d' % i, i) for i in range(3)))
-        self.assertEqual(lines, ['info0: 0', 'info1: 1', 'info2: 2'])
+        expected = [
+            '                         info0: 0',
+            '                         info1: 1',
+            '                         info2: 2',
+        ]
+        self.assertEqual(expected, lines)
+
+    def test_too_long_label(self):
+        with self.assertRaises(AssertionError):
+            list(info_formatter([('this label is way too long and will not fit', 23)]))
 
 
 @pytest.mark.parametrize("label, header", [
@@ -58,6 +70,14 @@ def test_info_header(label, header):
 ])
 def test_short_id(id64, id16):
     assert short_id(id64) == id16
+
+
+@pytest.mark.parametrize("text, numchars, result", [
+    ("hello", 10, "'hello'"),
+    ("0123456789abcdefghijklmnopqrstuvwxyz", 15, "'01234...vwxyz'"),
+])
+def test_clipped_repr(text, numchars, result):
+    assert clipped_repr(text, numchars) == result
 
 
 @pytest.mark.parametrize("text, filters, result", [
@@ -128,24 +148,26 @@ class DebugTraceTest(CoverageTest):
     def test_debug_callers(self):
         out_lines = self.f1_debug_output(["pid", "dataop", "dataio", "callers"])
         print(out_lines)
-        # For every real message, there should be a stack
-        # trace with a line like "f1_debug_output : /Users/ned/coverage/tests/test_debug.py @71"
-        real_messages = re_lines(out_lines, r" @\d+", match=False).splitlines()
-        frame_pattern = r"\s+f1_debug_output : .*tests[/\\]test_debug.py @\d+$"
+        # For every real message, there should be a stack trace with a line like
+        #       "f1_debug_output : /Users/ned/coverage/tests/test_debug.py @71"
+        real_messages = re_lines(out_lines, r":\d+", match=False).splitlines()
+        frame_pattern = r"\s+f1_debug_output : .*tests[/\\]test_debug.py:\d+$"
         frames = re_lines(out_lines, frame_pattern).splitlines()
         self.assertEqual(len(real_messages), len(frames))
 
-        # The last message should be "Writing data", and the last frame should
-        # be write_file in data.py.
-        self.assertRegex(real_messages[-1], r"^\s*\d+\.\w{4}: Writing data")
         last_line = out_lines.splitlines()[-1]
-        self.assertRegex(last_line, r"\s+write_file : .*coverage[/\\]data.py @\d+$")
+
+        # The details of what to expect on the stack are empirical, and can change
+        # as the code changes. This test is here to ensure that the debug code
+        # continues working. It's ok to adjust these details over time.
+        self.assertRegex(real_messages[-1], r"^\s*\d+\.\w{4}: Adding file tracers: 0 files")
+        self.assertRegex(last_line, r"\s+add_file_tracers : .*coverage[/\\]sqldata.py:\d+$")
 
     def test_debug_config(self):
         out_lines = self.f1_debug_output(["config"])
 
         labels = """
-            attempted_config_files branch config_files cover_pylib data_file
+            attempted_config_files branch config_files_read config_file cover_pylib data_file
             debug exclude_list extra_css html_dir html_title ignore_errors
             run_include run_omit parallel partial_always_list partial_list paths
             precision show_missing source timid xml_output
@@ -155,16 +177,17 @@ class DebugTraceTest(CoverageTest):
             label_pat = r"^\s*%s: " % label
             self.assertEqual(
                 len(re_lines(out_lines, label_pat).splitlines()),
-                1
+                1,
+                msg="Incorrect lines for %r" % label,
             )
 
     def test_debug_sys(self):
         out_lines = self.f1_debug_output(["sys"])
 
         labels = """
-            version coverage cover_paths pylib_paths tracer config_files
-            configs_read data_path python platform implementation executable
-            cwd path environment command_line cover_match pylib_match
+            version coverage cover_paths pylib_paths tracer configs_attempted config_file
+            configs_read data_file python platform implementation executable
+            pid cwd path environment command_line cover_match pylib_match
             """.split()
         for label in labels:
             label_pat = r"^\s*%s: " % label
@@ -173,6 +196,15 @@ class DebugTraceTest(CoverageTest):
                 1,
                 msg="Incorrect lines for %r" % label,
             )
+
+    def test_debug_sys_ctracer(self):
+        out_lines = self.f1_debug_output(["sys"])
+        tracer_line = re_line(out_lines, r"CTracer:").strip()
+        if C_TRACER:
+            expected = "CTracer: available"
+        else:
+            expected = "CTracer: unavailable"
+        self.assertEqual(expected, tracer_line)
 
 
 def f_one(*args, **kwargs):

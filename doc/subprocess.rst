@@ -1,15 +1,11 @@
 .. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+.. For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 .. _subprocess:
 
 =======================
 Measuring sub-processes
 =======================
-
-.. :history: 20100224T201800, new for 3.3.
-.. :history: 20100725T211700, updated for 3.4.
-
 
 Complex test suites may spawn sub-processes to run tests, either to run them in
 parallel, or because sub-process behavior is an important part of the system
@@ -21,6 +17,16 @@ There's an easier way to do it: coverage.py includes a function,
 examines the ``COVERAGE_PROCESS_START`` environment variable, and if it is set,
 begins coverage measurement. The environment variable's value will be used as
 the name of the :ref:`configuration file <config>` to use.
+
+.. note::
+    The subprocess only sees options in the configuration file.  Options set on
+    the command line will not be used in the subprocesses.
+
+.. note::
+    If you have subprocesses because you are using :mod:`multiprocessing
+    <python:multiprocessing>`, the ``--concurrency=multiprocessing``
+    command-line option should take care of everything for you.  See
+    :ref:`cmd_run` for details.
 
 When using this technique, be sure to set the parallel option to true so that
 multiple coverage.py runs will each write their data to a distinct file.

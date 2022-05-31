@@ -1,15 +1,11 @@
 .. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+.. For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 .. _trouble:
 
 =========================
 Things that cause trouble
 =========================
-
-.. :history: 20121231T085200, brand new docs.
-.. :history: 20150124T160800, remove obsolete stuff.
-
 
 Coverage.py works well, and I want it to properly measure any Python program,
 but there are some situations it can't cope with.  This page details some known
@@ -51,21 +47,6 @@ coverage.py from working properly:
 .. _thread: https://docs.python.org/3/library/_thread.html
 .. _threading: https://docs.python.org/3/library/threading.html
 .. _issue 43: https://bitbucket.org/ned/coveragepy/issues/43/coverage-measurement-fails-on-code
-
-
-Things that require --timid
----------------------------
-
-Some packages interfere with coverage measurement, but you might be able to
-make it work by using the ``--timid`` command-line switch, or the ``[run]
-timid=True`` configuration option.
-
-* `DecoratorTools`_, or any package which uses it, notably `TurboGears`_.
-  DecoratorTools fiddles with the trace function.  You  will need to use
-  ``--timid``.
-
-.. _DecoratorTools: https://pypi.python.org/pypi/DecoratorTools
-.. _TurboGears: http://turbogears.org/
 
 
 Still having trouble?

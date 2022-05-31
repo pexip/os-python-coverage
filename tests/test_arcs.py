@@ -1,5 +1,5 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests for coverage.py's arc measurement."""
 
@@ -103,7 +103,7 @@ class SimpleArcTest(CoverageTest):
             b = \\
                 6
             """,
-            arcz="-21 15 5-2",
+            arcz=".1 15 5.",
         )
 
     def test_if_return(self):
@@ -422,8 +422,6 @@ class LoopArcTest(CoverageTest):
         )
 
     def test_other_comprehensions(self):
-        if env.PYVERSION < (2, 7):
-            self.skipTest("No set or dict comprehensions before 2.7")
         # Set comprehension:
         self.check_coverage("""\
             o = ((1,2), (3,4))
@@ -446,12 +444,6 @@ class LoopArcTest(CoverageTest):
         )
 
     def test_multiline_dict_comp(self):
-        if env.PYVERSION < (2, 7):
-            self.skipTest("No set or dict comprehensions before 2.7")
-        if env.PYVERSION < (3, 5):
-            arcz = "-42 2B B-4   2-4"
-        else:
-            arcz = "-32 2B B-3   2-3"
         # Multiline dict comp:
         self.check_coverage("""\
             # comment
@@ -466,13 +458,9 @@ class LoopArcTest(CoverageTest):
             }
             x = 11
             """,
-            arcz=arcz,
+            arcz="-22 2B B-2   2-2"
         )
         # Multi dict comp:
-        if env.PYVERSION < (3, 5):
-            arcz = "-42 2F F-4   2-4"
-        else:
-            arcz = "-32 2F F-3   2-3"
         self.check_coverage("""\
             # comment
             d = \\
@@ -490,7 +478,7 @@ class LoopArcTest(CoverageTest):
             }
             x = 15
             """,
-            arcz=arcz,
+            arcz="-22 2F F-2   2-2"
         )
 
 
@@ -1060,7 +1048,7 @@ class YieldTest(CoverageTest):
         self.assertEqual(self.stdout(), "20\n12\n")
 
     def test_yield_from(self):
-        if env.PYVERSION < (3, 3):
+        if not env.PYBEHAVIOR.yield_from:
             self.skipTest("Python before 3.3 doesn't have 'yield from'")
         self.check_coverage("""\
             def gen(inp):
@@ -1163,8 +1151,8 @@ class OptimizedIfTest(CoverageTest):
             arcz=".1 1C CE EF F.",
         )
 
-    def test_constant_if(self):
-        if env.PYPY:
+    def test_if_debug(self):
+        if not env.PYBEHAVIOR.optimize_if_debug:
             self.skipTest("PyPy doesn't optimize away 'if __debug__:'")
         # CPython optimizes away "if __debug__:"
         self.check_coverage("""\
@@ -1177,13 +1165,20 @@ class OptimizedIfTest(CoverageTest):
             """,
             arcz=".1 12 24 41 26 61 1.",
         )
+
+    def test_if_not_debug(self):
         # Before 3.7, no Python optimized away "if not __debug__:"
-        if env.PYVERSION < (3, 7, 0, 'alpha', 4):
-            arcz = ".1 12 23 31 34 41 26 61 1."
-            arcz_missing = "34 41"
-        else:
+        if not env.PYBEHAVIOR.optimize_if_debug:
+            self.skipTest("PyPy doesn't optimize away 'if __debug__:'")
+        elif env.PYBEHAVIOR.optimize_if_not_debug2:
+            arcz = ".1 12 24 41 26 61 1."
+            arcz_missing = ""
+        elif env.PYBEHAVIOR.optimize_if_not_debug:
             arcz = ".1 12 23 31 26 61 1."
             arcz_missing = ""
+        else:
+            arcz = ".1 12 23 31 34 41 26 61 1."
+            arcz_missing = "34 41"
         self.check_coverage("""\
             for value in [True, False]:
                 if value:
@@ -1201,11 +1196,6 @@ class MiscArcTest(CoverageTest):
     """Miscellaneous arc-measuring tests."""
 
     def test_dict_literal(self):
-        if env.PYVERSION < (3, 5):
-            arcz = ".1 19 9."
-        else:
-            # Python 3.5 changed how dict literals are constructed.
-            arcz = "-21 19 9-2"
         self.check_coverage("""\
             d = {
                 'a': 2,
@@ -1217,7 +1207,7 @@ class MiscArcTest(CoverageTest):
                 }
             assert d
             """,
-            arcz=arcz,
+            arcz=".1 19 9.",
         )
         self.check_coverage("""\
             d = \\
@@ -1230,11 +1220,11 @@ class MiscArcTest(CoverageTest):
                 }
             assert d
             """,
-            arcz="-21 19 9-2",
+            arcz=".1 19 9.",
         )
 
     def test_unpacked_literals(self):
-        if env.PYVERSION < (3, 5):
+        if not env.PYBEHAVIOR.unpackings_pep448:
             self.skipTest("Don't have unpacked literals until 3.5")
         self.check_coverage("""\
             d = {
@@ -1248,7 +1238,7 @@ class MiscArcTest(CoverageTest):
             }
             assert weird['b'] == 3
             """,
-            arcz="-21 15 5A A-2"
+            arcz=".1 15 5A A."
         )
         self.check_coverage("""\
             l = [
@@ -1262,40 +1252,35 @@ class MiscArcTest(CoverageTest):
             ]
             assert weird[1] == 3
             """,
-            arcz="-21 15 5A A-2"
+            arcz=".1 15 5A A."
         )
 
     def test_pathologically_long_code_object(self):
-        if env.JYTHON:
-            self.skipTest("Bytecode concerns are irrelevant on Jython")
-
         # https://bitbucket.org/ned/coveragepy/issue/359
         # The structure of this file is such that an EXTENDED_ARG bytecode is
         # needed to encode the jump at the end.  We weren't interpreting those
         # opcodes.
         # Note that we no longer interpret bytecode at all, but it couldn't
         # hurt to keep the test...
-        code = """\
-            data = [
-            """ + "".join("""\
-                [
-                    {i}, {i}, {i}, {i}, {i}, {i}, {i}, {i}, {i}, {i}],
-            """.format(i=i) for i in range(2000)
-            ) + """\
-            ]
+        for n in [10, 50, 100, 500, 1000, 2000]:
+            code = """\
+                data = [
+                """ + "".join("""\
+                    [
+                        {i}, {i}, {i}, {i}, {i}, {i}, {i}, {i}, {i}, {i}],
+                """.format(i=i) for i in range(n)
+                ) + """\
+                ]
 
-            print(len(data))
-            """
-        self.check_coverage(
-            code,
-            arcs=[(-3, 1), (1, 4004), (4004, -3)],
-            arcs_missing=[], arcs_unpredicted=[],
-            )
+                print(len(data))
+                """
+            self.check_coverage(code, arcs=[(-1, 1), (1, 2*n+4), (2*n+4, -1)])
+            self.assertEqual(self.stdout().split()[-1], str(n))
 
     def test_partial_generators(self):
         # https://bitbucket.org/ned/coveragepy/issues/475/generator-expression-is-marked-as-not
         # Line 2 is executed completely.
-        # Line 3 is started but not finished, because zip ends when #2 ends.
+        # Line 3 is started but not finished, because zip ends before it finishes.
         # Line 4 is never started.
         cov = self.check_coverage("""\
             def f(a, b):
@@ -1304,7 +1289,7 @@ class MiscArcTest(CoverageTest):
                 e = (k for k in b)          # 4
                 return dict(zip(c, d))
 
-            f(['a', 'b'], [1, 2])
+            f(['a', 'b'], [1, 2, 3])
             """,
             arcz=".1 17 7.  .2 23 34 45 5.  -22 2-2  -33 3-3  -44 4-4",
             arcz_missing="3-3 -44 4-4",
@@ -1438,7 +1423,7 @@ class LambdaArcTest(CoverageTest):
             )
             assert fn(10) == 18
             """,
-            arcz="-42 2A A-4   2-4",
+            arcz="-22 2A A-2   2-2",
         )
 
     def test_unused_lambdas_are_confusing_bug_90(self):
@@ -1486,9 +1471,7 @@ class LambdaArcTest(CoverageTest):
                 if k & 1:
                     v()
             """,
-            arcz=".1 12 23 3A AB BC BA CA A.  -43 -53 -63 -73 3-4 3-5 3-6 3-7",
-            arcz_missing="-43 3-4 -63 3-6",
-            arcz_unpredicted="",
+            arcz=".1 12 23 3A AB BC BA CA A.  -33  3-3",
         )
 
 
@@ -1496,7 +1479,7 @@ class AsyncTest(CoverageTest):
     """Tests of the new async and await keywords in Python 3.5"""
 
     def setUp(self):
-        if env.PYVERSION < (3, 5):
+        if not env.PYBEHAVIOR.async_syntax:
             self.skipTest("Async features are new in Python 3.5")
         super(AsyncTest, self).setUp()
 
@@ -1572,6 +1555,23 @@ class AsyncTest(CoverageTest):
             """,
             arcz=".1 1. .2 23 3.",
             arcz_missing=".2 23 3.",
+        )
+
+    def test_async_decorator(self):
+        if env.PYBEHAVIOR.trace_decorated_def:
+            arcz = ".1 14 45 5.  .2 2.  -46 6-4"
+        else:
+            arcz = ".1 14 4.     .2 2.  -46 6-4"
+        self.check_coverage("""\
+            def wrap(f):        # 1
+                return f
+
+            @wrap               # 4
+            async def go():
+                return
+            """,
+            arcz=arcz,
+            arcz_missing='-46 6-4',
         )
 
 

@@ -1,5 +1,5 @@
 /* Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0 */
-/* For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt */
+/* For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt */
 
 #ifndef _COVERAGE_TRACER_H
 #define _COVERAGE_TRACER_H
@@ -27,7 +27,6 @@ typedef struct CTracer {
     PyObject * trace_arcs;
     PyObject * should_start_context;
     PyObject * switch_context;
-    PyObject * context;
 
     /* Has the tracer been started? */
     BOOL started;
@@ -35,6 +34,8 @@ typedef struct CTracer {
     BOOL tracing_arcs;
     /* Have we had any activity? */
     BOOL activity;
+    /* The current dynamic context. */
+    PyObject * context;
 
     /*
         The data stack is a stack of dictionaries.  Each dictionary collects
