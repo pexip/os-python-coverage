@@ -1,58 +1,9 @@
 .. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+.. For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 ===========
 Coverage.py
 ===========
-
-.. :history: 20090524T134300, brand new docs.
-.. :history: 20090613T164000, final touches for 3.0
-.. :history: 20090618T195900, minor tweaks
-.. :history: 20090707T205200, changes for 3.0.1
-.. :history: 20090913T084400, new command line syntax
-.. :history: 20091004T211900, version 3.1
-.. :history: 20091127T155100, version 3.2
-.. :history: 20091205T161429, version 3.2 for real.
-.. :history: 20100224T204700, version 3.3
-.. :history: 20100306T181500, version 3.3.1
-.. :history: 20100725T211700, updated for 3.4.
-.. :history: 20100820T151500, updated for 3.4b1.
-.. :history: 20100906T134700, updated for 3.4b2.
-.. :history: 20100919T163500, updated for 3.4 release.
-.. :history: 20110213T081200, claim true 3.2 compatibility.
-.. :history: 20110604T114800, update for 3.5b1
-.. :history: 20110629T082300, update for 3.5
-.. :history: 20110827T221800, update for 3.5.1b1
-.. :history: 20110923T081800, update for 3.5.1
-.. :history: 20120429T162100, updated for 3.5.2b1
-.. :history: 20120503T233800, updated for 3.5.2
-.. :history: 20120929T093500, updated for 3.5.3
-.. :history: 20121117T094900, Change from easy_install to pip.
-.. :history: 20121128T203700, Updated for 3.6b1.
-.. :history: 20121223T180600, Updated for 3.6b2.
-.. :history: 20121229T112300, Updated for 3.6b3.
-.. :history: 20130105T174000, Updated for 3.6
-.. :history: 20131005T210000, Updated for 3.7
-.. :history: 20131212T213300, Updated for 3.7.1
-.. :history: 20140924T073000, Updated for 4.0a1
-.. :history: 20150124T023900, Updated for 4.0a4
-.. :history: 20150216T201000, Updated for 4.0a5
-.. :history: 20150802T160200, Updated for 4.0b1
-.. :history: 20150822T092900, Updated for 4.0b2
-.. :history: 20150918T072700, Updated for 4.0
-.. :history: 20151013T103200, Updated for 4.0.1
-.. :history: 20151104T050900, updated for 4.0.2
-.. :history: 20151124T065900, updated for 4.0.3
-.. :history: 20160110T125900, updated for 4.1b1
-.. :history: 20160123T171300, updated for 4.1b2
-.. :history: 20160510T125300, updated for 4.1b3
-.. :history: 20160521T074500, updated for 4.1
-.. :history: 20160726T161300, updated for 4.2
-.. :history: 20161226T160400, updated for 4.3
-.. :history: 20170116T180100, updated for 4.3.2
-.. :history: 20180203T130300, updated for 4.5
-.. :history: 20180210T125300, updated for 4.5.1
-
 
 Coverage.py is a tool for measuring code coverage of Python programs. It
 monitors your program, noting which parts of the code have been executed, then
@@ -62,53 +13,36 @@ Coverage measurement is typically used to gauge the effectiveness of tests. It
 can show which parts of your code are being exercised by tests, and which are
 not.
 
-.. ifconfig:: not prerelease
+The latest version is coverage.py |release|, released |release_date|.  It is
+supported on:
 
-    The latest version is coverage.py 4.5.2, released November 12th 2018.  It
-    is supported on:
+* Python versions 2.7, 3.5, 3.6, 3.7, 3.8, and 3.9 alpha.
 
-    * Python versions 2.6, 2.7, 3.3, 3.4, 3.5, 3.6, 3.7, and pre-alpha 3.8.
-
-    * PyPy2 6.0 and PyPy3 6.0.
-
-    * Jython 2.7.1, though only for running code, not reporting.
-
-    * IronPython 2.7.7, though only for running code, not reporting.
+* PyPy2 7.3.0 and PyPy3 7.3.0.
 
 .. ifconfig:: prerelease
 
-    The latest version is coverage.py 4.4b1, released April 4th 2017.  It is
-    supported on:
-
-    * Python versions 2.6, 2.7, 3.3, 3.4, 3.5, and 3.6.
-
-    * PyPy2 5.6 and PyPy3 5.5.
-
-    * Jython 2.7.1, though only for running code, not reporting.
-
-    * IronPython 2.7.7, though only for running code, not reporting.
-
     **This is a pre-release build.  The usual warnings about possible bugs
-    apply.** The latest stable version is coverage.py 4.3.4, `described here`_.
+    apply.** The latest stable version is coverage.py 4.5.4, `described here`_.
 
-.. _described here: https://nedbatchelder.com/code/coverage
+.. _described here: http://coverage.readthedocs.io/
+
+For Enterprise
+--------------
 
 .. image:: media/Tidelift_Logos_RGB_Tidelift_Shorthand_On-White.png
    :width: 75
    :alt: Tidelift
    :align: left
    :class: tideliftlogo
+   :target: https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=readme
 
-Professional support for coverage.py is available as part of the `Tidelift
-Subscription`_.  Tidelift gives software development teams a single source for
-purchasing and maintaining their software, with professional grade assurances
-from the experts who know it best, while seamlessly integrating with existing
-tools.
-
-.. _Tidelift Subscription: https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=docs
-
-Professional support for coverage.py is available as part of the `Tidelift
-Subscription`_.
+`Available as part of the Tidelift Subscription. <Tidelift Subscription_>`_ |br|
+Coverage and thousands of other packages are working with
+Tidelift to deliver one enterprise subscription that covers all of the open
+source you use.  If you want the flexibility of open source and the confidence
+of commercial-grade software, this is for you. `Learn more. <Tidelift
+Subscription_>`_
 
 .. _Tidelift Subscription: https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=docs
 
@@ -118,26 +52,62 @@ Quick start
 
 Getting started is easy:
 
-#.  Install coverage.py from the `coverage.py page on the Python Package Index`_,
-    or by using "pip install coverage".  For a few more details, see
-    :ref:`install`.
+#.  Install coverage.py::
 
-#.  Use ``coverage run`` to run your program and gather data:
+        $ pip install coverage
 
-    .. code-block:: console
+    For more details, see :ref:`install`.
 
-        # if you usually do:
-        #
-        #   $ python my_program.py arg1 arg2
-        #
-        # then instead do:
+#.  Use ``coverage run`` to run your test suite and gather data. However you
+    normally run your test suite, you can run your test runner under coverage.
+    If your test runner command starts with "python", just replace the initial
+    "python" with "coverage run".
 
-        $ coverage run my_program.py arg1 arg2
-        blah blah ..your program's output.. blah blah
+    Instructions for specific test runners:
 
-#.  Use ``coverage report`` to report on the results:
+    .. tabs::
 
-    .. code-block:: console
+        .. tab:: pytest
+
+            If you usually use::
+
+                $ pytest arg1 arg2 arg3
+
+            then you can run your tests under coverage with::
+
+                $ coverage run -m pytest arg1 arg2 arg3
+
+            Many people choose to use the `pytest-cov`_ plugin, but for most
+            purposes, it is unnecessary.
+
+        .. tab:: unittest
+
+            Change "python" to "coverage run", so this::
+
+                $ python -m unittest discover
+
+            becomes::
+
+                $ coverage run -m unittest discover
+
+        .. tab:: nosetest
+
+            *Nose has been unmaintained for a long time. You should seriously
+            consider adopting a different test runner.*
+
+            Change this::
+
+                $ nosetests arg1 arg2
+
+            to::
+
+                $ coverage run -m nose arg1 arg2
+
+    To limit coverage measurement to code in the current directory, and also
+    find files that weren't executed at all, add the ``--source=.`` argument to
+    your coverage command line.
+
+#.  Use ``coverage report`` to report on the results::
 
         $ coverage report -m
         Name                      Stmts   Miss  Cover   Missing
@@ -148,23 +118,21 @@ Getting started is easy:
         TOTAL                        76     10    87%
 
 #.  For a nicer presentation, use ``coverage html`` to get annotated HTML
-    listings detailing missed lines:
-
-    .. code-block:: console
+    listings detailing missed lines::
 
         $ coverage html
 
     .. ifconfig:: not prerelease
 
-        Then visit htmlcov/index.html in your browser, to see a
+        Then open htmlcov/index.html in your browser, to see a
         `report like this`_.
 
     .. ifconfig:: prerelease
 
-        Then visit htmlcov/index.html in your browser, to see a
+        Then open htmlcov/index.html in your browser, to see a
         `report like this one`_.
 
-.. _coverage.py page on the Python Package Index: https://pypi.python.org/pypi/coverage
+
 .. _report like this: https://nedbatchelder.com/files/sample_coverage_html/index.html
 .. _report like this one: https://nedbatchelder.com/files/sample_coverage_html_beta/index.html
 
@@ -222,16 +190,20 @@ More information
     :maxdepth: 1
 
     install
+    For enterprise <https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=enterprise>
     cmd
     config
     source
     excluding
     branch
     subprocess
+    contexts
     api
     howitworks
     plugins
     contributing
     trouble
     faq
+    whatsnew5x
     changes
+    sleepy

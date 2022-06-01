@@ -1,5 +1,5 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Code coverage measurement for Python"""
 
@@ -9,10 +9,12 @@
 import os
 import sys
 
+# Setuptools has to be imported before distutils, or things break.
 from setuptools import setup
-from distutils.core import Extension                # pylint: disable=no-name-in-module, import-error
-from distutils.command.build_ext import build_ext   # pylint: disable=no-name-in-module, import-error
-from distutils import errors                        # pylint: disable=no-name-in-module
+from distutils.core import Extension                # pylint: disable=wrong-import-order
+from distutils.command.build_ext import build_ext   # pylint: disable=wrong-import-order
+from distutils import errors                        # pylint: disable=wrong-import-order
+
 
 # Get or massage our metadata.  We exec coverage/version.py so we can avoid
 # importing the product code into setup.py.
@@ -24,19 +26,15 @@ License :: OSI Approved :: Apache Software License
 Operating System :: OS Independent
 Programming Language :: Python
 Programming Language :: Python :: 2
-Programming Language :: Python :: 2.6
 Programming Language :: Python :: 2.7
 Programming Language :: Python :: 3
-Programming Language :: Python :: 3.3
-Programming Language :: Python :: 3.4
 Programming Language :: Python :: 3.5
 Programming Language :: Python :: 3.6
 Programming Language :: Python :: 3.7
 Programming Language :: Python :: 3.8
+Programming Language :: Python :: 3.9
 Programming Language :: Python :: Implementation :: CPython
 Programming Language :: Python :: Implementation :: PyPy
-Programming Language :: Python :: Implementation :: Jython
-Programming Language :: Python :: Implementation :: IronPython
 Topic :: Software Development :: Quality Assurance
 Topic :: Software Development :: Testing
 """
@@ -96,19 +94,32 @@ setup_args = dict(
         ],
     },
 
+    extras_require={
+        # Enable pyproject.toml support.
+        'toml': ['toml'],
+    },
+
     # We need to get HTML assets from our htmlfiles directory.
     zip_safe=False,
 
-    author='Ned Batchelder and {0} others'.format(num_others),
+    author='Ned Batchelder and {} others'.format(num_others),
     author_email='ned@nedbatchelder.com',
     description=doc,
     long_description=long_description,
+    long_description_content_type='text/x-rst',
     keywords='code coverage testing',
     license='Apache 2.0',
     classifiers=classifier_list,
-    url="https://bitbucket.org/ned/coveragepy",
-
-    python_requires=">=2.6, !=3.0.*, !=3.1.*, !=3.2.*, <4",
+    url="https://github.com/nedbat/coveragepy",
+    project_urls={
+        'Documentation': __url__,
+        'Funding': (
+            'https://tidelift.com/subscription/pkg/pypi-coverage'
+            '?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=pypi'
+        ),
+        'Issues': 'https://github.com/nedbat/coveragepy/issues',
+    },
+    python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, <4",
 )
 
 # A replacement for the build_ext command which raises a single exception
@@ -185,13 +196,6 @@ if compile_extension:
         cmdclass={
             'build_ext': ve_build_ext,
         },
-    ))
-
-# Py3.x-specific details.
-
-if sys.version_info >= (3, 0):
-    setup_args.update(dict(
-        use_2to3=False,
     ))
 
 

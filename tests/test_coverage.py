@@ -1,6 +1,6 @@
 # coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests for coverage.py."""
 
@@ -87,6 +87,23 @@ class TestCoverageTest(CoverageTest):
                 [1,2,3],
                 missing=("37", "4-10"),
             )
+
+    def test_exceptions_really_fail(self):
+        # An assert in the checked code will really raise up to us.
+        with self.assertRaisesRegex(AssertionError, "This is bad"):
+            self.check_coverage("""\
+                a = 1
+                assert a == 99, "This is bad"
+                """
+                )
+        # Other exceptions too.
+        with self.assertRaisesRegex(ZeroDivisionError, "division"):
+            self.check_coverage("""\
+                a = 1
+                assert a == 1, "This is good"
+                a/0
+                """
+                )
 
 
 class BasicCoverageTest(CoverageTest):
@@ -660,7 +677,7 @@ class CompoundStatementTest(CoverageTest):
                 z = 7
             assert x == 3
             """,
-            [1,2,3,4,5,7,8], "4-7", report="7 3 4 1 45% 4-7, 2->4",
+            [1,2,3,4,5,7,8], "4-7", report="7 3 4 1 45% 2->4, 4-7",
         )
         self.check_coverage("""\
             a = 1; b = 2; c = 3;
@@ -672,7 +689,7 @@ class CompoundStatementTest(CoverageTest):
                 z = 7
             assert y == 5
             """,
-            [1,2,3,4,5,7,8], "3, 7", report="7 2 4 2 64% 3, 7, 2->3, 4->7",
+            [1,2,3,4,5,7,8], "3, 7", report="7 2 4 2 64% 2->3, 3, 4->7, 7",
         )
         self.check_coverage("""\
             a = 1; b = 2; c = 3;
@@ -684,7 +701,7 @@ class CompoundStatementTest(CoverageTest):
                 z = 7
             assert z == 7
             """,
-            [1,2,3,4,5,7,8], "3, 5", report="7 2 4 2 64% 3, 5, 2->3, 4->5",
+            [1,2,3,4,5,7,8], "3, 5", report="7 2 4 2 64% 2->3, 3, 4->5, 5",
         )
 
     def test_elif_no_else(self):
@@ -696,7 +713,7 @@ class CompoundStatementTest(CoverageTest):
                 y = 5
             assert x == 3
             """,
-            [1,2,3,4,5,6], "4-5", report="6 2 4 1 50% 4-5, 2->4",
+            [1,2,3,4,5,6], "4-5", report="6 2 4 1 50% 2->4, 4-5",
         )
         self.check_coverage("""\
             a = 1; b = 2; c = 3;
@@ -706,7 +723,7 @@ class CompoundStatementTest(CoverageTest):
                 y = 5
             assert y == 5
             """,
-            [1,2,3,4,5,6], "3", report="6 1 4 2 70% 3, 2->3, 4->6",
+            [1,2,3,4,5,6], "3", report="6 1 4 2 70% 2->3, 3, 4->6",
         )
 
     def test_elif_bizarre(self):

@@ -1,5 +1,5 @@
 .. Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-.. For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+.. For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 .. _cmd:
 
@@ -7,31 +7,14 @@
 Coverage.py command line usage
 ==============================
 
-.. :history: 20090524T134300, brand new docs.
-.. :history: 20090613T164000, final touches for 3.0
-.. :history: 20090913T084400, new command line syntax
-.. :history: 20091004T170700, changes for 3.1
-.. :history: 20091127T200700, changes for 3.2
-.. :history: 20100223T200600, changes for 3.3
-.. :history: 20100725T211700, updated for 3.4
-.. :history: 20110827T212500, updated for 3.5.1, combining aliases
-.. :history: 20120119T075600, Added some clarification from George Paci
-.. :history: 20120504T091800, Added info about execution warnings, and 3.5.2.
-.. :history: 20120807T211600, Clarified the combine rules.
-.. :history: 20121003T074600, Fixed an option reference, https://bitbucket.org/ned/coveragepy/issue/200/documentation-mentions-output-xml-instead
-.. :history: 20121117T091000, Added command aliases.
-.. :history: 20140924T193000, Added --concurrency
-.. :history: 20150802T174700, Updated for 4.0b1
-
 .. highlight:: console
-
 
 When you install coverage.py, a command-line script simply called ``coverage``
 is placed in your Python scripts directory.  To help with multi-version
 installs, it will also create either a ``coverage2`` or ``coverage3`` alias,
 and a ``coverage-X.Y`` alias, depending on the version of Python you're using.
-For example, when installing on Python 2.7, you will be able to use
-``coverage``, ``coverage2``, or ``coverage-2.7`` on the command line.
+For example, when installing on Python 3.7, you will be able to use
+``coverage``, ``coverage3``, or ``coverage-3.7`` on the command line.
 
 Coverage.py has a number of commands which determine the action performed:
 
@@ -40,6 +23,8 @@ Coverage.py has a number of commands which determine the action performed:
 * **report** -- Report coverage results.
 
 * **html** -- Produce annotated HTML listings with coverage results.
+
+* **json** -- Produce a JSON report with coverage results.
 
 * **xml** -- Produce an XML report with coverage results.
 
@@ -69,7 +54,7 @@ control, and can provide options that other invocation techniques (like test
 runner plugins) may not offer. See :ref:`config` for more details.
 
 
-.. _cmd_execution:
+.. _cmd_run:
 
 Execution
 ---------
@@ -88,6 +73,12 @@ Python ``-m`` switch::
 
     $ coverage run -m packagename.modulename arg1 arg2
     blah blah ..your program's output.. blah blah
+
+.. note::
+
+    In most cases, the program to use here is a test runner, not your program
+    you are trying to measure. The test runner will run your tests and coverage
+    will measure the coverage of your code along the way.
 
 If you want :ref:`branch coverage <branch>` measurement, use the ``--branch``
 flag.  Otherwise only statement coverage is measured.
@@ -118,18 +109,21 @@ configuration file for all options.
 .. _gevent: http://www.gevent.org/
 .. _eventlet: http://eventlet.net/
 
+If you are measuring coverage in a multi-process program, or across a number of
+machines, you'll want the ``--parallel-mode`` switch to keep the data separate
+during measurement.  See :ref:`cmd_combining` below.
+
+You can specify a :ref:`static context <contexts>` for a coverage run with
+``--context``.  This can be any label you want, and will be recorded with the
+data.  See :ref:`contexts` for more information.
+
 By default, coverage.py does not measure code installed with the Python
 interpreter, for example, the standard library. If you want to measure that
 code as well as your own, add the ``-L`` (or ``--pylib``) flag.
 
 If your coverage results seem to be overlooking code that you know has been
 executed, try running coverage.py again with the ``--timid`` flag.  This uses a
-simpler but slower trace method.  Projects that use DecoratorTools, including
-TurboGears, will need to use ``--timid`` to get correct results.
-
-If you are measuring coverage in a multi-process program, or across a number of
-machines, you'll want the ``--parallel-mode`` switch to keep the data separate
-during measurement.  See :ref:`cmd_combining` below.
+simpler but slower trace method, and might be needed in rare cases.
 
 
 .. _cmd_warnings:
@@ -140,42 +134,56 @@ Warnings
 During execution, coverage.py may warn you about conditions it detects that
 could affect the measurement process.  The possible warnings include:
 
-* "Trace function changed, measurement is likely wrong: XXX (trace-changed)"
+* ``Couldn't parse Python file XXX (couldnt-parse)`` |br|
+  During reporting, a file was thought to be Python, but it couldn't be parsed
+  as Python.
 
+* ``Trace function changed, measurement is likely wrong: XXX (trace-changed)``
+  |br|
   Coverage measurement depends on a Python setting called the trace function.
   Other Python code in your product might change that function, which will
   disrupt coverage.py's measurement.  This warning indicates that has happened.
   The XXX in the message is the new trace function value, which might provide
   a clue to the cause.
 
-* "Module XXX has no Python source (module-not-python)"
-
+* ``Module XXX has no Python source (module-not-python)`` |br|
   You asked coverage.py to measure module XXX, but once it was imported, it
   turned out not to have a corresponding .py file.  Without a .py file,
   coverage.py can't report on missing lines.
 
-* "Module XXX was never imported (module-not-imported)"
-
+* ``Module XXX was never imported (module-not-imported)`` |br|
   You asked coverage.py to measure module XXX, but it was never imported by
   your program.
 
-* "No data was collected (no-data-collected)"
-
+* ``No data was collected (no-data-collected)`` |br|
   Coverage.py ran your program, but didn't measure any lines as executed.
   This could be because you asked to measure only modules that never ran,
   or for other reasons.
 
-* "Module XXX was previously imported, but not measured (module-not-measured)"
-
+* ``Module XXX was previously imported, but not measured
+  (module-not-measured)``
+  |br|
   You asked coverage.py to measure module XXX, but it had already been imported
   when coverage started.  This meant coverage.py couldn't monitor its
   execution.
 
-* "--include is ignored because --source is set (include-ignored)"
+* ``Already imported a file that will be measured: XXX (already-imported)``
+  |br|
+  File XXX had already been imported when coverage.py started measurement. Your
+  setting for ``--source`` or ``--include`` indicates that you wanted to
+  measure that file.  Lines will be missing from the coverage report since the
+  execution during import hadn't been measured.
 
+* ``--include is ignored because --source is set (include-ignored)`` |br|
   Both ``--include`` and ``--source`` were specified while running code.  Both
   are meant to focus measurement on a particular part of your source code, so
   ``--include`` is ignored in favor of ``--source``.
+
+* ``Conflicting dynamic contexts (dynamic-conflict)`` |br|
+  The ``[run] dynamic_context`` option is set in the configuration file, but
+  something (probably a test runner plugin) is also calling the
+  :meth:`.Coverage.switch_context` function to change the context. Only one of
+  these mechanisms should be in use at a time.
 
 Individual warnings can be disabled with the `disable_warnings
 <config_run_disable_warnings>`_ configuration setting.  To silence "No data was
@@ -196,8 +204,8 @@ can include a path to another directory.
 
 By default, each run of your program starts with an empty data set. If you need
 to run your program multiple times to get complete data (for example, because
-you need to supply disjoint options), you can accumulate data across runs with
-the ``-a`` flag on the **run** command.
+you need to supply different options), you can accumulate data across runs with
+the ``--append`` flag on the **run** command.
 
 To erase the collected data, use the **erase** command::
 
@@ -209,8 +217,23 @@ To erase the collected data, use the **erase** command::
 Combining data files
 --------------------
 
-If you need to collect coverage data from different machines or processes,
-coverage.py can combine multiple files into one for reporting.
+Often test suites are run under different conditions, for example, with
+different versions of Python, or dependencies, or on different operating
+systems.  In these cases, you can collect coverage data for each test run, and
+then combine all the separate data files into one combined file for reporting.
+
+The **combine** command reads a number of separate data files, matches the data
+by source file name, and writes a combined data file with all of the data.
+
+Coverage normally writes data to a filed named ".coverage".  The ``run
+--parallel-mode`` switch (or ``[run] parallel=True`` configuration option)
+tells coverage to expand the file name to include machine name, process id, and
+a random number so that every data file is distinct::
+
+    .coverage.Neds-MacBook-Pro.local.88335.316857
+    .coverage.Geometer.8044.799674
+
+You can also define a new data file name with the ``[run] data_file`` option.
 
 Once you have created a number of these files, you can copy them all to a
 single directory, and use the **combine** command to combine them into one
@@ -227,10 +250,9 @@ current directory isn't searched if you use command-line arguments.  If you
 also want data from the current directory, name it explicitly on the command
 line.
 
-When coverage.py looks in directories for data files to combine, even the
-current directory, it only reads files with certain names.  It looks for files
-named the same as the data file (defaulting to ".coverage"), with a dotted
-suffix.  Here are some examples of data files that can be combined::
+When coverage.py combines data files, it looks for files named the same as the
+data file (defaulting to ".coverage"), with a dotted suffix.  Here are some
+examples of data files that can be combined::
 
     .coverage.machine1
     .coverage.20120807T212300
@@ -241,20 +263,21 @@ An existing combined data file is ignored and re-written. If you want to use
 runs, use the ``--append`` switch on the **combine** command.  This behavior
 was the default before version 4.2.
 
-The ``run --parallel-mode`` switch automatically creates separate data files
-for each run which can be combined later.  The file names include the machine
-name, the process id, and a random number::
+To combine data for a source file, coverage has to find its data in each of the
+data files.  Different test runs may run the same source file from different
+locations. For example, different operating systems will use different paths
+for the same file, or perhaps each Python version is run from a different
+subdirectory.  Coverage needs to know that different file paths are actually
+the same source file for reporting purposes.
 
-    .coverage.Neds-MacBook-Pro.local.88335.316857
-    .coverage.Geometer.8044.799674
+You can tell coverage.py how different source locations relate with a
+``[paths]`` section in your configuration file (see :ref:`config_paths`).
+It might be more convenient to use the ``[run] relative_files``
+setting to store relative file paths (see :ref:`relative_files
+<config_run_relative_files>`).
 
-If the different machines run your code from different places in their file
-systems, coverage.py won't know how to combine the data.  You can tell
-coverage.py how the different locations correlate with a ``[paths]`` section in
-your configuration file.  See :ref:`config_paths` for details.
-
-If any data files can't be read, coverage.py will print a warning indicating
-the file and the problem.
+If any of the data files can't be read, coverage.py will print a warning
+indicating the file and the problem.
 
 
 .. _cmd_reporting:
@@ -263,7 +286,8 @@ Reporting
 ---------
 
 Coverage.py provides a few styles of reporting, with the **report**, **html**,
-**annotate**, and **xml** commands.  They share a number of common options.
+**annotate**, **json**, and **xml** commands.  They share a number of common
+options.
 
 The command-line arguments are module or file names to report on, if you'd like
 to report on a subset of the data collected.
@@ -339,8 +363,13 @@ command line::
     -------------------------------------------------------
     TOTAL                        76     10    87%
 
-The ``--skip-covered`` switch will leave out any file with 100% coverage,
-letting you focus on the files that still need attention.
+The ``--skip-covered`` switch will skip any file with 100% coverage, letting
+you focus on the files that still need attention.  The ``--skip-empty`` switch
+will skip any file with no executable statements.
+
+If you have :ref:`recorded contexts <contexts>`, the ``--contexts`` option lets
+you choose which contexts to report on.  See :ref:`context_reporting` for
+details.
 
 Other common reporting options are described above in :ref:`cmd_reporting`.
 
@@ -385,8 +414,15 @@ is a data file that is used to speed up reporting the next time.  If you
 generate a new report into the same directory, coverage.py will skip
 generating unchanged pages, making the process faster.
 
-The ``--skip-covered`` switch will leave out any file with 100% coverage,
-letting you focus on the files that still need attention.
+The ``--skip-covered`` switch will skip any file with 100% coverage, letting
+you focus on the files that still need attention.  The ``--skip-empty`` switch
+will skip any file with no executable statements.
+
+If you have :ref:`recorded contexts <contexts>`, the ``--contexts`` option lets
+you choose which contexts to report on, and the ``--show-contexts`` option will
+annotate lines with the contexts that ran them.  See :ref:`context_reporting`
+for details.
+
 
 .. _cmd_annotation:
 
@@ -435,6 +471,19 @@ You can specify the name of the output file with the ``-o`` switch.
 Other common reporting options are described above in :ref:`cmd_reporting`.
 
 
+.. _cmd_json:
+
+JSON reporting
+--------------
+
+The **json** command writes coverage data to a "coverage.json" file.
+
+You can specify the name of the output file with the ``-o`` switch.  The JSON
+can be nicely formatted by specifying the ``--pretty-print`` switch.
+
+Other common reporting options are described above in :ref:`cmd_reporting`.
+
+
 .. _cmd_debug:
 
 Diagnostics
@@ -449,8 +498,9 @@ command can often help::
 Three types of information are available:
 
 * ``config``: show coverage's configuration
-* ``sys``: show system configuration,
+* ``sys``: show system configuration
 * ``data``: show a summary of the collected coverage data
+* ``premain``: show the call stack invoking coverage
 
 
 .. _cmd_run_debug:
@@ -472,12 +522,17 @@ to log:
 
 * ``multiproc``: log the start and stop of multiprocessing processes.
 
-* ``pid``: annotate all warnings and debug output with the process id.
+* ``pid``: annotate all warnings and debug output with the process and thread
+  ids.
 
 * ``plugin``: print information about plugin operations.
 
 * ``process``: show process creation information, and changes in the current
   directory.
+
+* ``self``: annotate each debug message with the object printing the message.
+
+* ``sql``: log the SQL statements used for recording data.
 
 * ``sys``: before starting, dump all the system and environment information,
   as with :ref:`coverage debug sys <cmd_debug>`.

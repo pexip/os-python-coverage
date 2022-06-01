@@ -1,5 +1,5 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Test file for run_python_file.
 
@@ -66,12 +66,17 @@ def my_function(a):
 FN_VAL = my_function("fooey")
 
 loader = globals().get('__loader__')
-fullname = getattr(loader, 'fullname', None) or getattr(loader, 'name', None)
+spec = globals().get('__spec__')
 
-# A more compact grouped-by-first-letter list of builtins.
+# A more compact ad-hoc grouped-by-first-letter list of builtins.
+CLUMPS = "ABC,DEF,GHI,JKLMN,OPQR,ST,U,VWXYZ_,ab,cd,efg,hij,lmno,pqr,stuvwxyz".split(",")
+
 def word_group(w):
-    """Clump AB, CD, EF, etc."""
-    return chr((ord(w[0]) + 1) & 0xFE)
+    """Figure out which CLUMP the first letter of w is in."""
+    for i, clump in enumerate(CLUMPS):
+        if w[0] in clump:
+            return i
+    return 99
 
 builtin_dir = [" ".join(s) for _, s in itertools.groupby(dir(__builtins__), key=word_group)]
 
@@ -83,8 +88,8 @@ globals_to_check = {
     '__builtins__.has_open': hasattr(__builtins__, 'open'),
     '__builtins__.dir': builtin_dir,
     '__loader__ exists': loader is not None,
-    '__loader__.fullname': fullname,
     '__package__': __package__,
+    '__spec__ exists': spec is not None,
     'DATA': DATA,
     'FN_VAL': FN_VAL,
     '__main__.DATA': getattr(__main__, "DATA", "nothing"),
@@ -92,5 +97,16 @@ globals_to_check = {
     'argv1-n': sys.argv[1:],
     'path': cleaned_sys_path,
 }
+
+if loader is not None:
+    globals_to_check.update({
+        '__loader__.fullname': getattr(loader, 'fullname', None) or getattr(loader, 'name', None)
+    })
+
+if spec is not None:
+    globals_to_check.update({
+        '__spec__.' + aname: getattr(spec, aname)
+        for aname in ['name', 'origin', 'submodule_search_locations', 'parent', 'has_location']
+    })
 
 print(json.dumps(globals_to_check, indent=4, sort_keys=True))

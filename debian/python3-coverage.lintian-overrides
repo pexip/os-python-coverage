@@ -3,8 +3,12 @@
 # Documentation: ‘/usr/share/doc/lintian/lintian’ §2.4.
 
 # The Coverage.py library is not an application, despite these commands.
-library-package-name-for-application usr/bin/python3-coverage usr/bin/python3.7-coverage
-application-in-library-section python usr/bin/python3-coverage usr/bin/python3.7-coverage
+library-package-name-for-application usr/bin/python3.8-coverage usr/bin/python3-coverage
+application-in-library-section python usr/bin/python3.8-coverage usr/bin/python3-coverage
+
+# These files are part of the functionality of Coverage, not documentation.
+package-contains-documentation-outside-usr-share-doc usr/share/python3-coverage/htmlfiles/index.html
+package-contains-documentation-outside-usr-share-doc usr/share/python3-coverage/htmlfiles/pyfile.html
 
 
 # Local variables:

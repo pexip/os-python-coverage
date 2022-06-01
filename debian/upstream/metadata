@@ -9,7 +9,7 @@
 ---
 # <URL:https://wiki.debian.org/UpstreamMetadata>
 Name: Coverage.py
-Homepage: http://nedbatchelder.com/code/coverage/
+Homepage: https://coverage.readthedocs.io/
 Contact: Ned Batchelder <ned@nedbatchelder.com>
 Archive: PyPI
 Bug-Database: https://github.com/nedbat/coveragepy/issues/
@@ -19,7 +19,7 @@ Repository-Browse: https://github.com/nedbat/coveragepy/
 Changelog: https://github.com/nedbat/coveragepy/blob/master/CHANGES.rst
 
 
-# Copyright © 2018–2019 Ben Finney <bignose@debian.org>
+# Copyright © 2018–2020 Ben Finney <bignose@debian.org>
 #
 # This is free software; you may copy, modify, and/or distribute this work
 # under the terms of the GNU General Public License, version 3 or later.

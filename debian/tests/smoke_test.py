@@ -121,7 +121,7 @@ if __name__ == "__main__":
     sys.exit(exit_status)
 
 
-# Copyright © 2016–2019 Ben Finney <bignose@debian.org>
+# Copyright © 2016–2020 Ben Finney <bignose@debian.org>
 # This is free software: you may copy, modify, and/or distribute this work
 # under the terms of the GNU General Public License as published by the
 # Free Software Foundation; version 3 of that license or any later version.

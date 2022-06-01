@@ -1,13 +1,16 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests for plugins."""
 
+import inspect
 import os.path
+from xml.etree import ElementTree
 
 import coverage
 from coverage import env
-from coverage.backward import StringIO
+from coverage.backward import StringIO, import_local_file
+from coverage.data import line_counts
 from coverage.control import Plugins
 from coverage.misc import CoverageException
 
@@ -118,7 +121,7 @@ class LoadPluginsTest(CoverageTest):
         self.assertEqual(plugins[1].options, {'a': 'second'})
 
     def test_cant_import(self):
-        with self.assertRaises(ImportError):
+        with self.assertRaisesRegex(ImportError, "No module named '?plugin_not_there'?"):
             _ = Plugins.load_plugins(["plugin_not_there"], None)
 
     def test_plugin_must_define_coverage_init(self):
@@ -157,7 +160,7 @@ class PluginTest(CoverageTest):
 
     def test_missing_plugin_raises_import_error(self):
         # Prove that a missing plugin will raise an ImportError.
-        with self.assertRaises(ImportError):
+        with self.assertRaisesRegex(ImportError, "No module named '?does_not_exist_woijwoicweo'?"):
             cov = coverage.Coverage()
             cov.set_option("run:plugins", ["does_not_exist_woijwoicweo"])
             cov.start()
@@ -165,9 +168,7 @@ class PluginTest(CoverageTest):
 
     def test_bad_plugin_isnt_hidden(self):
         # Prove that a plugin with an error in it will raise the error.
-        self.make_file("plugin_over_zero.py", """\
-            1/0
-            """)
+        self.make_file("plugin_over_zero.py", "1/0")
         with self.assertRaises(ZeroDivisionError):
             cov = coverage.Coverage()
             cov.set_option("run:plugins", ["plugin_over_zero"])
@@ -189,7 +190,8 @@ class PluginTest(CoverageTest):
         cov = coverage.Coverage(debug=["sys"])
         cov._debug_file = debug_out
         cov.set_option("run:plugins", ["plugin_sys_info"])
-        cov.load()
+        cov.start()
+        cov.stop()      # pragma: nested
 
         out_lines = [line.strip() for line in debug_out.getvalue().splitlines()]
         if env.C_TRACER:
@@ -218,7 +220,8 @@ class PluginTest(CoverageTest):
         cov = coverage.Coverage(debug=["sys"])
         cov._debug_file = debug_out
         cov.set_option("run:plugins", ["plugin_no_sys_info"])
-        cov.load()
+        cov.start()
+        cov.stop()      # pragma: nested
 
         out_lines = [line.strip() for line in debug_out.getvalue().splitlines()]
         self.assertIn('plugins.file_tracers: -none-', out_lines)
@@ -257,7 +260,7 @@ class PluginWarningOnPyTracer(CoverageTest):
         if env.C_TRACER:
             self.skipTest("This test is only about PyTracer.")
 
-        self.make_file("simple.py", """a = 1""")
+        self.make_file("simple.py", "a = 1")
 
         cov = coverage.Coverage()
         cov.set_option("run:plugins", ["tests.plugin1"])
@@ -273,9 +276,9 @@ class FileTracerTest(CoverageTest):
     """Tests of plugins that implement file_tracer."""
 
     def setUp(self):
-        super(FileTracerTest, self).setUp()
         if not env.C_TRACER:
             self.skipTest("Plugins are only supported with the C tracer.")
+        super(FileTracerTest, self).setUp()
 
 
 class GoodFileTracerTest(FileTracerTest):
@@ -318,7 +321,7 @@ class GoodFileTracerTest(FileTracerTest):
                 # will examine the `filename` and `linenum` locals to
                 # determine the source file and line number.
                 fiddle_around = 1   # not used, just chaff.
-                return "[{0} @ {1}]".format(filename, linenum)
+                return "[{} @ {}]".format(filename, linenum)
 
             def helper(x):
                 # This function is here just to show that not all code in
@@ -369,19 +372,19 @@ class GoodFileTracerTest(FileTracerTest):
         _, statements, missing, _ = cov.analysis("foo_7.html")
         self.assertEqual(statements, [1, 2, 3, 4, 5, 6, 7])
         self.assertEqual(missing, [1, 2, 3, 6, 7])
-        self.assertIn("foo_7.html", cov.data.line_counts())
+        self.assertIn("foo_7.html", line_counts(cov.get_data()))
 
         _, statements, missing, _ = cov.analysis("bar_4.html")
         self.assertEqual(statements, [1, 2, 3, 4])
         self.assertEqual(missing, [1, 4])
-        self.assertIn("bar_4.html", cov.data.line_counts())
+        self.assertIn("bar_4.html", line_counts(cov.get_data()))
 
-        self.assertNotIn("quux_5.html", cov.data.line_counts())
+        self.assertNotIn("quux_5.html", line_counts(cov.get_data()))
 
         _, statements, missing, _ = cov.analysis("uni_3.html")
         self.assertEqual(statements, [1, 2, 3])
         self.assertEqual(missing, [1])
-        self.assertIn("uni_3.html", cov.data.line_counts())
+        self.assertIn("uni_3.html", line_counts(cov.get_data()))
 
     def test_plugin2_with_branch(self):
         self.make_render_and_caller()
@@ -423,7 +426,7 @@ class GoodFileTracerTest(FileTracerTest):
             '--------------------------------------------------------',
             'TOTAL           11      7      0      0    36%',
             ]
-        self.assertEqual(report, expected)
+        self.assertEqual(expected, report)
         self.assertAlmostEqual(total, 36.36, places=2)
 
     def test_plugin2_with_html_report(self):
@@ -452,14 +455,25 @@ class GoodFileTracerTest(FileTracerTest):
         total = cov.xml_report(include=["*.html"], omit=["uni*.html"])
         self.assertAlmostEqual(total, 36.36, places=2)
 
-        with open("coverage.xml") as fxml:
-            xml = fxml.read()
+        dom = ElementTree.parse("coverage.xml")
+        classes = {}
+        for elt in dom.findall(".//class"):
+            classes[elt.get('name')] = elt
 
-        for snip in [
-            'filename="bar_4.html" line-rate="0.5" name="bar_4.html"',
-            'filename="foo_7.html" line-rate="0.2857" name="foo_7.html"',
-        ]:
-            self.assertIn(snip, xml)
+        assert classes['bar_4.html'].attrib == {
+            'branch-rate': '1',
+            'complexity': '0',
+            'filename': 'bar_4.html',
+            'line-rate': '0.5',
+            'name': 'bar_4.html',
+        }
+        assert classes['foo_7.html'].attrib == {
+            'branch-rate': '1',
+            'complexity': '0',
+            'filename': 'foo_7.html',
+            'line-rate': '0.2857',
+            'name': 'foo_7.html',
+        }
 
     def test_defer_to_python(self):
         # A plugin that measures, but then wants built-in python reporting.
@@ -509,7 +523,7 @@ class GoodFileTracerTest(FileTracerTest):
             '-----------------------------------------------',
             'unsuspecting.py       6      3    50%   2, 4, 6',
             ]
-        self.assertEqual(report, expected)
+        self.assertEqual(expected, report)
         self.assertEqual(total, 50)
 
     def test_find_unexecuted(self):
@@ -544,7 +558,7 @@ class GoodFileTracerTest(FileTracerTest):
             def coverage_init(reg, options):
                 reg.add_file_tracer(Plugin())
         """)
-        self.make_file("foo.py", "a = 1\n")
+        self.make_file("foo.py", "a = 1")
         cov = coverage.Coverage(source=['.'])
         cov.set_option("run:plugins", ["unexecuted_plugin"])
         self.start_import_stop(cov, "foo")
@@ -870,3 +884,211 @@ class ConfigurerPluginTest(CoverageTest):
         excluded = cov.get_option("report:exclude_lines")
         self.assertIn("pragma: custom", excluded)
         self.assertIn("pragma: or whatever", excluded)
+
+
+class DynamicContextPluginTest(CoverageTest):
+    """Tests of plugins that implement `dynamic_context`."""
+
+    def make_plugin_capitalized_testnames(self, filename):
+        """Create a dynamic context plugin that capitalizes the part after 'test_'."""
+        self.make_file(filename, """\
+            from coverage import CoveragePlugin
+
+            class Plugin(CoveragePlugin):
+                def dynamic_context(self, frame):
+                    name = frame.f_code.co_name
+                    if name.startswith(("test_", "doctest_")):
+                        parts = name.split("_", 1)
+                        return "%s:%s" % (parts[0], parts[1].upper())
+                    return None
+
+            def coverage_init(reg, options):
+                reg.add_dynamic_context(Plugin())
+            """)
+
+    def make_plugin_track_render(self, filename):
+        """Make a dynamic context plugin that tracks 'render_' functions."""
+        self.make_file(filename, """\
+            from coverage import CoveragePlugin
+
+            class Plugin(CoveragePlugin):
+                def dynamic_context(self, frame):
+                    name = frame.f_code.co_name
+                    if name.startswith("render_"):
+                        return 'renderer:' + name[7:]
+                    return None
+
+            def coverage_init(reg, options):
+                reg.add_dynamic_context(Plugin())
+            """)
+
+    def make_test_files(self):
+        """Make some files to use while testing dynamic context plugins."""
+        self.make_file("rendering.py", """\
+            def html_tag(tag, content):
+                return '<%s>%s</%s>' % (tag, content, tag)
+
+            def render_paragraph(text):
+                return html_tag('p', text)
+
+            def render_span(text):
+                return html_tag('span', text)
+
+            def render_bold(text):
+                return html_tag('b', text)
+            """)
+
+        self.make_file("testsuite.py", """\
+            import rendering
+
+            def test_html_tag():
+                assert rendering.html_tag('b', 'hello') == '<b>hello</b>'
+
+            def doctest_html_tag():
+                assert eval('''
+                    rendering.html_tag('i', 'text') == '<i>text</i>'
+                    '''.strip())
+
+            def test_renderers():
+                assert rendering.render_paragraph('hello') == '<p>hello</p>'
+                assert rendering.render_bold('wide') == '<b>wide</b>'
+                assert rendering.render_span('world') == '<span>world</span>'
+
+            def build_full_html():
+                html = '<html><body>%s</body></html>' % (
+                   rendering.render_paragraph(
+                      rendering.render_span('hello')))
+                return html
+            """)
+
+    def run_all_functions(self, cov, suite_name):           # pragma: nested
+        """Run all functions in `suite_name` under coverage."""
+        cov.start()
+        suite = import_local_file(suite_name)
+        try:
+            # Call all functions in this module
+            for name in dir(suite):
+                variable = getattr(suite, name)
+                if inspect.isfunction(variable):
+                    variable()
+        finally:
+            cov.stop()
+
+    def test_plugin_standalone(self):
+        self.make_plugin_capitalized_testnames('plugin_tests.py')
+        self.make_test_files()
+
+        # Enable dynamic context plugin
+        cov = coverage.Coverage()
+        cov.set_option("run:plugins", ['plugin_tests'])
+
+        # Run the tests
+        self.run_all_functions(cov, 'testsuite')
+
+        # Labeled coverage is collected
+        data = cov.get_data()
+        filenames = self.get_measured_filenames(data)
+        self.assertEqual(
+            ['', 'doctest:HTML_TAG', 'test:HTML_TAG', 'test:RENDERERS'],
+            sorted(data.measured_contexts()),
+        )
+        data.set_query_context("doctest:HTML_TAG")
+        self.assertEqual([2], data.lines(filenames['rendering.py']))
+        data.set_query_context("test:HTML_TAG")
+        self.assertEqual([2], data.lines(filenames['rendering.py']))
+        data.set_query_context("test:RENDERERS")
+        self.assertEqual([2, 5, 8, 11], sorted(data.lines(filenames['rendering.py'])))
+
+    def test_static_context(self):
+        self.make_plugin_capitalized_testnames('plugin_tests.py')
+        self.make_test_files()
+
+        # Enable dynamic context plugin for coverage with named context
+        cov = coverage.Coverage(context='mytests')
+        cov.set_option("run:plugins", ['plugin_tests'])
+
+        # Run the tests
+        self.run_all_functions(cov, 'testsuite')
+
+        # Static context prefix is preserved
+        data = cov.get_data()
+        expected = [
+            'mytests',
+            'mytests|doctest:HTML_TAG',
+            'mytests|test:HTML_TAG',
+            'mytests|test:RENDERERS',
+        ]
+        self.assertEqual(expected, sorted(data.measured_contexts()))
+
+    def test_plugin_with_test_function(self):
+        self.make_plugin_capitalized_testnames('plugin_tests.py')
+        self.make_test_files()
+
+        # Enable both a plugin and test_function dynamic context
+        cov = coverage.Coverage()
+        cov.set_option("run:plugins", ['plugin_tests'])
+        cov.set_option("run:dynamic_context", "test_function")
+
+        # Run the tests
+        self.run_all_functions(cov, 'testsuite')
+
+        # test_function takes precedence over plugins - only
+        # functions that are not labeled by test_function are
+        # labeled by plugin_tests.
+        data = cov.get_data()
+        filenames = self.get_measured_filenames(data)
+        expected = [
+            '',
+            'doctest:HTML_TAG',
+            'testsuite.test_html_tag',
+            'testsuite.test_renderers',
+        ]
+        self.assertEqual(expected, sorted(data.measured_contexts()))
+
+        def assert_context_lines(context, lines):
+            data.set_query_context(context)
+            self.assertEqual(lines, sorted(data.lines(filenames['rendering.py'])))
+
+        assert_context_lines("doctest:HTML_TAG", [2])
+        assert_context_lines("testsuite.test_html_tag", [2])
+        assert_context_lines("testsuite.test_renderers", [2, 5, 8, 11])
+
+    def test_multiple_plugins(self):
+        self.make_plugin_capitalized_testnames('plugin_tests.py')
+        self.make_plugin_track_render('plugin_renderers.py')
+        self.make_test_files()
+
+        # Enable two plugins
+        cov = coverage.Coverage()
+        cov.set_option("run:plugins", ['plugin_renderers', 'plugin_tests'])
+
+        self.run_all_functions(cov, 'testsuite')
+
+        # It is important to note, that line 11 (render_bold function) is never
+        # labeled as renderer:bold context, because it is only called from
+        # test_renderers function - so it already falls under test:RENDERERS
+        # context.
+        #
+        # render_paragraph and render_span (lines 5, 8) are directly called by
+        # testsuite.build_full_html, so they get labeled by renderers plugin.
+        data = cov.get_data()
+        filenames = self.get_measured_filenames(data)
+        expected = [
+            '',
+            'doctest:HTML_TAG',
+            'renderer:paragraph',
+            'renderer:span',
+            'test:HTML_TAG',
+            'test:RENDERERS',
+        ]
+        self.assertEqual(expected, sorted(data.measured_contexts()))
+
+        def assert_context_lines(context, lines):
+            data.set_query_context(context)
+            self.assertEqual(lines, sorted(data.lines(filenames['rendering.py'])))
+
+        assert_context_lines("test:HTML_TAG", [2])
+        assert_context_lines("test:RENDERERS", [2, 5, 8, 11])
+        assert_context_lines("doctest:HTML_TAG", [2])
+        assert_context_lines("renderer:paragraph", [2, 5])
+        assert_context_lines("renderer:span", [2, 8])

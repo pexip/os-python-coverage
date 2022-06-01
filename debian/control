@@ -7,21 +7,21 @@ Build-Depends:
     dh-python,
     python3-sphinx,
     python3-sphinx-rtd-theme,
+    python3-sphinx-rst-builder,
+    python3-sphinx-tabs,
     python3-sphinxcontrib.spelling,
     python3-setuptools,
     python3-all-dev,
     python3,
-    python-setuptools,
-    python-all-dev (>= 2.6.6-3~),
-    python (>= 2.6.6-3~),
-    debhelper (>= 11~)
+    debhelper-compat (= 13)
 Build-Depends-Indep:
     pypy-setuptools,
     pypy
-Standards-Version: 4.3.0
-Homepage: http://nedbatchelder.com/code/coverage/
+Standards-Version: 4.5.0
+Homepage: https://coverage.readthedocs.io/
 VCS-Git: https://salsa.debian.org/debian/pkg-python-coverage.git
 VCS-Browser: https://salsa.debian.org/debian/pkg-python-coverage/
+Rules-Requires-Root: no
 XS-Pexip-Upstream: http://deb.debian.org/debian/ bullseye
 
 Package: python3-coverage
@@ -77,33 +77,6 @@ Description: code coverage tool for Python 2 PyPy
  .
  This package installs the Python 2 ‘coverage’ library built for PyPy, and the
  ‘pypy-coverage’ program to perform and report coverage tests.
-
-Package: python-coverage
-Architecture: any
-Depends:
-    python-pkg-resources,
-    ${python:Depends},
-    ${shlibs:Depends},
-    ${misc:Depends}
-Recommends:
-    libjs-jquery-isonscreen,
-    libjs-jquery-tablesorter,
-    libjs-jquery-throttle-debounce,
-    libjs-jquery
-Suggests:
-    python-coverage-doc
-Description: code coverage tool for Python 2
- Coverage.py is a tool for measuring code coverage of Python programs.
- It monitors your program, noting which parts of the code have been
- executed, then analyzes the source to identify code that could have
- been executed but was not.
- .
- Coverage measurement is typically used to gauge the effectiveness of
- tests. It can show which parts of your code are being exercised by
- tests, and which are not.
- .
- This package installs the Python version 2 ‘coverage’ library, and the
- ‘python2-coverage’ program to perform and report coverage tests.
 
 Package: python-coverage-doc
 Architecture: all

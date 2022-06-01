@@ -1,5 +1,5 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests for coverage.py's improved tokenizer."""
 
@@ -43,6 +43,13 @@ MIXED_WS_TOKENS = [
     [('ws', '        '), ('nam', 'b'), ('op', '='), ('str', '"indented"')],
 ]
 
+# https://github.com/nedbat/coveragepy/issues/822
+BUG_822 = u"""\
+print( "Message 1" )
+array = [ 1,2,3,4,       # 4 numbers \\
+          5,6,7 ]        # 3 numbers
+print( "Message 2" )
+"""
 
 class PhysTokensTest(CoverageTest):
     """Tests for coverage.py's improved tokenizer."""
@@ -77,6 +84,9 @@ class PhysTokensTest(CoverageTest):
     def test_tab_indentation(self):
         # Mixed tabs and spaces...
         self.assertEqual(list(source_token_lines(MIXED_WS)), MIXED_WS_TOKENS)
+
+    def test_bug_822(self):
+        self.check_tokenization(BUG_822)
 
     def test_tokenize_real_file(self):
         # Check the tokenization of a real file (large, btw).
@@ -125,7 +135,7 @@ class SourceEncodingTest(CoverageTest):
             )
 
     def test_detect_source_encoding_not_in_comment(self):
-        if env.PYPY and env.PY3:        # pragma: no metacov
+        if env.PYPY3:           # pragma: no metacov
             # PyPy3 gets this case wrong. Not sure what I can do about it,
             # so skip the test.
             self.skipTest("PyPy3 is wrong about non-comment encoding. Skip it.")

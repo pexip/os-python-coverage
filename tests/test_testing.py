@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
-# For details: https://bitbucket.org/ned/coveragepy/src/default/NOTICE.txt
+# For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests that our test infrastructure is really working!"""
 
 import datetime
 import os
+import re
 import sys
 
 import pytest
@@ -14,9 +15,17 @@ import coverage
 from coverage.backunittest import TestCase, unittest
 from coverage.files import actual_path
 from coverage.misc import StopEverything
+import coverage.optional
 
 from tests.coveragetest import CoverageTest, convert_skip_exceptions
+from tests.helpers import arcs_to_arcz_repr, arcz_to_arcs
 from tests.helpers import CheckUniqueFilenames, re_lines, re_line
+
+
+def test_xdist_sys_path_nuttiness_is_fixed():
+    # See conftest.py:fix_xdist_sys_path
+    assert sys.path[1] != ''
+    assert os.environ.get('PYTHONPATH') is None
 
 
 class TestingTest(TestCase):
@@ -34,30 +43,58 @@ class TestingTest(TestCase):
 class CoverageTestTest(CoverageTest):
     """Test the methods in `CoverageTest`."""
 
-    def test_arcz_to_arcs(self):
-        self.assertEqual(self.arcz_to_arcs(".1 12 2."), [(-1, 1), (1, 2), (2, -1)])
-        self.assertEqual(self.arcz_to_arcs("-11 12 2-5"), [(-1, 1), (1, 2), (2, -5)])
-        self.assertEqual(
-            self.arcz_to_arcs("-QA CB IT Z-A"),
-            [(-26, 10), (12, 11), (18, 29), (35, -10)]
-        )
-
     def test_file_exists(self):
         self.make_file("whoville.txt", "We are here!")
         self.assert_exists("whoville.txt")
         self.assert_doesnt_exist("shadow.txt")
-        with self.assertRaises(AssertionError):
+        msg = "False is not true : File 'whoville.txt' shouldn't exist"
+        with self.assertRaisesRegex(AssertionError, msg):
             self.assert_doesnt_exist("whoville.txt")
-        with self.assertRaises(AssertionError):
+        msg = "False is not true : File 'shadow.txt' should exist"
+        with self.assertRaisesRegex(AssertionError, msg):
             self.assert_exists("shadow.txt")
+
+    def test_file_count(self):
+        self.make_file("abcde.txt", "abcde")
+        self.make_file("axczz.txt", "axczz")
+        self.make_file("afile.txt", "afile")
+        self.assert_file_count("a*.txt", 3)
+        self.assert_file_count("*c*.txt", 2)
+        self.assert_file_count("afile.*", 1)
+        self.assert_file_count("*.q", 0)
+        msg = re.escape(
+            "3 != 13 : There should be 13 files matching 'a*.txt', but there are these: "
+            "['abcde.txt', 'afile.txt', 'axczz.txt']"
+        )
+        with self.assertRaisesRegex(AssertionError, msg):
+            self.assert_file_count("a*.txt", 13)
+        msg = re.escape(
+            "2 != 12 : There should be 12 files matching '*c*.txt', but there are these: "
+            "['abcde.txt', 'axczz.txt']"
+        )
+        with self.assertRaisesRegex(AssertionError, msg):
+            self.assert_file_count("*c*.txt", 12)
+        msg = re.escape(
+            "1 != 11 : There should be 11 files matching 'afile.*', but there are these: "
+            "['afile.txt']"
+        )
+        with self.assertRaisesRegex(AssertionError, msg):
+            self.assert_file_count("afile.*", 11)
+        msg = re.escape(
+            "0 != 10 : There should be 10 files matching '*.q', but there are these: []"
+        )
+        with self.assertRaisesRegex(AssertionError, msg):
+            self.assert_file_count("*.q", 10)
 
     def test_assert_startwith(self):
         self.assert_starts_with("xyzzy", "xy")
         self.assert_starts_with("xyz\nabc", "xy")
         self.assert_starts_with("xyzzy", ("x", "z"))
-        with self.assertRaises(AssertionError):
+        msg = re.escape("'xyz' doesn't start with 'a'")
+        with self.assertRaisesRegex(AssertionError, msg):
             self.assert_starts_with("xyz", "a")
-        with self.assertRaises(AssertionError):
+        msg = re.escape("'xyz\\nabc' doesn't start with 'a'")
+        with self.assertRaisesRegex(AssertionError, msg):
             self.assert_starts_with("xyz\nabc", "a")
 
     def test_assert_recent_datetime(self):
@@ -126,7 +163,7 @@ class CoverageTestTest(CoverageTest):
                 cov._warn("Bye")
 
         # assert_warnings shouldn't hide a real exception.
-        with self.assertRaises(ZeroDivisionError):
+        with self.assertRaisesRegex(ZeroDivisionError, "oops"):
             with self.assert_warnings(cov, ["Hello there!"]):
                 raise ZeroDivisionError("oops")
 
@@ -168,6 +205,17 @@ class CoverageTestTest(CoverageTest):
         environ = re_line(out, "COV_FOOBAR")
         _, _, environ = environ.rpartition(":")
         self.assertEqual(environ.strip(), "COV_FOOBAR = XYZZY")
+
+    def test_run_command_stdout_stderr(self):
+        # run_command should give us both stdout and stderr.
+        self.make_file("outputs.py", """\
+            import sys
+            sys.stderr.write("StdErr\\n")
+            print("StdOut")
+            """)
+        out = self.run_command("python outputs.py")
+        self.assertIn("StdOut\n", out)
+        self.assertIn("StdErr\n", out)
 
 
 class CheckUniqueFilenamesTest(CoverageTest):
@@ -273,3 +321,41 @@ def _same_python_executable(e1, e2):
         return True
 
     return False                                        # pragma: only failure
+
+
+def test_optional_without():
+    # pylint: disable=reimported
+    from coverage.optional import toml as toml1
+    with coverage.optional.without('toml'):
+        from coverage.optional import toml as toml2
+    from coverage.optional import toml as toml3
+
+    assert toml1 is toml3 is not None
+    assert toml2 is None
+
+
+@pytest.mark.parametrize("arcz, arcs", [
+    (".1 12 2.", [(-1, 1), (1, 2), (2, -1)]),
+    ("-11 12 2-5", [(-1, 1), (1, 2), (2, -5)]),
+    ("-QA CB IT Z-A", [(-26, 10), (12, 11), (18, 29), (35, -10)]),
+])
+def test_arcz_to_arcs(arcz, arcs):
+    assert arcz_to_arcs(arcz) == arcs
+
+
+@pytest.mark.parametrize("arcs, arcz_repr", [
+    ([(-1, 1), (1, 2), (2, -1)], "(-1, 1) # .1\n(1, 2) # 12\n(2, -1) # 2.\n"),
+    ([(-1, 1), (1, 2), (2, -5)], "(-1, 1) # .1\n(1, 2) # 12\n(2, -5) # 2-5\n"),
+    ([(-26, 10), (12, 11), (18, 29), (35, -10), (1, 33), (100, 7)],
+        (
+        "(-26, 10) # -QA\n"
+        "(12, 11) # CB\n"
+        "(18, 29) # IT\n"
+        "(35, -10) # Z-A\n"
+        "(1, 33) # 1X\n"
+        "(100, 7) # ?7\n"
+        )
+    ),
+])
+def test_arcs_to_arcz_repr(arcs, arcz_repr):
+    assert arcs_to_arcz_repr(arcs) == arcz_repr
