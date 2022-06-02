@@ -1,3 +1,9 @@
+python-coverage (5.1+dfsg.1-2pexip1) pexip; urgency=medium
+
+  * Initial bullseye build
+
+ -- Mark Hymers <mark.hymers@pexip.com>  Thu, 02 Jun 2022 14:42:46 +0100
+
 python-coverage (5.1+dfsg.1-2) unstable; urgency=medium
 
   * The “Karl Karnadi” release.
