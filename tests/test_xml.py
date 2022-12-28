@@ -1,4 +1,3 @@
-# coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
@@ -9,23 +8,20 @@ import os.path
 import re
 from xml.etree import ElementTree
 
-from unittest_mixins import change_dir
+import pytest
 
 import coverage
-from coverage.backward import import_local_file
+from coverage.exceptions import NoDataError
 from coverage.files import abs_file
+from coverage.misc import import_local_file
 
 from tests.coveragetest import CoverageTest
 from tests.goldtest import compare, gold_path
+from tests.helpers import assert_coverage_warnings, change_dir
 
 
 class XmlTestHelpers(CoverageTest):
     """Methods to use from XML tests."""
-
-    def run_mycode(self):
-        """Run mycode.py, so we can report on it."""
-        self.make_file("mycode.py", "print('hello')\n")
-        self.run_command("coverage run mycode.py")
 
     def run_doit(self):
         """Construct a simple sub-package."""
@@ -53,13 +49,13 @@ class XmlTestHelpers(CoverageTest):
             return os.path.join(curdir, p)
 
         for i in range(width):
-            next_dir = here("d{}".format(i))
+            next_dir = here(f"d{i}")
             self.make_tree(width, depth-1, next_dir)
         if curdir != ".":
             self.make_file(here("__init__.py"), "")
             for i in range(width):
-                filename = here("f{}.py".format(i))
-                self.make_file(filename, "# {}\n".format(filename))
+                filename = here(f"f{i}.py")
+                self.make_file(filename, f"# {filename}\n")
 
     def assert_source(self, xmldom, src):
         """Assert that the XML has a <source> element with `src`."""
@@ -87,55 +83,77 @@ class XmlTestHelpersTest(XmlTestHelpers, CoverageTest):
         self.assert_source(dom, "something")
         self.assert_source(dom, "another")
 
-        with self.assertRaises(AssertionError):
+        with pytest.raises(AssertionError):
             self.assert_source(dom, "hello")
-        with self.assertRaises(AssertionError):
+        with pytest.raises(AssertionError):
             self.assert_source(dom, "foo")
-        with self.assertRaises(AssertionError):
+        with pytest.raises(AssertionError):
             self.assert_source(dom, "thing")
 
 
 class XmlReportTest(XmlTestHelpers, CoverageTest):
     """Tests of the XML reports from coverage.py."""
 
+    def make_mycode_data(self):
+        """Pretend that we ran mycode.py, so we can report on it."""
+        self.make_file("mycode.py", "print('hello')\n")
+        self.make_data_file(lines={abs_file("mycode.py"): [1]})
+
+    def run_xml_report(self, **kwargs):
+        """Run xml_report()"""
+        cov = coverage.Coverage()
+        cov.load()
+        cov.xml_report(**kwargs)
+
     def test_default_file_placement(self):
-        self.run_mycode()
-        self.run_command("coverage xml")
+        self.make_mycode_data()
+        self.run_xml_report()
         self.assert_exists("coverage.xml")
+        assert self.stdout() == ""
 
     def test_argument_affects_xml_placement(self):
-        self.run_mycode()
-        self.run_command("coverage xml -o put_it_there.xml")
+        self.make_mycode_data()
+        cov = coverage.Coverage(messages=True)
+        cov.load()
+        cov.xml_report(outfile="put_it_there.xml")
+        assert self.stdout() == "Wrote XML report to put_it_there.xml\n"
         self.assert_doesnt_exist("coverage.xml")
         self.assert_exists("put_it_there.xml")
 
-    def test_config_file_directory_does_not_exist(self):
-        self.run_mycode()
-        self.run_command("coverage xml -o nonexistent/put_it_there.xml")
+    def test_output_directory_does_not_exist(self):
+        self.make_mycode_data()
+        self.run_xml_report(outfile="nonexistent/put_it_there.xml")
         self.assert_doesnt_exist("coverage.xml")
         self.assert_doesnt_exist("put_it_there.xml")
         self.assert_exists("nonexistent/put_it_there.xml")
 
     def test_config_affects_xml_placement(self):
-        self.run_mycode()
+        self.make_mycode_data()
         self.make_file(".coveragerc", "[xml]\noutput = xml.out\n")
-        self.run_command("coverage xml")
+        self.run_xml_report()
         self.assert_doesnt_exist("coverage.xml")
         self.assert_exists("xml.out")
 
     def test_no_data(self):
-        # https://bitbucket.org/ned/coveragepy/issue/210
-        self.run_command("coverage xml")
+        # https://github.com/nedbat/coveragepy/issues/210
+        with pytest.raises(NoDataError, match="No data to report."):
+            self.run_xml_report()
         self.assert_doesnt_exist("coverage.xml")
+        self.assert_doesnt_exist(".coverage")
 
     def test_no_source(self):
         # Written while investigating a bug, might as well keep it.
-        # https://bitbucket.org/ned/coveragepy/issue/208
+        # https://github.com/nedbat/coveragepy/issues/208
         self.make_file("innocuous.py", "a = 4")
         cov = coverage.Coverage()
         self.start_import_stop(cov, "innocuous")
         os.remove("innocuous.py")
-        cov.xml_report(ignore_errors=True)
+        with pytest.warns(Warning) as warns:
+            cov.xml_report(ignore_errors=True)
+        assert_coverage_warnings(
+            warns,
+            re.compile(r"Couldn't parse '.*innocuous.py'. \(couldnt-parse\)"),
+        )
         self.assert_exists("coverage.xml")
 
     def test_filename_format_showing_everything(self):
@@ -165,7 +183,7 @@ class XmlReportTest(XmlTestHelpers, CoverageTest):
 
     def test_reporting_on_nothing(self):
         # Used to raise a zero division error:
-        # https://bitbucket.org/ned/coveragepy/issue/250
+        # https://github.com/nedbat/coveragepy/issues/250
         self.make_file("empty.py", "")
         cov = coverage.Coverage()
         empty = self.start_import_stop(cov, "empty")
@@ -177,13 +195,20 @@ class XmlReportTest(XmlTestHelpers, CoverageTest):
         assert elts[0].get('line-rate') == '1'
 
     def test_empty_file_is_100_not_0(self):
-        # https://bitbucket.org/ned/coveragepy/issue/345
+        # https://github.com/nedbat/coveragepy/issues/345
         cov = self.run_doit()
         cov.xml_report()
         dom = ElementTree.parse("coverage.xml")
         elts = dom.findall(".//class[@name='__init__.py']")
         assert len(elts) == 1
         assert elts[0].get('line-rate') == '1'
+
+    def test_empty_file_is_skipped(self):
+        cov = self.run_doit()
+        cov.xml_report(skip_empty=True)
+        dom = ElementTree.parse("coverage.xml")
+        elts = dom.findall(".//class[@name='__init__.py']")
+        assert len(elts) == 0
 
     def test_curdir_source(self):
         # With no source= option, the XML report should explain that the source
@@ -198,7 +223,7 @@ class XmlReportTest(XmlTestHelpers, CoverageTest):
     def test_deep_source(self):
         # When using source=, the XML report needs to mention those directories
         # in the <source> elements.
-        # https://bitbucket.org/ned/coveragepy/issues/439/incorrect-cobertura-file-sources-generated
+        # https://github.com/nedbat/coveragepy/issues/439
         self.make_file("src/main/foo.py", "a = 1")
         self.make_file("also/over/there/bar.py", "b = 2")
         cov = coverage.Coverage(source=["src/main", "also/over/there", "not/really"])
@@ -206,7 +231,12 @@ class XmlReportTest(XmlTestHelpers, CoverageTest):
         mod_foo = import_local_file("foo", "src/main/foo.py")                   # pragma: nested
         mod_bar = import_local_file("bar", "also/over/there/bar.py")            # pragma: nested
         cov.stop()                                                              # pragma: nested
-        cov.xml_report([mod_foo, mod_bar])
+        with pytest.warns(Warning) as warns:
+            cov.xml_report([mod_foo, mod_bar])
+        assert_coverage_warnings(
+            warns,
+            "Module not/really was never imported. (module-not-imported)",
+        )
         dom = ElementTree.parse("coverage.xml")
 
         self.assert_source(dom, "src/main")
@@ -235,12 +265,49 @@ class XmlReportTest(XmlTestHelpers, CoverageTest):
         }
 
     def test_nonascii_directory(self):
-        # https://bitbucket.org/ned/coveragepy/issues/573/cant-generate-xml-report-if-some-source
+        # https://github.com/nedbat/coveragepy/issues/573
         self.make_file("테스트/program.py", "a = 1")
         with change_dir("테스트"):
             cov = coverage.Coverage()
             self.start_import_stop(cov, "program")
             cov.xml_report()
+
+    def test_accented_dot_py(self):
+        # Make a file with a non-ascii character in the filename.
+        self.make_file("h\xe2t.py", "print('accented')")
+        self.make_data_file(lines={abs_file("h\xe2t.py"): [1]})
+        cov = coverage.Coverage()
+        cov.load()
+        cov.xml_report()
+        # The XML report is always UTF8-encoded.
+        with open("coverage.xml", "rb") as xmlf:
+            xml = xmlf.read()
+        assert ' filename="h\xe2t.py"'.encode() in xml
+        assert ' name="h\xe2t.py"'.encode() in xml
+
+    def test_accented_directory(self):
+        # Make a file with a non-ascii character in the directory name.
+        self.make_file("\xe2/accented.py", "print('accented')")
+        self.make_data_file(lines={abs_file("\xe2/accented.py"): [1]})
+
+        # The XML report is always UTF8-encoded.
+        cov = coverage.Coverage()
+        cov.load()
+        cov.xml_report()
+        with open("coverage.xml", "rb") as xmlf:
+            xml = xmlf.read()
+        assert b' filename="\xc3\xa2/accented.py"' in xml
+        assert b' name="accented.py"' in xml
+
+        dom = ElementTree.parse("coverage.xml")
+        elts = dom.findall(".//package[@name='â']")
+        assert len(elts) == 1
+        assert elts[0].attrib == {
+            "branch-rate": "0",
+            "complexity": "0",
+            "line-rate": "1",
+            "name": "â",
+        }
 
 
 def unbackslash(v):
@@ -267,10 +334,7 @@ class XmlPackageStructureTest(XmlTestHelpers, CoverageTest):
 
     def assert_package_and_class_tags(self, cov, result):
         """Check the XML package and class tags from `cov` match `result`."""
-        self.assertEqual(
-            unbackslash(list(self.package_and_class_tags(cov))),
-            unbackslash(result),
-            )
+        assert unbackslash(list(self.package_and_class_tags(cov))) == unbackslash(result)
 
     def test_package_names(self):
         self.make_tree(width=1, depth=3)
@@ -288,7 +352,7 @@ class XmlPackageStructureTest(XmlTestHelpers, CoverageTest):
             ('package', {'name': "d0.d0"}),
             ('class', {'filename': "d0/d0/__init__.py", 'name': "__init__.py"}),
             ('class', {'filename': "d0/d0/f0.py", 'name': "f0.py"}),
-            ])
+        ])
 
     def test_package_depth_1(self):
         self.make_tree(width=1, depth=4)
@@ -309,7 +373,7 @@ class XmlPackageStructureTest(XmlTestHelpers, CoverageTest):
             ('class', {'filename': "d0/d0/d0/f0.py", 'name': "d0/d0/f0.py"}),
             ('class', {'filename': "d0/d0/f0.py", 'name': "d0/f0.py"}),
             ('class', {'filename': "d0/f0.py", 'name': "f0.py"}),
-            ])
+        ])
 
     def test_package_depth_2(self):
         self.make_tree(width=1, depth=4)
@@ -331,7 +395,7 @@ class XmlPackageStructureTest(XmlTestHelpers, CoverageTest):
             ('class', {'filename': "d0/d0/d0/__init__.py", 'name': "d0/__init__.py"}),
             ('class', {'filename': "d0/d0/d0/f0.py", 'name': "d0/f0.py"}),
             ('class', {'filename': "d0/d0/f0.py", 'name': "f0.py"}),
-            ])
+        ])
 
     def test_package_depth_3(self):
         self.make_tree(width=1, depth=4)
@@ -354,11 +418,11 @@ class XmlPackageStructureTest(XmlTestHelpers, CoverageTest):
             ('package', {'name': "d0.d0.d0"}),
             ('class', {'filename': "d0/d0/d0/__init__.py", 'name': "__init__.py"}),
             ('class', {'filename': "d0/d0/d0/f0.py", 'name': "f0.py"}),
-            ])
+        ])
 
     def test_source_prefix(self):
-        # https://bitbucket.org/ned/coveragepy/issues/465
-        # https://bitbucket.org/ned/coveragepy/issues/526/generated-xml-invalid-paths-for-cobertura
+        # https://github.com/nedbat/coveragepy/issues/465
+        # https://github.com/nedbat/coveragepy/issues/526
         self.make_file("src/mod.py", "print(17)")
         cov = coverage.Coverage(source=["src"])
         self.start_import_stop(cov, "mod", modfile="src/mod.py")
@@ -366,7 +430,7 @@ class XmlPackageStructureTest(XmlTestHelpers, CoverageTest):
         self.assert_package_and_class_tags(cov, [
             ('package', {'name': "."}),
             ('class', {'filename': "mod.py", 'name': "mod.py"}),
-            ])
+        ])
         dom = ElementTree.parse("coverage.xml")
         self.assert_source(dom, "src")
 

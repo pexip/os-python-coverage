@@ -1,8 +1,8 @@
-# coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Json reporting for coverage.py"""
+
 import datetime
 import json
 import sys
@@ -12,13 +12,15 @@ from coverage.report import get_analysis_to_report
 from coverage.results import Numbers
 
 
-class JsonReporter(object):
+class JsonReporter:
     """A reporter for writing JSON coverage results."""
+
+    report_type = "JSON report"
 
     def __init__(self, coverage):
         self.coverage = coverage
         self.config = self.coverage.config
-        self.total = Numbers()
+        self.total = Numbers(self.config.precision)
         self.report_data = {}
 
     def report(self, morfs, outfile=None):
@@ -26,7 +28,7 @@ class JsonReporter(object):
 
         `morfs` is a list of modules or file names.
 
-        `outfile` is a file object to write the json to
+        `outfile` is a file object to write the json to.
 
         """
         outfile = outfile or sys.stdout
@@ -52,6 +54,7 @@ class JsonReporter(object):
             'covered_lines': self.total.n_executed,
             'num_statements': self.total.n_statements,
             'percent_covered': self.total.pc_covered,
+            'percent_covered_display': self.total.pc_covered_str,
             'missing_lines': self.total.n_missing,
             'excluded_lines': self.total.n_excluded,
         }
@@ -67,19 +70,20 @@ class JsonReporter(object):
         json.dump(
             self.report_data,
             outfile,
-            indent=4 if self.config.json_pretty_print else None
+            indent=(4 if self.config.json_pretty_print else None),
         )
 
         return self.total.n_statements and self.total.pc_covered
 
     def report_one_file(self, coverage_data, analysis):
-        """Extract the relevant report data for a single file"""
+        """Extract the relevant report data for a single file."""
         nums = analysis.numbers
         self.total += nums
         summary = {
             'covered_lines': nums.n_executed,
             'num_statements': nums.n_statements,
             'percent_covered': nums.pc_covered,
+            'percent_covered_display': nums.pc_covered_str,
             'missing_lines': nums.n_missing,
             'excluded_lines': nums.n_excluded,
         }
@@ -87,12 +91,10 @@ class JsonReporter(object):
             'executed_lines': sorted(analysis.executed),
             'summary': summary,
             'missing_lines': sorted(analysis.missing),
-            'excluded_lines': sorted(analysis.excluded)
+            'excluded_lines': sorted(analysis.excluded),
         }
         if self.config.json_show_contexts:
-            reported_file['contexts'] = analysis.data.contexts_by_lineno(
-                analysis.filename,
-            )
+            reported_file['contexts'] = analysis.data.contexts_by_lineno(analysis.filename)
         if coverage_data.has_arcs():
             reported_file['summary'].update({
                 'num_branches': nums.n_branches,
@@ -100,4 +102,17 @@ class JsonReporter(object):
                 'covered_branches': nums.n_executed_branches,
                 'missing_branches': nums.n_missing_branches,
             })
+            reported_file['executed_branches'] = list(
+                _convert_branch_arcs(analysis.executed_branch_arcs())
+            )
+            reported_file['missing_branches'] = list(
+                _convert_branch_arcs(analysis.missing_branch_arcs())
+            )
         return reported_file
+
+
+def _convert_branch_arcs(branch_arcs):
+    """Convert branch arcs to a list of two-element tuples."""
+    for source, targets in branch_arcs.items():
+        for target in targets:
+            yield source, target

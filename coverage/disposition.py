@@ -4,9 +4,11 @@
 """Simple value objects for tracking what to do with files."""
 
 
-class FileDisposition(object):
+class FileDisposition:
     """A simple value type for recording what to do with a file."""
-    pass
+
+    def __repr__(self):
+        return f"<FileDisposition {self.canonical_filename!r}: trace={self.trace}>"
 
 
 # FileDisposition "methods": FileDisposition is a pure value object, so it can
@@ -29,9 +31,11 @@ def disposition_init(cls, original_filename):
 def disposition_debug_msg(disp):
     """Make a nice debug message of what the FileDisposition is doing."""
     if disp.trace:
-        msg = "Tracing %r" % (disp.original_filename,)
+        msg = f"Tracing {disp.original_filename!r}"
+        if disp.original_filename != disp.source_filename:
+            msg += f" as {disp.source_filename!r}"
         if disp.file_tracer:
-            msg += ": will be traced by %r" % disp.file_tracer
+            msg += f": will be traced by {disp.file_tracer!r}"
     else:
-        msg = "Not tracing %r: %s" % (disp.original_filename, disp.reason)
+        msg = f"Not tracing {disp.original_filename!r}: {disp.reason}"
     return msg

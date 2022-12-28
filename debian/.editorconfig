@@ -1,42 +1,46 @@
 # debian/.editorconfig
-# EditorConfig configuration for Debian packaging files.
-# Homepage: <URL:http://editorconfig.org/>
+# EditorConfig settings for the Debian packaging files.
+# Documentation: <URL:http://editorconfig.org/>.
 
-# Is this the project-root configuration file?
+# Is this the top-most EditorConfig config file in the code base?
 root = false
 
-
+# Match all file names, unless more specific match later.
 [*]
 
-# Character encoding to use.
+# Text encoding name.
 charset = utf-8
 
-# Indentation style (“tab”, “space”).
-indent_style = space
-
-# How many columns (integer) for each indentation level.
-indent_size = 4
-
-# How many columns (integer) to represent a U+0008 TAB.
-tab_width = 8
-
-# How many characters (integer) before enforcing line wrap.
-max_line_length = 79
-
-# Remove trailing whitespace on each line?
+# Remove trailing whitespace on lines?
 trim_trailing_whitespace = true
 
-# Line break style (“lf”, “cr”, “crlf”).
+# End-of-line style (“lf”, “cr”, “crlf”).
 end_of_line = lf
 
 # Ensure file ends with a line break?
 insert_final_newline = true
 
+# Line length (characters) to force line wrapping (or “off” to disable).
+max_line_length = 80
+
+# Character to use for indentation (“tab” for U+0009, “space” for U+0020).
+indent_style = space
+
+# Number of columns for each indentation level.
+indent_size = 4
+
+# Number of columns to represent a U+0008 TAB.
+tab_width = 8
+
 
 [{*.mk,Makefile,rules}]
-
 indent_style = tab
+indent_size = 8
+max_line_length = off
 
+
+[*.patch]
+trim_trailing_whitespace = false
 
 
 # Local variables:

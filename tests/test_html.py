@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 """Tests that HTML generation is awesome."""
 
+import collections
 import datetime
 import glob
 import json
@@ -12,20 +12,20 @@ import os.path
 import re
 import sys
 
-import mock
-from unittest_mixins import change_dir
+from unittest import mock
+import pytest
 
 import coverage
-from coverage.backward import unicode_class
 from coverage import env
-from coverage.files import flat_rootname
+from coverage.exceptions import NoDataError, NotPython, NoSource
+from coverage.files import abs_file, flat_rootname
 import coverage.html
-from coverage.misc import CoverageException, NotPython, NoSource
 from coverage.report import get_analysis_to_report
 
 from tests.coveragetest import CoverageTest, TESTS_DIR
 from tests.goldtest import gold_path
-from tests.goldtest import compare, contains, doesnt_contain, contains_any
+from tests.goldtest import compare, contains, contains_rx, doesnt_contain, contains_any
+from tests.helpers import assert_coverage_warnings, change_dir
 
 
 class HtmlTestHelpers(CoverageTest):
@@ -53,11 +53,13 @@ class HtmlTestHelpers(CoverageTest):
         self.clean_local_file_imports()
         cov = coverage.Coverage(**(covargs or {}))
         self.start_import_stop(cov, "main_file")
-        return cov.html_report(**(htmlargs or {}))
+        ret = cov.html_report(**(htmlargs or {}))
+        self.assert_valid_hrefs()
+        return ret
 
     def get_html_report_content(self, module):
         """Return the content of the HTML report for `module`."""
-        filename = module.replace(".", "_").replace("/", "_") + ".html"
+        filename = flat_rootname(module) + ".html"
         filename = os.path.join("htmlcov", filename)
         with open(filename) as f:
             return f.read()
@@ -71,6 +73,11 @@ class HtmlTestHelpers(CoverageTest):
         with open("htmlcov/index.html") as f:
             index = f.read()
         index = re.sub(
+            r"created at \d{4}-\d{2}-\d{2} \d{2}:\d{2} \+\d{4}",
+            r"created at YYYY-MM-DD HH:MM +ZZZZ",
+            index,
+        )
+        index = re.sub(
             r"created at \d{4}-\d{2}-\d{2} \d{2}:\d{2}",
             r"created at YYYY-MM-DD HH:MM",
             index,
@@ -81,18 +88,41 @@ class HtmlTestHelpers(CoverageTest):
         """Extract the timestamp from `html`, and assert it is recent."""
         timestamp_pat = r"created at (\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})"
         m = re.search(timestamp_pat, html)
-        self.assertTrue(m, "Didn't find a timestamp!")
+        assert m, "Didn't find a timestamp!"
         timestamp = datetime.datetime(*map(int, m.groups()))
         # The timestamp only records the minute, so the delta could be from
         # 12:00 to 12:01:59, or two minutes.
         self.assert_recent_datetime(
             timestamp,
             seconds=120,
-            msg="Timestamp is wrong: {}".format(timestamp),
+            msg=f"Timestamp is wrong: {timestamp}",
         )
 
+    def assert_valid_hrefs(self):
+        """Assert that the hrefs in htmlcov/*.html to see the references are valid.
 
-class FileWriteTracker(object):
+        Doesn't check external links (those with a protocol).
+        """
+        hrefs = collections.defaultdict(set)
+        for fname in glob.glob("htmlcov/*.html"):
+            with open(fname) as fhtml:
+                html = fhtml.read()
+            for href in re.findall(r""" href=['"]([^'"]*)['"]""", html):
+                if href.startswith("#"):
+                    assert re.search(rf""" id=['"]{href[1:]}['"]""", html), (
+                        f"Fragment {href!r} in {fname} has no anchor"
+                    )
+                    continue
+                if "://" in href:
+                    continue
+                hrefs[href].add(fname)
+        for href, sources in hrefs.items():
+            assert os.path.exists(f"htmlcov/{href}"), (
+                f"These files link to {href!r}, which doesn't exist: {', '.join(sources)}"
+            )
+
+
+class FileWriteTracker:
     """A fake object to track how `open` is used to write files."""
     def __init__(self, written):
         self.written = written
@@ -108,7 +138,7 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
     """Tests of the HTML delta speed-ups."""
 
     def setUp(self):
-        super(HtmlDeltaTest, self).setUp()
+        super().setUp()
 
         # At least one of our tests monkey-patches the version of coverage.py,
         # so grab it here to restore it later.
@@ -130,7 +160,7 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
         self.files_written = set()
         mock_open = FileWriteTracker(self.files_written).open
         with mock.patch("coverage.html.open", mock_open):
-            return super(HtmlDeltaTest, self).run_coverage(covargs=covargs, htmlargs=htmlargs)
+            return super().run_coverage(covargs=covargs, htmlargs=htmlargs)
 
     def assert_htmlcov_files_exist(self):
         """Assert that all the expected htmlcov files exist."""
@@ -140,6 +170,7 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
         self.assert_exists("htmlcov/helper2_py.html")
         self.assert_exists("htmlcov/style.css")
         self.assert_exists("htmlcov/coverage_html.js")
+        self.assert_exists("htmlcov/.gitignore")
 
     def test_html_created(self):
         # Test basic HTML generation: files should be created.
@@ -172,7 +203,7 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
 
         # Because the source change was only a comment, the index is the same.
         index2 = self.get_html_index_content()
-        self.assertMultiLineEqual(index1, index2)
+        assert index1 == index2
 
     def test_html_delta_from_coverage_change(self):
         # HTML generation can create only the files that have changed.
@@ -215,7 +246,7 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
         assert "htmlcov/main_file_py.html" in self.files_written
 
         index2 = self.get_html_index_content()
-        self.assertMultiLineEqual(index1, index2)
+        assert index1 == index2
 
     def test_html_delta_from_coverage_version_change(self):
         # HTML generation can create only the files that have changed.
@@ -239,7 +270,7 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
 
         index2 = self.get_html_index_content()
         fixed_index2 = index2.replace("XYZZY", self.real_coverage_version)
-        self.assertMultiLineEqual(index1, fixed_index2)
+        assert index1 == fixed_index2
 
     def test_file_becomes_100(self):
         self.create_initial_files()
@@ -265,7 +296,7 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
         with open("htmlcov/status.json") as status_json:
             status_data = json.load(status_json)
 
-        self.assertEqual(status_data['format'], 2)
+        assert status_data['format'] == 2
         status_data['format'] = 99
         with open("htmlcov/status.json", "w") as status_json:
             json.dump(status_data, status_json)
@@ -279,6 +310,20 @@ class HtmlDeltaTest(HtmlTestHelpers, CoverageTest):
         assert "htmlcov/helper2_py.html" in self.files_written
         assert "htmlcov/main_file_py.html" in self.files_written
 
+    def test_dont_overwrite_gitignore(self):
+        self.create_initial_files()
+        self.make_file("htmlcov/.gitignore", "# ignore nothing")
+        self.run_coverage()
+        with open("htmlcov/.gitignore") as fgi:
+            assert fgi.read() == "# ignore nothing"
+
+    def test_dont_write_gitignore_into_existing_directory(self):
+        self.create_initial_files()
+        self.make_file("htmlcov/README", "My files: don't touch!")
+        self.run_coverage()
+        self.assert_doesnt_exist("htmlcov/.gitignore")
+        self.assert_exists("htmlcov/index.html")
+
 
 class HtmlTitleTest(HtmlTestHelpers, CoverageTest):
     """Tests of the HTML title support."""
@@ -287,44 +332,36 @@ class HtmlTitleTest(HtmlTestHelpers, CoverageTest):
         self.create_initial_files()
         self.run_coverage()
         index = self.get_html_index_content()
-        self.assertIn("<title>Coverage report</title>", index)
-        self.assertIn("<h1>Coverage report:", index)
+        assert "<title>Coverage report</title>" in index
+        assert "<h1>Coverage report:" in index
 
     def test_title_set_in_config_file(self):
         self.create_initial_files()
         self.make_file(".coveragerc", "[html]\ntitle = Metrics & stuff!\n")
         self.run_coverage()
         index = self.get_html_index_content()
-        self.assertIn("<title>Metrics &amp; stuff!</title>", index)
-        self.assertIn("<h1>Metrics &amp; stuff!:", index)
+        assert "<title>Metrics &amp; stuff!</title>" in index
+        assert "<h1>Metrics &amp; stuff!:" in index
 
     def test_non_ascii_title_set_in_config_file(self):
         self.create_initial_files()
         self.make_file(".coveragerc", "[html]\ntitle = «ταБЬℓσ» numbers")
         self.run_coverage()
         index = self.get_html_index_content()
-        self.assertIn(
-            "<title>&#171;&#964;&#945;&#1041;&#1068;&#8467;&#963;&#187;"
-            " numbers", index
-        )
-        self.assertIn(
-            "<h1>&#171;&#964;&#945;&#1041;&#1068;&#8467;&#963;&#187;"
-            " numbers", index
-        )
+        assert "<title>&#171;&#964;&#945;&#1041;&#1068;&#8467;&#963;&#187; numbers" in index
+        assert "<h1>&#171;&#964;&#945;&#1041;&#1068;&#8467;&#963;&#187; numbers" in index
 
     def test_title_set_in_args(self):
         self.create_initial_files()
         self.make_file(".coveragerc", "[html]\ntitle = Good title\n")
         self.run_coverage(htmlargs=dict(title="«ταБЬℓσ» & stüff!"))
         index = self.get_html_index_content()
-        self.assertIn(
-            "<title>&#171;&#964;&#945;&#1041;&#1068;&#8467;&#963;&#187;"
-            " &amp; st&#252;ff!</title>", index
+        expected = (
+            "<title>&#171;&#964;&#945;&#1041;&#1068;&#8467;&#963;&#187; " +
+            "&amp; st&#252;ff!</title>"
         )
-        self.assertIn(
-            "<h1>&#171;&#964;&#945;&#1041;&#1068;&#8467;&#963;&#187;"
-            " &amp; st&#252;ff!:", index
-        )
+        assert expected in index
+        assert "<h1>&#171;&#964;&#945;&#1041;&#1068;&#8467;&#963;&#187; &amp; st&#252;ff!:" in index
 
 
 class HtmlWithUnparsableFilesTest(HtmlTestHelpers, CoverageTest):
@@ -337,7 +374,7 @@ class HtmlWithUnparsableFilesTest(HtmlTestHelpers, CoverageTest):
         self.start_import_stop(cov, "main")
         self.make_file("innocuous.py", "<h1>This isn't python!</h1>")
         msg = "Couldn't parse '.*innocuous.py' as Python source: .* at line 1"
-        with self.assertRaisesRegex(NotPython, msg):
+        with pytest.raises(NotPython, match=msg):
             cov.html_report()
 
     def test_dotpy_not_python_ignored(self):
@@ -345,37 +382,28 @@ class HtmlWithUnparsableFilesTest(HtmlTestHelpers, CoverageTest):
         self.make_file("innocuous.py", "a = 2")
         cov = coverage.Coverage()
         self.start_import_stop(cov, "main")
+
         self.make_file("innocuous.py", "<h1>This isn't python!</h1>")
-        cov.html_report(ignore_errors=True)
-        self.assertEqual(
-            len(cov._warnings),
-            1,
-            "Expected a warning to be thrown when an invalid python file is parsed")
-        self.assertIn(
-            "Couldn't parse Python file",
-            cov._warnings[0],
-            "Warning message should be in 'invalid file' warning"
-        )
-        self.assertIn(
-            "innocuous.py",
-            cov._warnings[0],
-            "Filename should be in 'invalid file' warning"
+        with pytest.warns(Warning) as warns:
+            cov.html_report(ignore_errors=True)
+        assert_coverage_warnings(
+            warns,
+            re.compile(r"Couldn't parse Python file '.*innocuous.py' \(couldnt-parse\)"),
         )
         self.assert_exists("htmlcov/index.html")
         # This would be better as a glob, if the HTML layout changes:
         self.assert_doesnt_exist("htmlcov/innocuous.html")
 
     def test_dothtml_not_python(self):
-        # We run a .html file, and when reporting, we can't parse it as
-        # Python.  Since it wasn't .py, no error is reported.
-
         # Run an "HTML" file
         self.make_file("innocuous.html", "a = 3")
-        self.run_command("coverage run --source=. innocuous.html")
+        self.make_data_file(lines={abs_file("innocuous.html"): [1]})
         # Before reporting, change it to be an HTML file.
         self.make_file("innocuous.html", "<h1>This isn't python at all!</h1>")
-        output = self.run_command("coverage html")
-        self.assertEqual(output.strip(), "No data to report.")
+        cov = coverage.Coverage()
+        cov.load()
+        with pytest.raises(NoDataError, match="No data to report."):
+            cov.html_report()
 
     def test_execed_liar_ignored(self):
         # Jinja2 sets __file__ to be a non-Python file, and then execs code.
@@ -403,7 +431,7 @@ class HtmlWithUnparsableFilesTest(HtmlTestHelpers, CoverageTest):
         self.assert_exists("htmlcov/index.html")
 
     def test_decode_error(self):
-        # https://bitbucket.org/ned/coveragepy/issue/351/files-with-incorrect-encoding-are-ignored
+        # https://github.com/nedbat/coveragepy/issues/351
         # imp.load_module won't load a file with an undecodable character
         # in a comment, though Python will run them.  So we'll change the
         # file after running.
@@ -423,30 +451,30 @@ class HtmlWithUnparsableFilesTest(HtmlTestHelpers, CoverageTest):
 
         with open("sub/not_ascii.py", "rb") as f:
             undecodable = f.read()
-        self.assertIn(b"?\xcb!", undecodable)
+        assert b"?\xcb!" in undecodable
 
         cov.html_report()
 
         html_report = self.get_html_report_content("sub/not_ascii.py")
         expected = "# Isn't this great?&#65533;!"
-        self.assertIn(expected, html_report)
+        assert expected in html_report
 
     def test_formfeeds(self):
-        # https://bitbucket.org/ned/coveragepy/issue/360/html-reports-get-confused-by-l-in-the-code
+        # https://github.com/nedbat/coveragepy/issues/360
         self.make_file("formfeed.py", "line_one = 1\n\f\nline_two = 2\n")
         cov = coverage.Coverage()
         self.start_import_stop(cov, "formfeed")
         cov.html_report()
 
         formfeed_html = self.get_html_report_content("formfeed.py")
-        self.assertIn("line_two", formfeed_html)
+        assert "line_two" in formfeed_html
 
 
 class HtmlTest(HtmlTestHelpers, CoverageTest):
     """Moar HTML tests."""
 
     def test_missing_source_file_incorrect_message(self):
-        # https://bitbucket.org/ned/coveragepy/issue/60
+        # https://github.com/nedbat/coveragepy/issues/60
         self.make_file("thefile.py", "import sub.another\n")
         self.make_file("sub/__init__.py", "")
         self.make_file("sub/another.py", "print('another')\n")
@@ -457,17 +485,22 @@ class HtmlTest(HtmlTestHelpers, CoverageTest):
         missing_file = os.path.join(self.temp_dir, "sub", "another.py")
         missing_file = os.path.realpath(missing_file)
         msg = "(?i)No source for code: '%s'" % re.escape(missing_file)
-        with self.assertRaisesRegex(NoSource, msg):
+        with pytest.raises(NoSource, match=msg):
             cov.html_report()
 
     def test_extensionless_file_collides_with_extension(self):
         # It used to be that "program" and "program.py" would both be reported
         # to "program.html".  Now they are not.
-        # https://bitbucket.org/ned/coveragepy/issue/69
+        # https://github.com/nedbat/coveragepy/issues/69
         self.make_file("program", "import program\n")
         self.make_file("program.py", "a = 1\n")
-        self.run_command("coverage run program")
-        self.run_command("coverage html")
+        self.make_data_file(lines={
+            abs_file("program"): [1],
+            abs_file("program.py"): [1],
+        })
+        cov = coverage.Coverage()
+        cov.load()
+        cov.html_report()
         self.assert_exists("htmlcov/index.html")
         self.assert_exists("htmlcov/program.html")
         self.assert_exists("htmlcov/program_py.html")
@@ -483,14 +516,15 @@ class HtmlTest(HtmlTestHelpers, CoverageTest):
 
     def test_reporting_on_unmeasured_file(self):
         # It should be ok to ask for an HTML report on a file that wasn't even
-        # measured at all.  https://bitbucket.org/ned/coveragepy/issues/403
+        # measured at all.  https://github.com/nedbat/coveragepy/issues/403
         self.create_initial_files()
         self.make_file("other.py", "a = 1\n")
         self.run_coverage(htmlargs=dict(morfs=['other.py']))
         self.assert_exists("htmlcov/index.html")
         self.assert_exists("htmlcov/other_py.html")
 
-    def test_report_skip_covered_no_branches(self):
+    def make_main_and_not_covered(self):
+        """Helper to create files for skip_covered scenarios."""
         self.make_file("main_file.py", """
             import not_covered
 
@@ -502,7 +536,27 @@ class HtmlTest(HtmlTestHelpers, CoverageTest):
             def not_covered():
                 print("n")
         """)
+
+    def test_report_skip_covered(self):
+        self.make_main_and_not_covered()
         self.run_coverage(htmlargs=dict(skip_covered=True))
+        self.assert_exists("htmlcov/index.html")
+        self.assert_doesnt_exist("htmlcov/main_file_py.html")
+        self.assert_exists("htmlcov/not_covered_py.html")
+
+    def test_html_skip_covered(self):
+        self.make_main_and_not_covered()
+        self.make_file(".coveragerc", "[html]\nskip_covered = True")
+        self.run_coverage()
+        self.assert_exists("htmlcov/index.html")
+        self.assert_doesnt_exist("htmlcov/main_file_py.html")
+        self.assert_exists("htmlcov/not_covered_py.html")
+        index = self.get_html_index_content()
+        assert "1 file skipped due to complete coverage." in index
+
+    def test_report_skip_covered_branches(self):
+        self.make_main_and_not_covered()
+        self.run_coverage(covargs=dict(branch=True), htmlargs=dict(skip_covered=True))
         self.assert_exists("htmlcov/index.html")
         self.assert_doesnt_exist("htmlcov/main_file_py.html")
         self.assert_exists("htmlcov/not_covered_py.html")
@@ -514,27 +568,11 @@ class HtmlTest(HtmlTestHelpers, CoverageTest):
             normal()
         """)
         res = self.run_coverage(covargs=dict(source="."), htmlargs=dict(skip_covered=True))
-        self.assertEqual(res, 100.0)
+        assert res == 100.0
         self.assert_doesnt_exist("htmlcov/main_file_py.html")
 
-    def test_report_skip_covered_branches(self):
-        self.make_file("main_file.py", """
-            import not_covered
-
-            def normal():
-                print("z")
-            normal()
-        """)
-        self.make_file("not_covered.py", """
-            def not_covered():
-                print("n")
-        """)
-        self.run_coverage(covargs=dict(branch=True), htmlargs=dict(skip_covered=True))
-        self.assert_exists("htmlcov/index.html")
-        self.assert_doesnt_exist("htmlcov/main_file_py.html")
-        self.assert_exists("htmlcov/not_covered_py.html")
-
-    def test_report_skip_empty_files(self):
+    def make_init_and_main(self):
+        """Helper to create files for skip_empty scenarios."""
         self.make_file("submodule/__init__.py", "")
         self.make_file("main_file.py", """
             import submodule
@@ -543,67 +581,24 @@ class HtmlTest(HtmlTestHelpers, CoverageTest):
                 print("z")
             normal()
         """)
+
+    def test_report_skip_empty(self):
+        self.make_init_and_main()
         self.run_coverage(htmlargs=dict(skip_empty=True))
         self.assert_exists("htmlcov/index.html")
         self.assert_exists("htmlcov/main_file_py.html")
         self.assert_doesnt_exist("htmlcov/submodule___init___py.html")
+        index = self.get_html_index_content()
+        assert "1 empty file skipped." in index
 
+    def test_html_skip_empty(self):
+        self.make_init_and_main()
+        self.make_file(".coveragerc", "[html]\nskip_empty = True")
+        self.run_coverage()
+        self.assert_exists("htmlcov/index.html")
+        self.assert_exists("htmlcov/main_file_py.html")
+        self.assert_doesnt_exist("htmlcov/submodule___init___py.html")
 
-class HtmlStaticFileTest(CoverageTest):
-    """Tests of the static file copying for the HTML report."""
-
-    def setUp(self):
-        super(HtmlStaticFileTest, self).setUp()
-        original_path = list(coverage.html.STATIC_PATH)
-        self.addCleanup(setattr, coverage.html, 'STATIC_PATH', original_path)
-
-    def test_copying_static_files_from_system(self):
-        # Make a new place for static files.
-        self.make_file("static_here/jquery.min.js", "Not Really JQuery!")
-        coverage.html.STATIC_PATH.insert(0, "static_here")
-
-        self.make_file("main.py", "print(17)")
-        cov = coverage.Coverage()
-        self.start_import_stop(cov, "main")
-        cov.html_report()
-
-        with open("htmlcov/jquery.min.js") as f:
-            jquery = f.read()
-        self.assertEqual(jquery, "Not Really JQuery!")
-
-    def test_copying_static_files_from_system_in_dir(self):
-        # Make a new place for static files.
-        INSTALLED = [
-            "jquery/jquery.min.js",
-            "jquery-hotkeys/jquery.hotkeys.js",
-            "jquery-isonscreen/jquery.isonscreen.js",
-            "jquery-tablesorter/jquery.tablesorter.min.js",
-        ]
-        for fpath in INSTALLED:
-            self.make_file(os.path.join("static_here", fpath), "Not real.")
-        coverage.html.STATIC_PATH.insert(0, "static_here")
-
-        self.make_file("main.py", "print(17)")
-        cov = coverage.Coverage()
-        self.start_import_stop(cov, "main")
-        cov.html_report()
-
-        for fpath in INSTALLED:
-            the_file = os.path.basename(fpath)
-            with open(os.path.join("htmlcov", the_file)) as f:
-                contents = f.read()
-            self.assertEqual(contents, "Not real.")
-
-    def test_cant_find_static_files(self):
-        # Make the path point to useless places.
-        coverage.html.STATIC_PATH = ["/xyzzy"]
-
-        self.make_file("main.py", "print(17)")
-        cov = coverage.Coverage()
-        self.start_import_stop(cov, "main")
-        msg = "Couldn't find static file u?'.*'"
-        with self.assertRaisesRegex(CoverageException, msg):
-            cov.html_report()
 
 def filepath_to_regex(path):
     """Create a regex for scrubbing a file path."""
@@ -615,30 +610,33 @@ def filepath_to_regex(path):
     return regex
 
 
-def compare_html(expected, actual):
+def compare_html(expected, actual, extra_scrubs=None):
     """Specialized compare function for our HTML files."""
+    __tracebackhide__ = True    # pytest, please don't show me this function.
     scrubs = [
         (r'/coverage.readthedocs.io/?[-.\w/]*', '/coverage.readthedocs.io/VER'),
         (r'coverage.py v[\d.abc]+', 'coverage.py vVER'),
+        (r'created at \d\d\d\d-\d\d-\d\d \d\d:\d\d [-+]\d\d\d\d', 'created at DATE'),
         (r'created at \d\d\d\d-\d\d-\d\d \d\d:\d\d', 'created at DATE'),
-        # Some words are identifiers in one version, keywords in another.
-        (r'<span class="(nam|key)">(print|True|False)</span>', r'<span class="nam">\2</span>'),
         # Occasionally an absolute path is in the HTML report.
         (filepath_to_regex(TESTS_DIR), 'TESTS_DIR'),
-        (filepath_to_regex(flat_rootname(unicode_class(TESTS_DIR))), '_TESTS_DIR'),
+        (filepath_to_regex(flat_rootname(str(TESTS_DIR))), '_TESTS_DIR'),
         # The temp dir the tests make.
         (filepath_to_regex(os.getcwd()), 'TEST_TMPDIR'),
-        (filepath_to_regex(flat_rootname(unicode_class(os.getcwd()))), '_TEST_TMPDIR'),
-        (r'/private/var/folders/[\w/]{35}/coverage_test/tests_test_html_\w+_\d{8}', 'TEST_TMPDIR'),
-        (r'_private_var_folders_\w{35}_coverage_test_tests_test_html_\w+_\d{8}', '_TEST_TMPDIR'),
+        (filepath_to_regex(flat_rootname(str(os.getcwd()))), '_TEST_TMPDIR'),
+        (filepath_to_regex(abs_file(os.getcwd())), 'TEST_TMPDIR'),
+        (filepath_to_regex(flat_rootname(str(abs_file(os.getcwd())))), '_TEST_TMPDIR'),
+        (r'/private/var/[\w/]+/pytest-of-\w+/pytest-\d+/(popen-gw\d+/)?t\d+', 'TEST_TMPDIR'),
     ]
     if env.WINDOWS:
         # For file paths...
         scrubs += [(r"\\", "/")]
+    if extra_scrubs:
+        scrubs += extra_scrubs
     compare(expected, actual, file_pattern="*.html", scrubs=scrubs)
 
 
-class HtmlGoldTests(CoverageTest):
+class HtmlGoldTest(CoverageTest):
     """Tests of HTML reporting that use gold files."""
 
     def test_a(self):
@@ -657,9 +655,9 @@ class HtmlGoldTests(CoverageTest):
         compare_html(gold_path("html/a"), "out/a")
         contains(
             "out/a/a_py.html",
-            ('<span class="key">if</span> <span class="num">1</span> '
+            ('<span class="key">if</span> <span class="num">1</span> ' +
              '<span class="op">&lt;</span> <span class="num">2</span>'),
-            ('    <span class="nam">a</span> '
+            ('    <span class="nam">a</span> ' +
              '<span class="op">=</span> <span class="num">3</span>'),
             '<span class="pc_cov">67%</span>',
         )
@@ -708,24 +706,24 @@ class HtmlGoldTests(CoverageTest):
         compare_html(gold_path("html/b_branch"), "out/b_branch")
         contains(
             "out/b_branch/b_py.html",
-            ('<span class="key">if</span> <span class="nam">x</span> '
+            ('<span class="key">if</span> <span class="nam">x</span> ' +
              '<span class="op">&lt;</span> <span class="num">2</span>'),
-            ('    <span class="nam">a</span> <span class="op">=</span> '
+            ('    <span class="nam">a</span> <span class="op">=</span> ' +
              '<span class="num">3</span>'),
             '<span class="pc_cov">70%</span>',
 
-            ('<span class="annotate short">3&#x202F;&#x219B;&#x202F;6</span>'
-             '<span class="annotate long">line 3 didn\'t jump to line 6, '
+            ('<span class="annotate short">3&#x202F;&#x219B;&#x202F;6</span>' +
+             '<span class="annotate long">line 3 didn\'t jump to line 6, ' +
                             'because the condition on line 3 was never false</span>'),
-            ('<span class="annotate short">12&#x202F;&#x219B;&#x202F;exit</span>'
-             '<span class="annotate long">line 12 didn\'t return from function \'two\', '
+            ('<span class="annotate short">12&#x202F;&#x219B;&#x202F;exit</span>' +
+             '<span class="annotate long">line 12 didn\'t return from function \'two\', ' +
                             'because the condition on line 12 was never false</span>'),
-            ('<span class="annotate short">20&#x202F;&#x219B;&#x202F;21,&nbsp;&nbsp; '
-                            '20&#x202F;&#x219B;&#x202F;23</span>'
-             '<span class="annotate long">2 missed branches: '
-                            '1) line 20 didn\'t jump to line 21, '
-                                'because the condition on line 20 was never true, '
-                            '2) line 20 didn\'t jump to line 23, '
+            ('<span class="annotate short">20&#x202F;&#x219B;&#x202F;21,&nbsp;&nbsp; ' +
+                            '20&#x202F;&#x219B;&#x202F;23</span>' +
+             '<span class="annotate long">2 missed branches: ' +
+                            '1) line 20 didn\'t jump to line 21, ' +
+                                'because the condition on line 20 was never true, ' +
+                            '2) line 20 didn\'t jump to line 23, ' +
                                 'because the condition on line 20 was never false</span>'),
         )
         contains(
@@ -882,21 +880,27 @@ assert len(math) == 18
             """)
 
         with change_dir("src"):
-            sys.path.insert(0, "")          # pytest sometimes has this, sometimes not!?
             sys.path.insert(0, "../othersrc")
             cov = coverage.Coverage(include=["./*", "../othersrc/*"])
             self.start_import_stop(cov, "here")
             cov.html_report(directory="../out/other")
 
         # Different platforms will name the "other" file differently. Rename it
-        for p in glob.glob("out/other/*_other_py.html"):
-            os.rename(p, "out/other/blah_blah_other_py.html")
+        actual_file = list(glob.glob("out/other/*_other_py.html"))
+        assert len(actual_file) == 1
+        os.rename(actual_file[0], "out/other/blah_blah_other_py.html")
 
-        compare_html(gold_path("html/other"), "out/other")
+        compare_html(
+            gold_path("html/other"), "out/other",
+            extra_scrubs=[
+                (r'href="d_[0-9a-z]{16}_', 'href="_TEST_TMPDIR_othersrc_'),
+            ],
+        )
         contains(
-            "out/other/index.html",
+            'out/other/index.html',
             '<a href="here_py.html">here.py</a>',
-            'other_py.html">', 'other.py</a>',
+            'other_py.html">',
+            'other.py</a>',
         )
 
     def test_partial(self):
@@ -930,23 +934,41 @@ assert len(math) == 18
 
         cov = coverage.Coverage(config_file="partial.ini")
         partial = self.start_import_stop(cov, "partial")
-        cov.html_report(partial, directory="out/partial")
 
-        compare_html(gold_path("html/partial"), "out/partial")
-        contains(
-            "out/partial/partial_py.html",
-            '<p id="t4" class="par run show_par">',
-            '<p id="t7" class="run">',
-            # The "if 0" and "if 1" statements are optimized away.
-            '<p id="t10" class="pln">',
-            # The "raise ZeroDivisionError" is excluded by regex in the .ini.
-            '<p id="t17" class="exc show_exc">',
-        )
-        contains(
-            "out/partial/index.html",
-            '<a href="partial_py.html">partial.py</a>',
-            '<span class="pc_cov">91%</span>'
-        )
+        if env.PYBEHAVIOR.pep626:
+            cov.html_report(partial, directory="out/partial_626")
+            compare_html(gold_path("html/partial_626"), "out/partial_626")
+            contains_rx(
+                "out/partial_626/partial_py.html",
+                r'<p class="par run show_par">.* id="t4"',
+                r'<p class="run">.* id="t7"',
+                # The "if 0" and "if 1" statements are marked as run.
+                r'<p class="run">.* id="t10"',
+                # The "raise ZeroDivisionError" is excluded by regex in the .ini.
+                r'<p class="exc show_exc">.* id="t17"',
+            )
+            contains(
+                "out/partial_626/index.html",
+                '<a href="partial_py.html">partial.py</a>',
+                '<span class="pc_cov">87%</span>',
+            )
+        else:
+            cov.html_report(partial, directory="out/partial")
+            compare_html(gold_path("html/partial"), "out/partial")
+            contains_rx(
+                "out/partial/partial_py.html",
+                r'<p class="par run show_par">.* id="t4"',
+                r'<p class="run">.* id="t7"',
+                # The "if 0" and "if 1" statements are optimized away.
+                r'<p class="pln">.* id="t10"',
+                # The "raise ZeroDivisionError" is excluded by regex in the .ini.
+                r'<p class="exc show_exc">.* id="t17"',
+            )
+            contains(
+                "out/partial/index.html",
+                '<a href="partial_py.html">partial.py</a>',
+                '<span class="pc_cov">91%</span>',
+            )
 
     def test_styled(self):
         self.make_file("a.py", """\
@@ -968,17 +990,17 @@ assert len(math) == 18
         contains(
             "out/styled/a_py.html",
             '<link rel="stylesheet" href="extra.css" type="text/css">',
-            ('<span class="key">if</span> <span class="num">1</span> '
+            ('<span class="key">if</span> <span class="num">1</span> ' +
              '<span class="op">&lt;</span> <span class="num">2</span>'),
-            ('    <span class="nam">a</span> <span class="op">=</span> '
+            ('    <span class="nam">a</span> <span class="op">=</span> ' +
              '<span class="num">3</span>'),
-            '<span class="pc_cov">67%</span>'
+            '<span class="pc_cov">67%</span>',
         )
         contains(
             "out/styled/index.html",
             '<link rel="stylesheet" href="extra.css" type="text/css">',
             '<a href="a_py.html">a.py</a>',
-            '<span class="pc_cov">67%</span>'
+            '<span class="pc_cov">67%</span>',
         )
 
     def test_tabbed(self):
@@ -1007,18 +1029,16 @@ assert len(math) == 18
 
         contains(
             "out/tabbed_py.html",
-            '>        <span class="key">if</span> '
-            '<span class="nam">x</span><span class="op">:</span>'
-            '                                   '
-            '<span class="com"># look nice</span>'
+            '>        <span class="key">if</span> ' +
+            '<span class="nam">x</span><span class="op">:</span>' +
+            '                                   ' +
+            '<span class="com"># look nice</span>',
         )
 
         doesnt_contain("out/tabbed_py.html", "\t")
 
     def test_unicode(self):
-        surrogate = u"\U000e0100"
-        if env.PY2:
-            surrogate = surrogate.encode('utf-8')
+        surrogate = "\U000e0100"
 
         self.make_file("unicode.py", """\
             # -*- coding: utf-8 -*-
@@ -1044,6 +1064,33 @@ assert len(math) == 18
             '<span class="str">"db40,dd00: x&#917760;"</span>',
         )
 
+    def test_accented_dot_py(self):
+        # Make a file with a non-ascii character in the filename.
+        self.make_file("h\xe2t.py", "print('accented')")
+        self.make_data_file(lines={abs_file("h\xe2t.py"): [1]})
+        cov = coverage.Coverage()
+        cov.load()
+        cov.html_report()
+        self.assert_exists("htmlcov/h\xe2t_py.html")
+        with open("htmlcov/index.html") as indexf:
+            index = indexf.read()
+        assert '<a href="h&#226;t_py.html">h&#226;t.py</a>' in index
+
+    def test_accented_directory(self):
+        # Make a file with a non-ascii character in the directory name.
+        self.make_file("\xe2/accented.py", "print('accented')")
+        self.make_data_file(lines={abs_file("\xe2/accented.py"): [1]})
+
+        # The HTML report uses ascii-encoded HTML entities.
+        cov = coverage.Coverage()
+        cov.load()
+        cov.html_report()
+        self.assert_exists("htmlcov/d_5786906b6f0ffeb4_accented_py.html")
+        with open("htmlcov/index.html") as indexf:
+            index = indexf.read()
+        expected = '<a href="d_5786906b6f0ffeb4_accented_py.html">&#226;%saccented.py</a>'
+        assert expected % os.sep in index
+
 
 class HtmlWithContextsTest(HtmlTestHelpers, CoverageTest):
     """Tests of the HTML reports with shown contexts."""
@@ -1054,10 +1101,9 @@ class HtmlWithContextsTest(HtmlTestHelpers, CoverageTest):
         """Get HTML report data from a `Coverage` object for a morf."""
         with self.assert_warnings(cov, []):
             datagen = coverage.html.HtmlDataGeneration(cov)
-            for fr, analysis in get_analysis_to_report(cov, [morf]):
-                # This will only loop once, so it's fine to return inside the loop.
-                file_data = datagen.data_for_file(fr, analysis)
-                return file_data
+            fr, analysis = next(get_analysis_to_report(cov, [morf]))
+            file_data = datagen.data_for_file(fr, analysis)
+            return file_data
 
     SOURCE = """\
         def helper(lineno):
@@ -1076,7 +1122,7 @@ class HtmlWithContextsTest(HtmlTestHelpers, CoverageTest):
             assert b == (14-4)
             helper(
                 16
-                )
+            )
 
         test_one()
         x = 20
@@ -1144,3 +1190,21 @@ class HtmlWithContextsTest(HtmlTestHelpers, CoverageTest):
                 if label == ld.contexts_label or label in (ld.contexts or ())
             ]
             assert sorted(expected) == sorted(actual)
+
+
+class HtmlHelpersTest(HtmlTestHelpers, CoverageTest):
+    """Tests of the helpers in HtmlTestHelpers."""
+
+    def test_bad_link(self):
+        # Does assert_valid_hrefs detect links to non-existent files?
+        self.make_file("htmlcov/index.html", "<a href='nothing.html'>Nothing</a>")
+        msg = "These files link to 'nothing.html', which doesn't exist: htmlcov.index.html"
+        with pytest.raises(AssertionError, match=msg):
+            self.assert_valid_hrefs()
+
+    def test_bad_anchor(self):
+        # Does assert_valid_hrefs detect fragments that go nowhere?
+        self.make_file("htmlcov/index.html", "<a href='#nothing'>Nothing</a>")
+        msg = "Fragment '#nothing' in htmlcov.index.html has no anchor"
+        with pytest.raises(AssertionError, match=msg):
+            self.assert_valid_hrefs()

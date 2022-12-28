@@ -3,13 +3,25 @@
 
 """TOML configuration support for coverage.py"""
 
-import io
+import configparser
 import os
 import re
 
 from coverage import env
-from coverage.backward import configparser, path_types
-from coverage.misc import CoverageException, substitute_variables
+from coverage.exceptions import ConfigError
+from coverage.misc import import_third_party, substitute_variables
+
+
+if env.PYVERSION >= (3, 11, 0, "alpha", 7):
+    import tomllib      # pylint: disable=import-error
+else:
+    # TOML support on Python 3.10 and below is an install-time extra option.
+    # (Import typing is here because import_third_party will unload any module
+    # that wasn't already imported. tomli imports typing, and if we unload it,
+    # later it's imported again, and on Python 3.6, this causes infinite
+    # recursion.)
+    import typing   # pylint: disable=unused-import
+    tomllib = import_third_party("tomli")
 
 
 class TomlDecodeError(Exception):
@@ -29,33 +41,29 @@ class TomlConfigParser:
         self.data = None
 
     def read(self, filenames):
-        from coverage.optional import toml
-
         # RawConfigParser takes a filename or list of filenames, but we only
         # ever call this with a single filename.
-        assert isinstance(filenames, path_types)
-        filename = filenames
-        if env.PYVERSION >= (3, 6):
-            filename = os.fspath(filename)
+        assert isinstance(filenames, (bytes, str, os.PathLike))
+        filename = os.fspath(filenames)
 
         try:
-            with io.open(filename, encoding='utf-8') as fp:
+            with open(filename, encoding='utf-8') as fp:
                 toml_text = fp.read()
-        except IOError:
+        except OSError:
             return []
-        if toml:
+        if tomllib is not None:
             toml_text = substitute_variables(toml_text, os.environ)
             try:
-                self.data = toml.loads(toml_text)
-            except toml.TomlDecodeError as err:
-                raise TomlDecodeError(*err.args)
+                self.data = tomllib.loads(toml_text)
+            except tomllib.TOMLDecodeError as err:
+                raise TomlDecodeError(str(err)) from err
             return [filename]
         else:
             has_toml = re.search(r"^\[tool\.coverage\.", toml_text, flags=re.MULTILINE)
             if self.our_file or has_toml:
                 # Looks like they meant to read TOML, but we can't read it.
                 msg = "Can't read {!r} without TOML support. Install with [toml] extra"
-                raise CoverageException(msg.format(filename))
+                raise ConfigError(msg.format(filename))
             return []
 
     def _get_section(self, section):
@@ -94,8 +102,8 @@ class TomlConfigParser:
             raise configparser.NoSectionError(section)
         try:
             return name, data[option]
-        except KeyError:
-            raise configparser.NoOptionError(option, name)
+        except KeyError as exc:
+            raise configparser.NoOptionError(option, name) from exc
 
     def has_option(self, section, option):
         _, data = self._get_section(section)
@@ -146,9 +154,7 @@ class TomlConfigParser:
             try:
                 re.compile(value)
             except re.error as e:
-                raise CoverageException(
-                    "Invalid [%s].%s value %r: %s" % (name, option, value, e)
-                )
+                raise ConfigError(f"Invalid [{name}].{option} value {value!r}: {e}") from e
         return values
 
     def getint(self, section, option):

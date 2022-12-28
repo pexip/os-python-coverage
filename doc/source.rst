@@ -27,15 +27,26 @@ all code, unless it is part of the Python standard library.
 
 You can specify source to measure with the ``--source`` command-line switch, or
 the ``[run] source`` configuration value.  The value is a comma- or
-newline-separated list of directories or package names.  If specified, only
-source inside these directories or packages will be measured.  Specifying the
-source option also enables coverage.py to report on unexecuted files, since it
-can search the source tree for files that haven't been measured at all.  Only
-importable files (ones at the root of the tree, or in directories with a
-``__init__.py`` file) will be considered. Files with unusual punctuation in
-their names will be skipped (they are assumed to be scratch files written by
-text editors). Files that do not end with ``.py`` or ``.pyo`` or ``.pyc``
-will also be skipped.
+newline-separated list of directories or importable names (packages or
+modules).
+
+If the source option is specified, only code in those locations will be
+measured.  Specifying the source option also enables coverage.py to report on
+unexecuted files, since it can search the source tree for files that haven't
+been measured at all.  Only importable files (ones at the root of the tree, or
+in directories with a ``__init__.py`` file) will be considered. Files with
+unusual punctuation in their names will be skipped (they are assumed to be
+scratch files written by text editors). Files that do not end with ``.py``,
+``.pyw``, ``.pyo``, or ``.pyc`` will also be skipped.
+
+.. note::
+
+    Modules named as sources may be imported twice, once by coverage.py to find
+    their location, then again by your own code or test suite.  Usually this
+    isn't a problem, but could cause trouble if a module has side-effects at
+    import time.
+
+    Exceptions during the early import are suppressed and ignored.
 
 You can further fine-tune coverage.py's attention with the ``--include`` and
 ``--omit`` switches (or ``[run] include`` and ``[run] omit`` configuration
@@ -45,6 +56,8 @@ file name patterns, specifying files not to measure.  If both ``include`` and
 ``omit`` are specified, first the set of files is reduced to only those that
 match the include patterns, then any files that match the omit pattern are
 removed from the set.
+
+.. highlight:: ini
 
 The ``include`` and ``omit`` file name patterns follow typical shell syntax:
 ``*`` matches any number of characters and ``?`` matches a single character.
@@ -77,7 +90,8 @@ reported.  Usually you want to see all the code that was measured, but if you
 are measuring a large project, you may want to get reports for just certain
 parts.
 
-The report commands (``report``, ``html``, ``json``, ``annotate``, and ``xml``)
+The report commands (``report``, ``html``, ``json``, ``lcov``, ``annotate``,
+and ``xml``)
 all take optional ``modules`` arguments, and ``--include`` and ``--omit``
 switches. The ``modules`` arguments specify particular modules to report on.
 The ``include`` and ``omit`` values are lists of file name patterns, just as

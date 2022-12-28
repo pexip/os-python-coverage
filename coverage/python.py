@@ -7,9 +7,10 @@ import os.path
 import types
 import zipimport
 
-from coverage import env, files
+from coverage import env
+from coverage.exceptions import CoverageException, NoSource
+from coverage.files import canonical_filename, relative_filename
 from coverage.misc import contract, expensive, isolate_module, join_regex
-from coverage.misc import CoverageException, NoSource
 from coverage.parser import PythonParser
 from coverage.phystokens import source_token_lines, source_encoding
 from coverage.plugin import FileReporter
@@ -56,9 +57,7 @@ def get_python_source(filename):
             break
     else:
         # Couldn't find source.
-        exc_msg = "No source for code: '%s'.\n" % (filename,)
-        exc_msg += "Aborting report output, consider using -i."
-        raise NoSource(exc_msg)
+        raise NoSource(f"No source for code: '{filename}'.")
 
     # Replace \f because of http://bugs.python.org/issue19035
     source = source.replace(b'\f', b' ')
@@ -90,7 +89,7 @@ def get_zip_bytes(filename):
                 continue
             try:
                 data = zi.get_data(parts[1])
-            except IOError:
+            except OSError:
                 continue
             return data
     return None
@@ -136,11 +135,11 @@ def source_for_morf(morf):
     elif isinstance(morf, types.ModuleType):
         # A module should have had .__file__, otherwise we can't use it.
         # This could be a PEP-420 namespace package.
-        raise CoverageException("Module {} has no file".format(morf))
+        raise CoverageException(f"Module {morf} has no file")
     else:
         filename = morf
 
-    filename = source_for_file(files.unicode_filename(filename))
+    filename = source_for_file(filename)
     return filename
 
 
@@ -152,16 +151,15 @@ class PythonFileReporter(FileReporter):
 
         filename = source_for_morf(morf)
 
-        super(PythonFileReporter, self).__init__(files.canonical_filename(filename))
+        super().__init__(canonical_filename(filename))
 
         if hasattr(morf, '__name__'):
             name = morf.__name__.replace(".", os.sep)
             if os.path.basename(filename).startswith('__init__.'):
                 name += os.sep + "__init__"
             name += ".py"
-            name = files.unicode_filename(name)
         else:
-            name = files.relative_filename(filename)
+            name = relative_filename(filename)
         self.relname = name
 
         self._source = None
@@ -169,7 +167,7 @@ class PythonFileReporter(FileReporter):
         self._excluded = None
 
     def __repr__(self):
-        return "<PythonFileReporter {!r}>".format(self.filename)
+        return f"<PythonFileReporter {self.filename!r}>"
 
     @contract(returns='unicode')
     def relative_filename(self):
@@ -204,8 +202,8 @@ class PythonFileReporter(FileReporter):
     def no_branch_lines(self):
         no_branch = self.parser.lines_matching(
             join_regex(self.coverage.config.partial_list),
-            join_regex(self.coverage.config.partial_always_list)
-            )
+            join_regex(self.coverage.config.partial_always_list),
+        )
         return no_branch
 
     @expensive

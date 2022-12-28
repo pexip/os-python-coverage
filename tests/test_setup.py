@@ -16,20 +16,20 @@ class SetupPyTest(CoverageTest):
     run_in_temp_dir = False
 
     def setUp(self):
-        super(SetupPyTest, self).setUp()
+        super().setUp()
         # Force the most restrictive interpretation.
         self.set_environ('LC_ALL', 'C')
 
     def test_metadata(self):
         status, output = self.run_command_status(
             "python setup.py --description --version --url --author"
-            )
-        self.assertEqual(status, 0)
+        )
+        assert status == 0
         out = output.splitlines()
-        self.assertIn("measurement", out[0])
-        self.assertEqual(coverage.__version__, out[1])
-        self.assertIn("github.com/nedbat/coveragepy", out[2])
-        self.assertIn("Ned Batchelder", out[3])
+        assert "measurement" in out[0]
+        assert coverage.__version__ == out[1]
+        assert "github.com/nedbat/coveragepy" in out[2]
+        assert "Ned Batchelder" in out[3]
 
     def test_more_metadata(self):
         # Let's be sure we pick up our own setup.py
@@ -38,12 +38,12 @@ class SetupPyTest(CoverageTest):
         from setup import setup_args
 
         classifiers = setup_args['classifiers']
-        self.assertGreater(len(classifiers), 7)
-        self.assert_starts_with(classifiers[-1], "Development Status ::")
-        self.assertIn("Programming Language :: Python :: %d" % sys.version_info[:1], classifiers)
-        self.assertIn("Programming Language :: Python :: %d.%d" % sys.version_info[:2], classifiers)
+        assert len(classifiers) > 7
+        assert classifiers[-1].startswith("Development Status ::")
+        assert "Programming Language :: Python :: %d" % sys.version_info[:1] in classifiers
+        assert "Programming Language :: Python :: %d.%d" % sys.version_info[:2] in classifiers
 
         long_description = setup_args['long_description'].splitlines()
-        self.assertGreater(len(long_description), 7)
-        self.assertNotEqual(long_description[0].strip(), "")
-        self.assertNotEqual(long_description[-1].strip(), "")
+        assert len(long_description) > 7
+        assert long_description[0].strip() != ""
+        assert long_description[-1].strip() != ""

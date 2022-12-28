@@ -13,7 +13,8 @@ imports working.
 import glob
 import os.path
 
-from coverage.misc import CoverageException, file_be_gone
+from coverage.exceptions import CoverageException, NoDataError
+from coverage.misc import file_be_gone, human_sorted, plural
 from coverage.sqldata import CoverageData
 
 
@@ -29,6 +30,7 @@ def line_counts(data, fullpath=False):
     """
     summ = {}
     if fullpath:
+        # pylint: disable=unnecessary-lambda-assignment
         filename_fn = lambda f: f
     else:
         filename_fn = os.path.basename
@@ -52,8 +54,35 @@ def add_data_to_hash(data, filename, hasher):
     hasher.update(data.file_tracer(filename))
 
 
-def combine_parallel_data(data, aliases=None, data_paths=None, strict=False):
+def combinable_files(data_file, data_paths=None):
+    """Make a list of data files to be combined.
+
+    `data_file` is a path to a data file.  `data_paths` is a list of files or
+    directories of files.
+
+    Returns a list of absolute file paths.
+    """
+    data_dir, local = os.path.split(os.path.abspath(data_file))
+
+    data_paths = data_paths or [data_dir]
+    files_to_combine = []
+    for p in data_paths:
+        if os.path.isfile(p):
+            files_to_combine.append(os.path.abspath(p))
+        elif os.path.isdir(p):
+            pattern = glob.escape(os.path.join(os.path.abspath(p), local)) +".*"
+            files_to_combine.extend(glob.glob(pattern))
+        else:
+            raise NoDataError(f"Couldn't combine from non-existent path '{p}'")
+    return files_to_combine
+
+
+def combine_parallel_data(
+    data, aliases=None, data_paths=None, strict=False, keep=False, message=None,
+):
     """Combine a number of data files together.
+
+    `data` is a CoverageData.
 
     Treat `data.filename` as a file prefix, and combine the data from all
     of the data files starting with that prefix plus a dot.
@@ -68,7 +97,7 @@ def combine_parallel_data(data, aliases=None, data_paths=None, strict=False):
     If `data_paths` is not provided, then the directory portion of
     `data.filename` is used as the directory to search for data files.
 
-    Every data file found and combined is then deleted from disk. If a file
+    Unless `keep` is True every data file found and combined is then deleted from disk. If a file
     cannot be read, a warning will be issued, and the file will not be
     deleted.
 
@@ -76,24 +105,10 @@ def combine_parallel_data(data, aliases=None, data_paths=None, strict=False):
     raised.
 
     """
-    # Because of the os.path.abspath in the constructor, data_dir will
-    # never be an empty string.
-    data_dir, local = os.path.split(data.base_filename())
-    localdot = local + '.*'
-
-    data_paths = data_paths or [data_dir]
-    files_to_combine = []
-    for p in data_paths:
-        if os.path.isfile(p):
-            files_to_combine.append(os.path.abspath(p))
-        elif os.path.isdir(p):
-            pattern = os.path.join(os.path.abspath(p), localdot)
-            files_to_combine.extend(glob.glob(pattern))
-        else:
-            raise CoverageException("Couldn't combine from non-existent path '%s'" % (p,))
+    files_to_combine = combinable_files(data.base_filename(), data_paths)
 
     if strict and not files_to_combine:
-        raise CoverageException("No data to combine")
+        raise NoDataError("No data to combine")
 
     files_combined = 0
     for f in files_to_combine:
@@ -101,10 +116,10 @@ def combine_parallel_data(data, aliases=None, data_paths=None, strict=False):
             # Sometimes we are combining into a file which is one of the
             # parallel files.  Skip that file.
             if data._debug.should('dataio'):
-                data._debug.write("Skipping combining ourself: %r" % (f,))
+                data._debug.write(f"Skipping combining ourself: {f!r}")
             continue
         if data._debug.should('dataio'):
-            data._debug.write("Combining data file %r" % (f,))
+            data._debug.write(f"Combining data file {f!r}")
         try:
             new_data = CoverageData(f, debug=data._debug)
             new_data.read()
@@ -116,9 +131,41 @@ def combine_parallel_data(data, aliases=None, data_paths=None, strict=False):
         else:
             data.update(new_data, aliases=aliases)
             files_combined += 1
-            if data._debug.should('dataio'):
-                data._debug.write("Deleting combined data file %r" % (f,))
-            file_be_gone(f)
+            if message:
+                try:
+                    file_name = os.path.relpath(f)
+                except ValueError:
+                    # ValueError can be raised under Windows when os.getcwd() returns a
+                    # folder from a different drive than the drive of f, in which case
+                    # we print the original value of f instead of its relative path
+                    file_name = f
+                message(f"Combined data file {file_name}")
+            if not keep:
+                if data._debug.should('dataio'):
+                    data._debug.write(f"Deleting combined data file {f!r}")
+                file_be_gone(f)
 
     if strict and not files_combined:
-        raise CoverageException("No usable data files")
+        raise NoDataError("No usable data files")
+
+
+def debug_data_file(filename):
+    """Implementation of 'coverage debug data'."""
+    data = CoverageData(filename)
+    filename = data.data_filename()
+    print(f"path: {filename}")
+    if not os.path.exists(filename):
+        print("No data collected: file doesn't exist")
+        return
+    data.read()
+    print(f"has_arcs: {data.has_arcs()!r}")
+    summary = line_counts(data, fullpath=True)
+    filenames = human_sorted(summary.keys())
+    nfiles = len(filenames)
+    print(f"{nfiles} file{plural(nfiles)}:")
+    for f in filenames:
+        line = f"{f}: {summary[f]} line{plural(summary[f])}"
+        plugin = data.file_tracer(f)
+        if plugin:
+            line += f" [{plugin}]"
+        print(line)

@@ -12,8 +12,6 @@ http://aosabook.org/en/500L/a-template-engine.html
 
 import re
 
-from coverage import env
-
 
 class TempliteSyntaxError(ValueError):
     """Raised when a template has a syntax error."""
@@ -25,7 +23,7 @@ class TempliteValueError(ValueError):
     pass
 
 
-class CodeBuilder(object):
+class CodeBuilder:
     """Build source code conveniently."""
 
     def __init__(self, indent=0):
@@ -71,7 +69,7 @@ class CodeBuilder(object):
         return global_namespace
 
 
-class Templite(object):
+class Templite:
     """A simple template renderer, for a nano-subset of Django syntax.
 
     Supported constructs are extended variable access::
@@ -137,10 +135,7 @@ class Templite(object):
         code.add_line("result = []")
         code.add_line("append_result = result.append")
         code.add_line("extend_result = result.extend")
-        if env.PY2:
-            code.add_line("to_str = unicode")
-        else:
-            code.add_line("to_str = str")
+        code.add_line("to_str = str")
 
         buffered = []
 
@@ -193,7 +188,7 @@ class Templite(object):
                         ops_stack.append('for')
                         self._variable(words[1], self.loop_vars)
                         code.add_line(
-                            "for c_%s in %s:" % (
+                            "for c_{} in {}:".format(
                                 words[1],
                                 self._expr_code(words[3])
                             )
@@ -233,7 +228,7 @@ class Templite(object):
         flush_output()
 
         for var_name in self.all_vars - self.loop_vars:
-            vars_code.add_line("c_%s = context[%r]" % (var_name, var_name))
+            vars_code.add_line(f"c_{var_name} = context[{var_name!r}]")
 
         code.add_line('return "".join(result)')
         code.dedent()
@@ -246,12 +241,12 @@ class Templite(object):
             code = self._expr_code(pipes[0])
             for func in pipes[1:]:
                 self._variable(func, self.all_vars)
-                code = "c_%s(%s)" % (func, code)
+                code = f"c_{func}({code})"
         elif "." in expr:
             dots = expr.split(".")
             code = self._expr_code(dots[0])
             args = ", ".join(repr(d) for d in dots[1:])
-            code = "do_dots(%s, %s)" % (code, args)
+            code = f"do_dots({code}, {args})"
         else:
             self._variable(expr, self.all_vars)
             code = "c_%s" % expr
@@ -259,7 +254,7 @@ class Templite(object):
 
     def _syntax_error(self, msg, thing):
         """Raise a syntax error using `msg`, and showing `thing`."""
-        raise TempliteSyntaxError("%s: %r" % (msg, thing))
+        raise TempliteSyntaxError(f"{msg}: {thing!r}")
 
     def _variable(self, name, vars_set):
         """Track that `name` is used as a variable.
@@ -293,10 +288,10 @@ class Templite(object):
             except AttributeError:
                 try:
                     value = value[dot]
-                except (TypeError, KeyError):
+                except (TypeError, KeyError) as exc:
                     raise TempliteValueError(
-                        "Couldn't evaluate %r.%s" % (value, dot)
-                    )
+                        f"Couldn't evaluate {value!r}.{dot}"
+                    ) from exc
             if callable(value):
                 value = value()
         return value

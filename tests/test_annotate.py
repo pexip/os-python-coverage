@@ -1,4 +1,3 @@
-# coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
@@ -10,7 +9,7 @@ from tests.coveragetest import CoverageTest
 from tests.goldtest import compare, gold_path
 
 
-class AnnotationGoldTest1(CoverageTest):
+class AnnotationGoldTest(CoverageTest):
     """Test the annotate feature with gold files."""
 
     def make_multi(self):
@@ -33,7 +32,7 @@ class AnnotationGoldTest1(CoverageTest):
         self.make_file("b/__init__.py")
         self.make_file("b/b.py", """\
             def b(x):
-                msg = "x is %s" % x
+                msg = f"x is {x}"
                 print(msg)
             """)
 
@@ -105,4 +104,29 @@ class AnnotationGoldTest1(CoverageTest):
         cov = coverage.Coverage()
         self.start_import_stop(cov, "white")
         cov.annotate()
-        compare(gold_path("annotate/annotate"), ".", "*,cover")
+        compare(gold_path("annotate/white"), ".", "*,cover")
+
+    def test_missing_after_else(self):
+        self.make_file("mae.py", """\
+            def f(x):
+                if x == 1:
+                    print("1")
+                else:
+                    print("2")
+
+            if f(1):
+                print("nope")
+            if f(2):
+                print("nope")
+            """)
+
+        cov = coverage.Coverage()
+        self.start_import_stop(cov, "mae")
+        cov.annotate()
+        assert self.stdout() == (
+            "1\n" +
+            "2\n" +
+            "The annotate command will be removed in a future version.\n" +
+            "Get in touch if you still use it: ned@nedbatchelder.com\n"
+        )
+        compare(gold_path("annotate/mae"), ".", "*,cover")

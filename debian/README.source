@@ -3,7 +3,7 @@ Debian source package for ‘python-coverage’
 ===========================================
 
 :Author: Ben Finney <bignose@debian.org>
-:Updated: 2019-01-22
+:Updated: 2021-12-26
 
 
 Pristine upstream source contains non-DFSG-free files
@@ -22,7 +22,7 @@ the pristine upstream tarball.
 Package maintenance in VCS
 ==========================
 
-The source for the Debian packaging is managed in the ‘master’ branch of the
+The source for the Debian packaging is managed in the ‘main’ branch of the
 Git repository.
 
 
@@ -33,7 +33,7 @@ Work on a release in VCS
 
       $ uscan --download
 
-* In the ‘master’ branch, create a new Debian changelog entry.
+* In the ‘main’ branch, create a new Debian changelog entry.
 
   Because the release is not complete, many aspects have not been decided and
   should not be recorded in the VCS:
@@ -54,7 +54,7 @@ Work on a release in VCS
 Build the source package from VCS
 ---------------------------------
 
-* Ensure the ‘master’ branch contains all the changes that are intended for the
+* Ensure the ‘main’ branch contains all the changes that are intended for the
   release to Debian.
 
 * Until the work is ready for release, do not commit a finalised Debian
@@ -66,7 +66,7 @@ Build the source package from VCS
   of finalising the release.
 
 * Rebase a working branch, e.g. ‘wip/release/4.2+dfsg.1-1’, from the HEAD of
-  ‘master’.
+  ‘main’.
 
 * In this branch, finalise the ‘debian/changelog’:
 
@@ -91,9 +91,9 @@ Build the source package from VCS
 
 * Only when the package builds satisfactorily from the source package:
 
-  * Switch to the ‘master’ branch.
+  * Switch to the ‘main’ branch.
 
-  * Pull the work-in-progress branch ‘wip/release/4.2+dfsg.1-1’ to ‘master’.
+  * Pull the work-in-progress branch ‘wip/release/4.2+dfsg.1-1’ to ‘main’.
 
   * Create and sign a tag for the release, ‘release/4.2+dfsg.1-1’ with
     the commit message “Debian release “4.2+dfsg.1-1.”::
@@ -104,7 +104,7 @@ Build the source package from VCS
 
 * Upload the successfully-built source package to Debian.
 
-* Prepare the ‘master’ branch for ongoing work:
+* Prepare the ‘main’ branch for ongoing work:
 
   * Delete the work-in-progress branch ‘wip/release/4.2+dfsg.1-1’.
 
@@ -119,7 +119,6 @@ Components that have been omitted from Debian because they do not
 constitute the source form of the work:
 
     Files:
-        coverage/htmlfiles/*.min.js
         tests/qunit/*.min.js
     Comments:
         These files are auto-generated from a source form that is not included
@@ -127,7 +126,7 @@ constitute the source form of the work:
 
 
 ..
-    Copyright © 2013–2020 Ben Finney <bignose@debian.org>
+    Copyright © 2013–2022 Ben Finney <bignose@debian.org>
     This is free software: you may copy, modify, and/or distribute this work
     under the terms of the GNU General Public License as published by the
     Free Software Foundation; version 3 of that license or any later version.

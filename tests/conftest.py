@@ -9,38 +9,54 @@ This module is run automatically by pytest, to define and enable fixtures.
 
 import os
 import sys
+import sysconfig
 import warnings
+from pathlib import Path
 
 import pytest
 
 from coverage import env
+from coverage.exceptions import _StopEverything
+from coverage.files import set_relative_directory
 
+# Pytest will rewrite assertions in test modules, but not elsewhere.
+# This tells pytest to also rewrite assertions in coveragetest.py.
+pytest.register_assert_rewrite("tests.coveragetest")
+pytest.register_assert_rewrite("tests.helpers")
 
 # Pytest can take additional options:
 # $set_env.py: PYTEST_ADDOPTS - Extra arguments to pytest.
 
+pytest_plugins = "tests.balance_xdist_plugin"
+
+
 @pytest.fixture(autouse=True)
 def set_warnings():
-    """Enable DeprecationWarnings during all tests."""
+    """Configure warnings to show while running tests."""
     warnings.simplefilter("default")
     warnings.simplefilter("once", DeprecationWarning)
 
-    # A warning to suppress:
-    #   setuptools/py33compat.py:54: DeprecationWarning: The value of convert_charrefs will become
-    #   True in 3.5. You are encouraged to set the value explicitly.
-    #       unescape = getattr(html, 'unescape', html_parser.HTMLParser().unescape)
-    # How come this warning is successfully suppressed here, but not in setup.cfg??
+    # Warnings to suppress:
+    # How come these warnings are successfully suppressed here, but not in setup.cfg??
+
     warnings.filterwarnings(
         "ignore",
         category=DeprecationWarning,
-        message="The value of convert_charrefs will become True in 3.5.",
-        )
+        message=r".*imp module is deprecated in favour of importlib",
+    )
+
     warnings.filterwarnings(
         "ignore",
         category=DeprecationWarning,
-        message=".* instead of inspect.getfullargspec",
-        )
-    if env.PYPY3:
+        message=r"module 'sre_constants' is deprecated",
+    )
+
+    warnings.filterwarnings(
+        "ignore",
+        category=pytest.PytestRemovedIn8Warning,
+    )
+
+    if env.PYPY:
         # pypy3 warns about unclosed files a lot.
         warnings.filterwarnings("ignore", r".*unclosed file", category=ResourceWarning)
 
@@ -54,25 +70,75 @@ def reset_sys_path():
 
 
 @pytest.fixture(autouse=True)
-def fix_xdist_sys_path():
-    """Prevent xdist from polluting the Python path.
+def reset_environment():
+    """Make sure a test setting an envvar doesn't leak into another test."""
+    old_environ = os.environ.copy()
+    yield
+    os.environ.clear()
+    os.environ.update(old_environ)
 
-    We run tests that care a lot about the contents of sys.path.  Pytest-xdist
-    changes sys.path, so running with xdist, vs without xdist, sets sys.path
-    differently.  With xdist, sys.path[1] is an empty string, without xdist,
-    it's the virtualenv bin directory.  We don't want the empty string, so
-    clobber that entry.
 
-    See: https://github.com/pytest-dev/pytest-xdist/issues/376
+@pytest.fixture(autouse=True)
+def reset_filesdotpy_globals():
+    """coverage/files.py has some unfortunate globals. Reset them every test."""
+    set_relative_directory()
+    yield
 
-    """
-    if os.environ.get('PYTEST_XDIST_WORKER', ''):
-        # We are running in an xdist worker.
-        if sys.path[1] == '':
-            # xdist has set sys.path[1] to ''.  Clobber it.
-            del sys.path[1]
-        # Also, don't let it sneak stuff in via PYTHONPATH.
+WORKER = os.environ.get("PYTEST_XDIST_WORKER", "none")
+
+def pytest_sessionstart():
+    """Run once at the start of the test session."""
+    # Only in the main process...
+    if WORKER == "none":
+        # Create a .pth file for measuring subprocess coverage.
+        pth_dir = find_writable_pth_directory()
+        assert pth_dir
+        (pth_dir / "subcover.pth").write_text("import coverage; coverage.process_startup()\n")
+        # subcover.pth is deleted by pytest_sessionfinish below.
+
+
+def pytest_sessionfinish():
+    """Hook the end of a test session, to clean up."""
+    # This is called by each of the workers and by the main process.
+    if WORKER == "none":
+        for pth_dir in possible_pth_dirs():             # pragma: part covered
+            pth_file = pth_dir / "subcover.pth"
+            if pth_file.exists():
+                pth_file.unlink()
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    """Run once for each test."""
+    # Convert _StopEverything into skipped tests.
+    outcome = yield
+    if outcome.excinfo and issubclass(outcome.excinfo[0], _StopEverything):  # pragma: only jython
+        pytest.skip(f"Skipping {item.nodeid} for _StopEverything: {outcome.excinfo[1]}")
+
+
+def possible_pth_dirs():
+    """Produce a sequence of directories for trying to write .pth files."""
+    # First look through sys.path, and if we find a .pth file, then it's a good
+    # place to put ours.
+    for pth_dir in map(Path, sys.path):             # pragma: part covered
+        pth_files = list(pth_dir.glob("*.pth"))
+        if pth_files:
+            yield pth_dir
+
+    # If we're still looking, then try the Python library directory.
+    # https://github.com/nedbat/coveragepy/issues/339
+    yield Path(sysconfig.get_path("purelib"))       # pragma: cant happen
+
+
+def find_writable_pth_directory():
+    """Find a place to write a .pth file."""
+    for pth_dir in possible_pth_dirs():             # pragma: part covered
+        try_it = pth_dir / f"touch_{WORKER}.it"
         try:
-            del os.environ['PYTHONPATH']
-        except KeyError:
-            pass
+            try_it.write_text("foo")
+        except OSError:                             # pragma: cant happen
+            continue
+
+        os.remove(try_it)
+        return pth_dir
+
+    return None                                     # pragma: cant happen

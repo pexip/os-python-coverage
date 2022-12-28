@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
@@ -8,18 +7,20 @@ import datetime
 import os
 import re
 import sys
+import warnings
 
 import pytest
 
 import coverage
-from coverage.backunittest import TestCase, unittest
+from coverage import tomlconfig
+from coverage.exceptions import CoverageWarning
 from coverage.files import actual_path
-from coverage.misc import StopEverything
-import coverage.optional
 
-from tests.coveragetest import CoverageTest, convert_skip_exceptions
-from tests.helpers import arcs_to_arcz_repr, arcz_to_arcs
-from tests.helpers import CheckUniqueFilenames, re_lines, re_line
+from tests.coveragetest import CoverageTest
+from tests.helpers import (
+    arcs_to_arcz_repr, arcz_to_arcs, assert_count_equal, assert_coverage_warnings,
+    CheckUniqueFilenames, re_lines, re_lines_text, re_line, without_module,
+)
 
 
 def test_xdist_sys_path_nuttiness_is_fixed():
@@ -28,16 +29,13 @@ def test_xdist_sys_path_nuttiness_is_fixed():
     assert os.environ.get('PYTHONPATH') is None
 
 
-class TestingTest(TestCase):
-    """Tests of helper methods on `backunittest.TestCase`."""
-
-    def test_assert_count_equal(self):
-        self.assertCountEqual(set(), set())
-        self.assertCountEqual(set([1,2,3]), set([3,1,2]))
-        with self.assertRaises(AssertionError):
-            self.assertCountEqual(set([1,2,3]), set())
-        with self.assertRaises(AssertionError):
-            self.assertCountEqual(set([1,2,3]), set([4,5,6]))
+def test_assert_count_equal():
+    assert_count_equal(set(), set())
+    assert_count_equal({"a": 1, "b": 2}, ["b", "a"])
+    with pytest.raises(AssertionError):
+        assert_count_equal({1,2,3}, set())
+    with pytest.raises(AssertionError):
+        assert_count_equal({1,2,3}, {4,5,6})
 
 
 class CoverageTestTest(CoverageTest):
@@ -47,11 +45,11 @@ class CoverageTestTest(CoverageTest):
         self.make_file("whoville.txt", "We are here!")
         self.assert_exists("whoville.txt")
         self.assert_doesnt_exist("shadow.txt")
-        msg = "False is not true : File 'whoville.txt' shouldn't exist"
-        with self.assertRaisesRegex(AssertionError, msg):
+        msg = "File 'whoville.txt' shouldn't exist"
+        with pytest.raises(AssertionError, match=msg):
             self.assert_doesnt_exist("whoville.txt")
-        msg = "False is not true : File 'shadow.txt' should exist"
-        with self.assertRaisesRegex(AssertionError, msg):
+        msg = "File 'shadow.txt' should exist"
+        with pytest.raises(AssertionError, match=msg):
             self.assert_exists("shadow.txt")
 
     def test_file_count(self):
@@ -63,39 +61,27 @@ class CoverageTestTest(CoverageTest):
         self.assert_file_count("afile.*", 1)
         self.assert_file_count("*.q", 0)
         msg = re.escape(
-            "3 != 13 : There should be 13 files matching 'a*.txt', but there are these: "
+            "There should be 13 files matching 'a*.txt', but there are these: " +
             "['abcde.txt', 'afile.txt', 'axczz.txt']"
         )
-        with self.assertRaisesRegex(AssertionError, msg):
+        with pytest.raises(AssertionError, match=msg):
             self.assert_file_count("a*.txt", 13)
         msg = re.escape(
-            "2 != 12 : There should be 12 files matching '*c*.txt', but there are these: "
+            "There should be 12 files matching '*c*.txt', but there are these: " +
             "['abcde.txt', 'axczz.txt']"
         )
-        with self.assertRaisesRegex(AssertionError, msg):
+        with pytest.raises(AssertionError, match=msg):
             self.assert_file_count("*c*.txt", 12)
         msg = re.escape(
-            "1 != 11 : There should be 11 files matching 'afile.*', but there are these: "
-            "['afile.txt']"
+            "There should be 11 files matching 'afile.*', but there are these: ['afile.txt']"
         )
-        with self.assertRaisesRegex(AssertionError, msg):
+        with pytest.raises(AssertionError, match=msg):
             self.assert_file_count("afile.*", 11)
         msg = re.escape(
-            "0 != 10 : There should be 10 files matching '*.q', but there are these: []"
+            "There should be 10 files matching '*.q', but there are these: []"
         )
-        with self.assertRaisesRegex(AssertionError, msg):
+        with pytest.raises(AssertionError, match=msg):
             self.assert_file_count("*.q", 10)
-
-    def test_assert_startwith(self):
-        self.assert_starts_with("xyzzy", "xy")
-        self.assert_starts_with("xyz\nabc", "xy")
-        self.assert_starts_with("xyzzy", ("x", "z"))
-        msg = re.escape("'xyz' doesn't start with 'a'")
-        with self.assertRaisesRegex(AssertionError, msg):
-            self.assert_starts_with("xyz", "a")
-        msg = re.escape("'xyz\\nabc' doesn't start with 'a'")
-        with self.assertRaisesRegex(AssertionError, msg):
-            self.assert_starts_with("xyz\nabc", "a")
 
     def test_assert_recent_datetime(self):
         def now_delta(seconds):
@@ -105,17 +91,17 @@ class CoverageTestTest(CoverageTest):
         # Default delta is 10 seconds.
         self.assert_recent_datetime(now_delta(0))
         self.assert_recent_datetime(now_delta(-9))
-        with self.assertRaises(AssertionError):
+        with pytest.raises(AssertionError):
             self.assert_recent_datetime(now_delta(-11))
-        with self.assertRaises(AssertionError):
+        with pytest.raises(AssertionError):
             self.assert_recent_datetime(now_delta(1))
 
         # Delta is settable.
         self.assert_recent_datetime(now_delta(0), seconds=120)
         self.assert_recent_datetime(now_delta(-100), seconds=120)
-        with self.assertRaises(AssertionError):
+        with pytest.raises(AssertionError):
             self.assert_recent_datetime(now_delta(-1000), seconds=120)
-        with self.assertRaises(AssertionError):
+        with pytest.raises(AssertionError):
             self.assert_recent_datetime(now_delta(1), seconds=120)
 
     def test_assert_warnings(self):
@@ -141,13 +127,13 @@ class CoverageTestTest(CoverageTest):
 
         # But if there are a bunch of expected warnings, they have to all happen.
         warn_regex = r"Didn't find warning 'You' in \['Hello there!'\]"
-        with self.assertRaisesRegex(AssertionError, warn_regex):
+        with pytest.raises(AssertionError, match=warn_regex):
             with self.assert_warnings(cov, ["Hello.*!", "You"]):
                 cov._warn("Hello there!")
 
         # Make a different warning than expected, it should raise an assertion.
         warn_regex = r"Didn't find warning 'Not me' in \['Hello there!'\]"
-        with self.assertRaisesRegex(AssertionError, warn_regex):
+        with pytest.raises(AssertionError, match=warn_regex):
             with self.assert_warnings(cov, ["Not me"]):
                 cov._warn("Hello there!")
 
@@ -157,13 +143,13 @@ class CoverageTestTest(CoverageTest):
 
         # But it should fail if the unexpected warning does appear.
         warn_regex = r"Found warning 'Bye' in \['Hi', 'Bye'\]"
-        with self.assertRaisesRegex(AssertionError, warn_regex):
+        with pytest.raises(AssertionError, match=warn_regex):
             with self.assert_warnings(cov, ["Hi"], not_warnings=["Bye"]):
                 cov._warn("Hi")
                 cov._warn("Bye")
 
         # assert_warnings shouldn't hide a real exception.
-        with self.assertRaisesRegex(ZeroDivisionError, "oops"):
+        with pytest.raises(ZeroDivisionError, match="oops"):
             with self.assert_warnings(cov, ["Hello there!"]):
                 raise ZeroDivisionError("oops")
 
@@ -176,7 +162,7 @@ class CoverageTestTest(CoverageTest):
 
         # If you said there would be no warnings, and there were, fail!
         warn_regex = r"Unexpected warnings: \['Watch out!'\]"
-        with self.assertRaisesRegex(AssertionError, warn_regex):
+        with pytest.raises(AssertionError, match=warn_regex):
             with self.assert_warnings(cov, []):
                 cov._warn("Watch out!")
 
@@ -190,21 +176,21 @@ class CoverageTestTest(CoverageTest):
             print(os.environ['COV_FOOBAR'])
             """)
         out = self.run_command("python showme.py").splitlines()
-        self.assertEqual(actual_path(out[0]), actual_path(sys.executable))
-        self.assertEqual(out[1], os.__file__)
-        self.assertEqual(out[2], 'XYZZY')
+        assert actual_path(out[0]) == actual_path(sys.executable)
+        assert out[1] == os.__file__
+        assert out[2] == 'XYZZY'
 
         # Try it with a "coverage debug sys" command.
         out = self.run_command("coverage debug sys")
 
-        executable = re_line(out, "executable:")
+        executable = re_line("executable:", out)
         executable = executable.split(":", 1)[1].strip()
-        self.assertTrue(_same_python_executable(executable, sys.executable))
+        assert _same_python_executable(executable, sys.executable)
 
         # "environment: COV_FOOBAR = XYZZY" or "COV_FOOBAR = XYZZY"
-        environ = re_line(out, "COV_FOOBAR")
+        environ = re_line("COV_FOOBAR", out)
         _, _, environ = environ.rpartition(":")
-        self.assertEqual(environ.strip(), "COV_FOOBAR = XYZZY")
+        assert environ.strip() == "COV_FOOBAR = XYZZY"
 
     def test_run_command_stdout_stderr(self):
         # run_command should give us both stdout and stderr.
@@ -214,8 +200,17 @@ class CoverageTestTest(CoverageTest):
             print("StdOut")
             """)
         out = self.run_command("python outputs.py")
-        self.assertIn("StdOut\n", out)
-        self.assertIn("StdErr\n", out)
+        assert "StdOut\n" in out
+        assert "StdErr\n" in out
+
+    def test_stdout(self):
+        # stdout is captured.
+        print("This is stdout")
+        print("Line 2")
+        assert self.stdout() == "This is stdout\nLine 2\n"
+        # When we grab stdout(), it's reset.
+        print("Some more")
+        assert self.stdout() == "Some more\n"
 
 
 class CheckUniqueFilenamesTest(CoverageTest):
@@ -223,7 +218,7 @@ class CheckUniqueFilenamesTest(CoverageTest):
 
     run_in_temp_dir = False
 
-    class Stub(object):
+    class Stub:
         """A stand-in for the class we're checking."""
         def __init__(self, x):
             self.x = x
@@ -241,59 +236,97 @@ class CheckUniqueFilenamesTest(CoverageTest):
         assert stub.method("file2", 1723, b="what") == (23, "file2", 1723, "what")
 
         # A duplicate file name trips an assertion.
-        with self.assertRaises(AssertionError):
+        with pytest.raises(AssertionError):
             stub.method("file1")
 
 
-@pytest.mark.parametrize("text, pat, result", [
-    ("line1\nline2\nline3\n", "line", "line1\nline2\nline3\n"),
-    ("line1\nline2\nline3\n", "[13]", "line1\nline3\n"),
-    ("line1\nline2\nline3\n", "X", ""),
-])
-def test_re_lines(text, pat, result):
-    assert re_lines(text, pat) == result
+class CheckCoverageTest(CoverageTest):
+    """Tests of the failure assertions in check_coverage."""
 
-@pytest.mark.parametrize("text, pat, result", [
-    ("line1\nline2\nline3\n", "line", ""),
-    ("line1\nline2\nline3\n", "[13]", "line2\n"),
-    ("line1\nline2\nline3\n", "X", "line1\nline2\nline3\n"),
-])
-def test_re_lines_inverted(text, pat, result):
-    assert re_lines(text, pat, match=False) == result
+    CODE = """\
+        a, b = 1, 1
+        def oops(x):
+            if x % 2:
+                raise Exception("odd")
+        try:
+            a = 6
+            oops(1)
+            a = 8
+        except:
+            b = 10
+        assert a == 6 and b == 10
+        """
+    ARCZ = ".1 12 -23 34 3-2 4-2 25 56 67 78 8B 9A AB B."
+    ARCZ_MISSING = "3-2 78 8B"
+    ARCZ_UNPREDICTED = "79"
 
-@pytest.mark.parametrize("text, pat, result", [
-    ("line1\nline2\nline3\n", "2", "line2"),
-])
-def test_re_line(text, pat, result):
-    assert re_line(text, pat) == result
+    def test_check_coverage_possible(self):
+        msg = r"(?s)Possible arcs differ: .*- \(6, 3\).*\+ \(6, 7\)"
+        with pytest.raises(AssertionError, match=msg):
+            self.check_coverage(
+                self.CODE,
+                arcz=self.ARCZ.replace("7", "3"),
+                arcz_missing=self.ARCZ_MISSING,
+                arcz_unpredicted=self.ARCZ_UNPREDICTED,
+            )
 
-@pytest.mark.parametrize("text, pat", [
-    ("line1\nline2\nline3\n", "line"),      # too many matches
-    ("line1\nline2\nline3\n", "X"),         # no matches
-])
-def test_re_line_bad(text, pat):
-    with pytest.raises(AssertionError):
-        re_line(text, pat)
+    def test_check_coverage_missing(self):
+        msg = r"(?s)Missing arcs differ: .*- \(3, 8\).*\+ \(7, 8\)"
+        with pytest.raises(AssertionError, match=msg):
+            self.check_coverage(
+                self.CODE,
+                arcz=self.ARCZ,
+                arcz_missing=self.ARCZ_MISSING.replace("7", "3"),
+                arcz_unpredicted=self.ARCZ_UNPREDICTED,
+            )
+
+    def test_check_coverage_unpredicted(self):
+        msg = r"(?s)Unpredicted arcs differ: .*- \(3, 9\).*\+ \(7, 9\)"
+        with pytest.raises(AssertionError, match=msg):
+            self.check_coverage(
+                self.CODE,
+                arcz=self.ARCZ,
+                arcz_missing=self.ARCZ_MISSING,
+                arcz_unpredicted=self.ARCZ_UNPREDICTED.replace("7", "3")
+            )
 
 
-def test_convert_skip_exceptions():
-    @convert_skip_exceptions
-    def some_method(ret=None, exc=None):
-        """Be like a test case."""
-        if exc:
-            raise exc("yikes!")
-        return ret
+class ReLinesTest(CoverageTest):
+    """Tests of `re_lines`."""
 
-    # Normal flow is normal.
-    assert some_method(ret=[17, 23]) == [17, 23]
+    run_in_temp_dir = False
 
-    # Exceptions are raised normally.
-    with pytest.raises(ValueError):
-        some_method(exc=ValueError)
+    @pytest.mark.parametrize("pat, text, result", [
+        ("line", "line1\nline2\nline3\n", "line1\nline2\nline3\n"),
+        ("[13]", "line1\nline2\nline3\n", "line1\nline3\n"),
+        ("X", "line1\nline2\nline3\n", ""),
+    ])
+    def test_re_lines(self, pat, text, result):
+        assert re_lines_text(pat, text) == result
+        assert re_lines(pat, text) == result.splitlines()
 
-    # But a StopEverything becomes a SkipTest.
-    with pytest.raises(unittest.SkipTest):
-        some_method(exc=StopEverything)
+    @pytest.mark.parametrize("pat, text, result", [
+        ("line", "line1\nline2\nline3\n", ""),
+        ("[13]", "line1\nline2\nline3\n", "line2\n"),
+        ("X", "line1\nline2\nline3\n", "line1\nline2\nline3\n"),
+    ])
+    def test_re_lines_inverted(self, pat, text, result):
+        assert re_lines_text(pat, text, match=False) == result
+        assert re_lines(pat, text, match=False) == result.splitlines()
+
+    @pytest.mark.parametrize("pat, text, result", [
+        ("2", "line1\nline2\nline3\n", "line2"),
+    ])
+    def test_re_line(self, pat, text, result):
+        assert re_line(pat, text) == result
+
+    @pytest.mark.parametrize("pat, text", [
+        ("line", "line1\nline2\nline3\n"),      # too many matches
+        ("X", "line1\nline2\nline3\n"),         # no matches
+    ])
+    def test_re_line_bad(self, pat, text):
+        with pytest.raises(AssertionError):
+            re_line(pat, text)
 
 
 def _same_python_executable(e1, e2):
@@ -323,39 +356,96 @@ def _same_python_executable(e1, e2):
     return False                                        # pragma: only failure
 
 
-def test_optional_without():
-    # pylint: disable=reimported
-    from coverage.optional import toml as toml1
-    with coverage.optional.without('toml'):
-        from coverage.optional import toml as toml2
-    from coverage.optional import toml as toml3
+def test_without_module():
+    toml1 = tomlconfig.tomllib
+    with without_module(tomlconfig, 'tomllib'):
+        toml2 = tomlconfig.tomllib
+    toml3 = tomlconfig.tomllib
 
     assert toml1 is toml3 is not None
     assert toml2 is None
 
 
-@pytest.mark.parametrize("arcz, arcs", [
-    (".1 12 2.", [(-1, 1), (1, 2), (2, -1)]),
-    ("-11 12 2-5", [(-1, 1), (1, 2), (2, -5)]),
-    ("-QA CB IT Z-A", [(-26, 10), (12, 11), (18, 29), (35, -10)]),
-])
-def test_arcz_to_arcs(arcz, arcs):
-    assert arcz_to_arcs(arcz) == arcs
+class ArczTest(CoverageTest):
+    """Tests of arcz/arcs helpers."""
+
+    run_in_temp_dir = False
+
+    @pytest.mark.parametrize("arcz, arcs", [
+        (".1 12 2.", [(-1, 1), (1, 2), (2, -1)]),
+        ("-11 12 2-5", [(-1, 1), (1, 2), (2, -5)]),
+        ("-QA CB IT Z-A", [(-26, 10), (12, 11), (18, 29), (35, -10)]),
+    ])
+    def test_arcz_to_arcs(self, arcz, arcs):
+        assert arcz_to_arcs(arcz) == arcs
+
+    @pytest.mark.parametrize("arcs, arcz_repr", [
+        ([(-1, 1), (1, 2), (2, -1)], "(-1, 1) # .1\n(1, 2) # 12\n(2, -1) # 2.\n"),
+        ([(-1, 1), (1, 2), (2, -5)], "(-1, 1) # .1\n(1, 2) # 12\n(2, -5) # 2-5\n"),
+        ([(-26, 10), (12, 11), (18, 29), (35, -10), (1, 33), (100, 7)],
+            (
+            "(-26, 10) # -QA\n" +
+            "(12, 11) # CB\n" +
+            "(18, 29) # IT\n" +
+            "(35, -10) # Z-A\n" +
+            "(1, 33) # 1X\n" +
+            "(100, 7) # ?7\n"
+            )
+        ),
+    ])
+    def test_arcs_to_arcz_repr(self, arcs, arcz_repr):
+        assert arcs_to_arcz_repr(arcs) == arcz_repr
 
 
-@pytest.mark.parametrize("arcs, arcz_repr", [
-    ([(-1, 1), (1, 2), (2, -1)], "(-1, 1) # .1\n(1, 2) # 12\n(2, -1) # 2.\n"),
-    ([(-1, 1), (1, 2), (2, -5)], "(-1, 1) # .1\n(1, 2) # 12\n(2, -5) # 2-5\n"),
-    ([(-26, 10), (12, 11), (18, 29), (35, -10), (1, 33), (100, 7)],
-        (
-        "(-26, 10) # -QA\n"
-        "(12, 11) # CB\n"
-        "(18, 29) # IT\n"
-        "(35, -10) # Z-A\n"
-        "(1, 33) # 1X\n"
-        "(100, 7) # ?7\n"
-        )
-    ),
-])
-def test_arcs_to_arcz_repr(arcs, arcz_repr):
-    assert arcs_to_arcz_repr(arcs) == arcz_repr
+class AssertCoverageWarningsTest(CoverageTest):
+    """Tests of assert_coverage_warnings"""
+
+    def test_one_warning(self):
+        with pytest.warns(Warning) as warns:
+            warnings.warn("Hello there", category=CoverageWarning)
+        assert_coverage_warnings(warns, "Hello there")
+
+    def test_many_warnings(self):
+        with pytest.warns(Warning) as warns:
+            warnings.warn("The first", category=CoverageWarning)
+            warnings.warn("The second", category=CoverageWarning)
+            warnings.warn("The third", category=CoverageWarning)
+        assert_coverage_warnings(warns, "The first", "The second", "The third")
+
+    def test_wrong_type(self):
+        with pytest.warns(Warning) as warns:
+            warnings.warn("Not ours", category=Warning)
+        with pytest.raises(AssertionError):
+            assert_coverage_warnings(warns, "Not ours")
+
+    def test_wrong_message(self):
+        with pytest.warns(Warning) as warns:
+            warnings.warn("Goodbye", category=CoverageWarning)
+        with pytest.raises(AssertionError):
+            assert_coverage_warnings(warns, "Hello there")
+
+    def test_wrong_number_too_many(self):
+        with pytest.warns(Warning) as warns:
+            warnings.warn("The first", category=CoverageWarning)
+            warnings.warn("The second", category=CoverageWarning)
+        with pytest.raises(AssertionError):
+            assert_coverage_warnings(warns, "The first", "The second", "The third")
+
+    def test_wrong_number_too_few(self):
+        with pytest.warns(Warning) as warns:
+            warnings.warn("The first", category=CoverageWarning)
+            warnings.warn("The second", category=CoverageWarning)
+            warnings.warn("The third", category=CoverageWarning)
+        with pytest.raises(AssertionError):
+            assert_coverage_warnings(warns, "The first", "The second")
+
+    def test_regex_matches(self):
+        with pytest.warns(Warning) as warns:
+            warnings.warn("The first", category=CoverageWarning)
+        assert_coverage_warnings(warns, re.compile("f?rst"))
+
+    def test_regex_doesnt_match(self):
+        with pytest.warns(Warning) as warns:
+            warnings.warn("The first", category=CoverageWarning)
+        with pytest.raises(AssertionError):
+            assert_coverage_warnings(warns, re.compile("second"))

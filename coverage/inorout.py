@@ -3,22 +3,22 @@
 
 """Determining whether files are being measured/reported or not."""
 
-# For finding the stdlib
-import atexit
+import importlib.util
 import inspect
 import itertools
 import os
 import platform
 import re
 import sys
+import sysconfig
 import traceback
 
 from coverage import env
-from coverage.backward import code_object
 from coverage.disposition import FileDisposition, disposition_init
+from coverage.exceptions import CoverageException, PluginError
 from coverage.files import TreeMatcher, FnmatchMatcher, ModuleMatcher
 from coverage.files import prep_patterns, find_python_files, canonical_filename
-from coverage.misc import CoverageException
+from coverage.misc import sys_modules_saved
 from coverage.python import source_for_file, source_for_morf
 
 
@@ -108,17 +108,96 @@ def module_has_file(mod):
     return os.path.exists(mod__file__)
 
 
-class InOrOut(object):
+def file_and_path_for_module(modulename):
+    """Find the file and search path for `modulename`.
+
+    Returns:
+        filename: The filename of the module, or None.
+        path: A list (possibly empty) of directories to find submodules in.
+
+    """
+    filename = None
+    path = []
+    try:
+        spec = importlib.util.find_spec(modulename)
+    except Exception:
+        pass
+    else:
+        if spec is not None:
+            filename = spec.origin
+            path = list(spec.submodule_search_locations or ())
+    return filename, path
+
+
+def add_stdlib_paths(paths):
+    """Add paths where the stdlib can be found to the set `paths`."""
+    # Look at where some standard modules are located. That's the
+    # indication for "installed with the interpreter". In some
+    # environments (virtualenv, for example), these modules may be
+    # spread across a few locations. Look at all the candidate modules
+    # we've imported, and take all the different ones.
+    modules_we_happen_to_have = [
+        inspect, itertools, os, platform, re, sysconfig, traceback,
+        _pypy_irc_topic, _structseq,
+    ]
+    for m in modules_we_happen_to_have:
+        if m is not None and hasattr(m, "__file__"):
+            paths.add(canonical_path(m, directory=True))
+
+    if _structseq and not hasattr(_structseq, '__file__'):
+        # PyPy 2.4 has no __file__ in the builtin modules, but the code
+        # objects still have the file names.  So dig into one to find
+        # the path to exclude.  The "filename" might be synthetic,
+        # don't be fooled by those.
+        structseq_file = _structseq.structseq_new.__code__.co_filename
+        if not structseq_file.startswith("<"):
+            paths.add(canonical_path(structseq_file))
+
+
+def add_third_party_paths(paths):
+    """Add locations for third-party packages to the set `paths`."""
+    # Get the paths that sysconfig knows about.
+    scheme_names = set(sysconfig.get_scheme_names())
+
+    for scheme in scheme_names:
+        # https://foss.heptapod.net/pypy/pypy/-/issues/3433
+        better_scheme = "pypy_posix" if scheme == "pypy" else scheme
+        if os.name in better_scheme.split("_"):
+            config_paths = sysconfig.get_paths(scheme)
+            for path_name in ["platlib", "purelib", "scripts"]:
+                paths.add(config_paths[path_name])
+
+
+def add_coverage_paths(paths):
+    """Add paths where coverage.py code can be found to the set `paths`."""
+    cover_path = canonical_path(__file__, directory=True)
+    paths.add(cover_path)
+    if env.TESTING:
+        # Don't include our own test code.
+        paths.add(os.path.join(cover_path, "tests"))
+
+        # When testing, we use PyContracts, which should be considered
+        # part of coverage.py, and it uses six. Exclude those directories
+        # just as we exclude ourselves.
+        if env.USE_CONTRACTS:
+            import contracts
+            import six
+            for mod in [contracts, six]:
+                paths.add(canonical_path(mod))
+
+
+class InOrOut:
     """Machinery for determining what files to measure."""
 
-    def __init__(self, warn):
+    def __init__(self, warn, debug):
         self.warn = warn
+        self.debug = debug
 
         # The matchers for should_trace.
         self.source_match = None
         self.source_pkgs_match = None
-        self.pylib_paths = self.cover_paths = None
-        self.pylib_match = self.cover_match = None
+        self.pylib_paths = self.cover_paths = self.third_paths = None
+        self.pylib_match = self.cover_match = self.third_match = None
         self.include_match = self.omit_match = None
         self.plugins = []
         self.disp_class = FileDisposition
@@ -129,8 +208,12 @@ class InOrOut(object):
         self.source_pkgs_unmatched = []
         self.omit = self.include = None
 
+        # Is the source inside a third-party area?
+        self.source_in_third = False
+
     def configure(self, config):
         """Apply the configuration to get ready for decision-time."""
+        self.source_pkgs.extend(config.source_pkgs)
         for src in config.source or []:
             if os.path.isdir(src):
                 self.source.append(canonical_filename(src))
@@ -144,52 +227,80 @@ class InOrOut(object):
         # The directories for files considered "installed with the interpreter".
         self.pylib_paths = set()
         if not config.cover_pylib:
-            # Look at where some standard modules are located. That's the
-            # indication for "installed with the interpreter". In some
-            # environments (virtualenv, for example), these modules may be
-            # spread across a few locations. Look at all the candidate modules
-            # we've imported, and take all the different ones.
-            for m in (atexit, inspect, os, platform, _pypy_irc_topic, re, _structseq, traceback):
-                if m is not None and hasattr(m, "__file__"):
-                    self.pylib_paths.add(canonical_path(m, directory=True))
-
-            if _structseq and not hasattr(_structseq, '__file__'):
-                # PyPy 2.4 has no __file__ in the builtin modules, but the code
-                # objects still have the file names.  So dig into one to find
-                # the path to exclude.  The "filename" might be synthetic,
-                # don't be fooled by those.
-                structseq_file = code_object(_structseq.structseq_new).co_filename
-                if not structseq_file.startswith("<"):
-                    self.pylib_paths.add(canonical_path(structseq_file))
+            add_stdlib_paths(self.pylib_paths)
 
         # To avoid tracing the coverage.py code itself, we skip anything
         # located where we are.
-        self.cover_paths = [canonical_path(__file__, directory=True)]
-        if env.TESTING:
-            # Don't include our own test code.
-            self.cover_paths.append(os.path.join(self.cover_paths[0], "tests"))
+        self.cover_paths = set()
+        add_coverage_paths(self.cover_paths)
 
-            # When testing, we use PyContracts, which should be considered
-            # part of coverage.py, and it uses six. Exclude those directories
-            # just as we exclude ourselves.
-            import contracts
-            import six
-            for mod in [contracts, six]:
-                self.cover_paths.append(canonical_path(mod))
+        # Find where third-party packages are installed.
+        self.third_paths = set()
+        add_third_party_paths(self.third_paths)
+
+        def debug(msg):
+            if self.debug:
+                self.debug.write(msg)
+
+        # Generally useful information
+        debug("sys.path:" + "".join(f"\n    {p}" for p in sys.path))
 
         # Create the matchers we need for should_trace
         if self.source or self.source_pkgs:
-            self.source_match = TreeMatcher(self.source)
-            self.source_pkgs_match = ModuleMatcher(self.source_pkgs)
+            against = []
+            if self.source:
+                self.source_match = TreeMatcher(self.source, "source")
+                against.append(f"trees {self.source_match!r}")
+            if self.source_pkgs:
+                self.source_pkgs_match = ModuleMatcher(self.source_pkgs, "source_pkgs")
+                against.append(f"modules {self.source_pkgs_match!r}")
+            debug("Source matching against " + " and ".join(against))
         else:
-            if self.cover_paths:
-                self.cover_match = TreeMatcher(self.cover_paths)
             if self.pylib_paths:
-                self.pylib_match = TreeMatcher(self.pylib_paths)
+                self.pylib_match = TreeMatcher(self.pylib_paths, "pylib")
+                debug(f"Python stdlib matching: {self.pylib_match!r}")
         if self.include:
-            self.include_match = FnmatchMatcher(self.include)
+            self.include_match = FnmatchMatcher(self.include, "include")
+            debug(f"Include matching: {self.include_match!r}")
         if self.omit:
-            self.omit_match = FnmatchMatcher(self.omit)
+            self.omit_match = FnmatchMatcher(self.omit, "omit")
+            debug(f"Omit matching: {self.omit_match!r}")
+
+        self.cover_match = TreeMatcher(self.cover_paths, "coverage")
+        debug(f"Coverage code matching: {self.cover_match!r}")
+
+        self.third_match = TreeMatcher(self.third_paths, "third")
+        debug(f"Third-party lib matching: {self.third_match!r}")
+
+        # Check if the source we want to measure has been installed as a
+        # third-party package.
+        with sys_modules_saved():
+            for pkg in self.source_pkgs:
+                try:
+                    modfile, path = file_and_path_for_module(pkg)
+                    debug(f"Imported source package {pkg!r} as {modfile!r}")
+                except CoverageException as exc:
+                    debug(f"Couldn't import source package {pkg!r}: {exc}")
+                    continue
+                if modfile:
+                    if self.third_match.match(modfile):
+                        debug(
+                            f"Source is in third-party because of source_pkg {pkg!r} at {modfile!r}"
+                        )
+                        self.source_in_third = True
+                else:
+                    for pathdir in path:
+                        if self.third_match.match(pathdir):
+                            debug(
+                                f"Source is in third-party because of {pkg!r} path directory " +
+                                f"at {pathdir!r}"
+                            )
+                            self.source_in_third = True
+
+        for src in self.source:
+            if self.third_match.match(src):
+                debug(f"Source is in third-party because of source directory {src!r}")
+                self.source_in_third = True
 
     def should_trace(self, filename, frame=None):
         """Decide whether to trace execution in `filename`, with a reason.
@@ -208,6 +319,9 @@ class InOrOut(object):
             disp.trace = False
             disp.reason = reason
             return disp
+
+        if original_filename.startswith('<'):
+            return nope(disp, "not a real original file name")
 
         if frame is not None:
             # Compiled Python files have two file names: frame.f_code.co_filename is
@@ -241,11 +355,6 @@ class InOrOut(object):
             # can't do anything with the data later anyway.
             return nope(disp, "not a real file name")
 
-        # pyexpat does a dumb thing, calling the trace function explicitly from
-        # C code with a C file name.
-        if re.search(r"[/\\]Modules[/\\]pyexpat.c", filename):
-            return nope(disp, "pyexpat lies about itself")
-
         # Jython reports the .class file to the tracer, use the source file.
         if filename.endswith("$py.class"):
             filename = filename[:-9] + ".py"
@@ -273,10 +382,9 @@ class InOrOut(object):
                         )
                     break
             except Exception:
-                self.warn(
-                    "Disabling plug-in %r due to an exception:" % (plugin._coverage_plugin_name)
-                )
-                traceback.print_exc()
+                plugin_name = plugin._coverage_plugin_name
+                tb = traceback.format_exc()
+                self.warn(f"Disabling plug-in {plugin_name!r} due to an exception:\n{tb}")
                 plugin._coverage_enabled = False
                 continue
         else:
@@ -286,9 +394,8 @@ class InOrOut(object):
 
         if not disp.has_dynamic_filename:
             if not disp.source_filename:
-                raise CoverageException(
-                    "Plugin %r didn't set source_filename for %r" %
-                    (plugin, disp.original_filename)
+                raise PluginError(
+                    f"Plugin {plugin!r} didn't set source_filename for '{disp.original_filename}'"
                 )
             reason = self.check_include_omit_etc(disp.source_filename, frame)
             if reason:
@@ -309,25 +416,41 @@ class InOrOut(object):
         # about the outer bound of what to measure and we don't have to apply
         # any canned exclusions. If they didn't, then we have to exclude the
         # stdlib and coverage.py directories.
-        if self.source_match:
-            if self.source_pkgs_match.match(modulename):
-                if modulename in self.source_pkgs_unmatched:
-                    self.source_pkgs_unmatched.remove(modulename)
-            elif not self.source_match.match(filename):
-                return "falls outside the --source trees"
+        if self.source_match or self.source_pkgs_match:
+            extra = ""
+            ok = False
+            if self.source_pkgs_match:
+                if self.source_pkgs_match.match(modulename):
+                    ok = True
+                    if modulename in self.source_pkgs_unmatched:
+                        self.source_pkgs_unmatched.remove(modulename)
+                else:
+                    extra = f"module {modulename!r} "
+            if not ok and self.source_match:
+                if self.source_match.match(filename):
+                    ok = True
+            if not ok:
+                return extra + "falls outside the --source spec"
+            if not self.source_in_third:
+                if self.third_match.match(filename):
+                    return "inside --source, but is third-party"
         elif self.include_match:
             if not self.include_match.match(filename):
                 return "falls outside the --include trees"
         else:
+            # We exclude the coverage.py code itself, since a little of it
+            # will be measured otherwise.
+            if self.cover_match.match(filename):
+                return "is part of coverage.py"
+
             # If we aren't supposed to trace installed code, then check if this
             # is near the Python standard library and skip it if so.
             if self.pylib_match and self.pylib_match.match(filename):
                 return "is in the stdlib"
 
-            # We exclude the coverage.py code itself, since a little of it
-            # will be measured otherwise.
-            if self.cover_match and self.cover_match.match(filename):
-                return "is part of coverage.py"
+            # Exclude anything in the third-party installation areas.
+            if self.third_match.match(filename):
+                return "is a third-party module"
 
         # Check the file against the omit pattern.
         if self.omit_match and self.omit_match.match(filename):
@@ -335,7 +458,7 @@ class InOrOut(object):
 
         # No point tracing a file we can't later write to SQLite.
         try:
-            filename.encode("utf8")
+            filename.encode("utf-8")
         except UnicodeEncodeError:
             return "non-encodable filename"
 
@@ -359,11 +482,26 @@ class InOrOut(object):
                 if filename in warned:
                     continue
 
+                if len(getattr(mod, "__path__", ())) > 1:
+                    # A namespace package, which confuses this code, so ignore it.
+                    continue
+
                 disp = self.should_trace(filename)
+                if disp.has_dynamic_filename:
+                    # A plugin with dynamic filenames: the Python file
+                    # shouldn't cause a warning, since it won't be the subject
+                    # of tracing anyway.
+                    continue
                 if disp.trace:
-                    msg = "Already imported a file that will be measured: {}".format(filename)
+                    msg = f"Already imported a file that will be measured: {filename}"
                     self.warn(msg, slug="already-imported")
                     warned.add(filename)
+                elif self.debug and self.debug.should('trace'):
+                    self.debug.write(
+                        "Didn't trace already imported file {!r}: {}".format(
+                            disp.original_filename, disp.reason
+                        )
+                    )
 
     def warn_unimported_source(self):
         """Warn about source packages that were of interest, but never traced."""
@@ -378,7 +516,7 @@ class InOrOut(object):
         """
         mod = sys.modules.get(pkg)
         if mod is None:
-            self.warn("Module %s was never imported." % pkg, slug="module-not-imported")
+            self.warn(f"Module {pkg} was never imported.", slug="module-not-imported")
             return
 
         if module_is_namespace(mod):
@@ -387,16 +525,14 @@ class InOrOut(object):
             return
 
         if not module_has_file(mod):
-            self.warn("Module %s has no Python source." % pkg, slug="module-not-python")
+            self.warn(f"Module {pkg} has no Python source.", slug="module-not-python")
             return
 
         # The module was in sys.modules, and seems like a module with code, but
         # we never measured it. I guess that means it was imported before
         # coverage even started.
-        self.warn(
-            "Module %s was previously imported, but not measured" % pkg,
-            slug="module-not-measured",
-        )
+        msg = f"Module {pkg} was previously imported, but not measured"
+        self.warn(msg, slug="module-not-measured")
 
     def find_possibly_unexecuted_files(self):
         """Find files in the areas of interest that might be untraced.
@@ -408,12 +544,10 @@ class InOrOut(object):
                 not module_has_file(sys.modules[pkg])):
                 continue
             pkg_file = source_for_file(sys.modules[pkg].__file__)
-            for ret in self._find_executable_files(canonical_path(pkg_file)):
-                yield ret
+            yield from self._find_executable_files(canonical_path(pkg_file))
 
         for src in self.source:
-            for ret in self._find_executable_files(src):
-                yield ret
+            yield from self._find_executable_files(src)
 
     def _find_plugin_files(self, src_dir):
         """Get executable files from the plugins."""
@@ -448,15 +582,16 @@ class InOrOut(object):
         Returns a list of (key, value) pairs.
         """
         info = [
-            ('cover_paths', self.cover_paths),
-            ('pylib_paths', self.pylib_paths),
+            ("coverage_paths", self.cover_paths),
+            ("stdlib_paths", self.pylib_paths),
+            ("third_party_paths", self.third_paths),
         ]
 
         matcher_names = [
             'source_match', 'source_pkgs_match',
             'include_match', 'omit_match',
-            'cover_match', 'pylib_match',
-            ]
+            'cover_match', 'pylib_match', 'third_match',
+        ]
 
         for matcher_name in matcher_names:
             matcher = getattr(self, matcher_name)

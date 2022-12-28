@@ -3,17 +3,21 @@
 
 """Tests of miscellaneous stuff."""
 
+import sys
+
 import pytest
 
+from coverage import env
+from coverage.exceptions import CoverageException
 from coverage.misc import contract, dummy_decorator_with_args, file_be_gone
-from coverage.misc import Hasher, one_of, substitute_variables
-from coverage.misc import CoverageException, USE_CONTRACTS
+from coverage.misc import Hasher, one_of, substitute_variables, import_third_party
+from coverage.misc import human_sorted, human_sorted_items
 
 from tests.coveragetest import CoverageTest
 
 
 class HasherTest(CoverageTest):
-    """Test our wrapper of md5 hashing."""
+    """Test our wrapper of fingerprint hashing."""
 
     run_in_temp_dir = False
 
@@ -24,36 +28,36 @@ class HasherTest(CoverageTest):
         h2.update("Goodbye!")
         h3 = Hasher()
         h3.update("Hello, world!")
-        self.assertNotEqual(h1.hexdigest(), h2.hexdigest())
-        self.assertEqual(h1.hexdigest(), h3.hexdigest())
+        assert h1.hexdigest() != h2.hexdigest()
+        assert h1.hexdigest() == h3.hexdigest()
 
     def test_bytes_hashing(self):
         h1 = Hasher()
         h1.update(b"Hello, world!")
         h2 = Hasher()
         h2.update(b"Goodbye!")
-        self.assertNotEqual(h1.hexdigest(), h2.hexdigest())
+        assert h1.hexdigest() != h2.hexdigest()
 
     def test_unicode_hashing(self):
         h1 = Hasher()
-        h1.update(u"Hello, world! \N{SNOWMAN}")
+        h1.update("Hello, world! \N{SNOWMAN}")
         h2 = Hasher()
-        h2.update(u"Goodbye!")
-        self.assertNotEqual(h1.hexdigest(), h2.hexdigest())
+        h2.update("Goodbye!")
+        assert h1.hexdigest() != h2.hexdigest()
 
     def test_dict_hashing(self):
         h1 = Hasher()
         h1.update({'a': 17, 'b': 23})
         h2 = Hasher()
         h2.update({'b': 23, 'a': 17})
-        self.assertEqual(h1.hexdigest(), h2.hexdigest())
+        assert h1.hexdigest() == h2.hexdigest()
 
     def test_dict_collision(self):
         h1 = Hasher()
         h1.update({'a': 17, 'b': {'c': 1, 'd': 2}})
         h2 = Hasher()
         h2.update({'a': 17, 'b': {'c': 1}, 'd': 2})
-        self.assertNotEqual(h1.hexdigest(), h2.hexdigest())
+        assert h1.hexdigest() != h2.hexdigest()
 
 
 class RemoveFileTest(CoverageTest):
@@ -72,19 +76,15 @@ class RemoveFileTest(CoverageTest):
     def test_actual_errors(self):
         # Errors can still happen.
         # ". is a directory" on Unix, or "Access denied" on Windows
-        with self.assertRaises(OSError):
+        with pytest.raises(OSError):
             file_be_gone(".")
 
 
+@pytest.mark.skipif(not env.USE_CONTRACTS, reason="Contracts are disabled, can't test them")
 class ContractTest(CoverageTest):
     """Tests of our contract decorators."""
 
     run_in_temp_dir = False
-
-    def setUp(self):
-        super(ContractTest, self).setUp()
-        if not USE_CONTRACTS:
-            self.skipTest("Contracts are disabled")
 
     def test_bytes(self):
         @contract(text='bytes|None')
@@ -94,14 +94,14 @@ class ContractTest(CoverageTest):
         assert need_bytes(b"Hey") == b"Hey"
         assert need_bytes() is None
         with pytest.raises(Exception):
-            need_bytes(u"Oops")
+            need_bytes("Oops")
 
     def test_unicode(self):
         @contract(text='unicode|None')
         def need_unicode(text=None):
             return text
 
-        assert need_unicode(u"Hey") == u"Hey"
+        assert need_unicode("Hey") == "Hey"
         assert need_unicode() is None
         with pytest.raises(Exception):
             need_unicode(b"Oops")
@@ -158,3 +158,46 @@ def test_substitute_variables_errors(text):
         substitute_variables(text, VARS)
     assert text in str(exc_info.value)
     assert "Variable NOTHING is undefined" in str(exc_info.value)
+
+
+class ImportThirdPartyTest(CoverageTest):
+    """Test import_third_party."""
+
+    run_in_temp_dir = False
+
+    def test_success(self):
+        # Make sure we don't have pytest in sys.modules before we start.
+        del sys.modules["pytest"]
+        # Import pytest
+        mod = import_third_party("pytest")
+        # Yes, it's really pytest:
+        assert mod.__name__ == "pytest"
+        print(dir(mod))
+        assert all(hasattr(mod, name) for name in ["skip", "mark", "raises", "warns"])
+        # But it's not in sys.modules:
+        assert "pytest" not in sys.modules
+
+    def test_failure(self):
+        mod = import_third_party("xyzzy")
+        assert mod is None
+        assert "xyzzy" not in sys.modules
+
+
+HUMAN_DATA = [
+    ("z1 a2z a2a a3 a1", "a1 a2a a2z a3 z1"),
+    ("a10 a9 a100 a1", "a1 a9 a10 a100"),
+    ("4.0 3.10-win 3.10-mac 3.9-mac 3.9-win", "3.9-mac 3.9-win 3.10-mac 3.10-win 4.0"),
+]
+
+@pytest.mark.parametrize("words, ordered", HUMAN_DATA)
+def test_human_sorted(words, ordered):
+    assert " ".join(human_sorted(words.split())) == ordered
+
+@pytest.mark.parametrize("words, ordered", HUMAN_DATA)
+def test_human_sorted_items(words, ordered):
+    keys = words.split()
+    items = [(k, 1) for k in keys] + [(k, 2) for k in keys]
+    okeys = ordered.split()
+    oitems = [(k, v) for k in okeys for v in [1, 2]]
+    assert human_sorted_items(items) == oitems
+    assert human_sorted_items(items, reverse=True) == oitems[::-1]

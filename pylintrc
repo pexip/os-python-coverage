@@ -25,9 +25,6 @@ ignore=
 # Pickle collected data for later comparisons.
 persistent=no
 
-# Set the cache size for astng objects.
-cache-size=500
-
 # List of plugins (as comma separated values of python modules names) to load,
 # usually to register additional checkers.
 load-plugins=
@@ -61,13 +58,11 @@ disable=
 # Messages that are just silly:
     locally-disabled,
     exec-used,
-    no-init,
-    bad-whitespace,
     global-statement,
     broad-except,
     no-else-return,
+    subprocess-run-check,
 # Messages that may be silly:
-    no-self-use,
     no-member,
     using-constant-test,
     too-many-nested-blocks,
@@ -78,18 +73,19 @@ disable=
 # Questionable things, but it's ok, I don't need to be told:
     import-outside-toplevel,
     self-assigning-variable,
+    consider-using-with,
+    missing-timeout,
 # Formatting stuff
     superfluous-parens,
-    bad-continuation,
-# Disable while we still support Python 2:
-    useless-object-inheritance,
 # Messages that are noisy for now, eventually maybe we'll turn them on:
     invalid-name,
     protected-access,
+    unspecified-encoding,
+    consider-using-f-string,
     duplicate-code,
     cyclic-import
 
-msg-template={path}:{line}: {msg} ({symbol})
+msg-template={path}:{line} {C}: {msg} ({symbol})
 
 [REPORTS]
 
@@ -97,12 +93,7 @@ msg-template={path}:{line}: {msg} ({symbol})
 # (visual studio) and html
 output-format=text
 
-# Put messages in a separate file for each module / package specified on the
-# command line instead of printing them on stdout. Reports (if any) will be
-# written in a file name "pylint_global.[txt|html]".
-files-output=no
-
-# Tells wether to display a full report or only the messages
+# Tells whether to display a full report or only the messages
 reports=no
 
 # I don't need a score, thanks.
@@ -125,7 +116,7 @@ evaluation=10.0 - ((float(5 * error + warning + refactor + convention) / stateme
 # checks for :
 # * doc strings
 # * modules / classes / functions / methods / arguments / variables name
-# * number of arguments, local variables, branchs, returns and statements in
+# * number of arguments, local variables, branches, returns and statements in
 # functions, methods
 # * required module attributes
 # * dangerous default values as arguments
@@ -141,7 +132,7 @@ evaluation=10.0 - ((float(5 * error + warning + refactor + convention) / stateme
 # TestCase overrides don't: setUp, tearDown
 # Nested decorator implementations: _decorator, _wrapper
 # Dispatched methods don't: _xxx__Xxxx
-no-docstring-rgx=__.*__|test[A-Z_].*|setUp|tearDown|_decorator|_wrapper|_.*__.*
+no-docstring-rgx=__.*__|test[A-Z_].*|setUp|_decorator|_wrapper|_.*__.*
 
 # Regular expression which should only match correct module names
 module-rgx=(([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+))$
@@ -177,36 +168,29 @@ good-names=i,j,k,ex,Run,_
 # Bad variable names which should always be refused, separated by a comma
 bad-names=foo,bar,baz,toto,tutu,tata
 
-# List of builtins function names that should not be used, separated by a comma
-bad-functions=
-
 
 # try to find bugs in the code using type inference
 #
 [TYPECHECK]
 
-# Tells wether missing members accessed in mixin class should be ignored. A
+# Tells whether missing members accessed in mixin class should be ignored. A
 # mixin class is detected if its name ends with "mixin" (case insensitive).
 ignore-mixin-members=yes
 
 # List of classes names for which member attributes should not be checked
-# (useful for classes with attributes dynamicaly set).
+# (useful for classes with attributes dynamically set).
 ignored-classes=SQLObject
-
-# List of members which are usually get through zope's acquisition mecanism and
-# so shouldn't trigger E0201 when accessed (need zope=yes to be considered).
-acquired-members=REQUEST,acl_users,aq_parent
 
 
 # checks for
 # * unused variables / imports
 # * undefined variables
 # * redefinition of variable from builtins or from an outer scope
-# * use of variable before assigment
+# * use of variable before assignment
 #
 [VARIABLES]
 
-# Tells wether we should check for unused import in __init__ files.
+# Tells whether we should check for unused import in __init__ files.
 init-import=no
 
 # A regular expression matching names of unused arguments.
