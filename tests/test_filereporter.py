@@ -3,20 +3,16 @@
 
 """Tests for FileReporters"""
 
-import os
+import sys
 
 from coverage.plugin import FileReporter
 from coverage.python import PythonFileReporter
 
 from tests.coveragetest import CoverageTest, UsingModulesMixin
+from tests.helpers import os_sep
 
 # pylint: disable=import-error
 # Unable to import 'aa' (No module named aa)
-
-
-def native(filename):
-    """Make `filename` into a native form."""
-    return filename.replace("/", os.sep)
 
 
 class FileReporterTest(UsingModulesMixin, CoverageTest):
@@ -28,23 +24,23 @@ class FileReporterTest(UsingModulesMixin, CoverageTest):
         acu = PythonFileReporter("aa/afile.py")
         bcu = PythonFileReporter("aa/bb/bfile.py")
         ccu = PythonFileReporter("aa/bb/cc/cfile.py")
-        self.assertEqual(acu.relative_filename(), "aa/afile.py")
-        self.assertEqual(bcu.relative_filename(), "aa/bb/bfile.py")
-        self.assertEqual(ccu.relative_filename(), "aa/bb/cc/cfile.py")
-        self.assertEqual(acu.source(), "# afile.py\n")
-        self.assertEqual(bcu.source(), "# bfile.py\n")
-        self.assertEqual(ccu.source(), "# cfile.py\n")
+        assert acu.relative_filename() == "aa/afile.py"
+        assert bcu.relative_filename() == "aa/bb/bfile.py"
+        assert ccu.relative_filename() == "aa/bb/cc/cfile.py"
+        assert acu.source() == "# afile.py\n"
+        assert bcu.source() == "# bfile.py\n"
+        assert ccu.source() == "# cfile.py\n"
 
     def test_odd_filenames(self):
         acu = PythonFileReporter("aa/afile.odd.py")
         bcu = PythonFileReporter("aa/bb/bfile.odd.py")
         b2cu = PythonFileReporter("aa/bb.odd/bfile.py")
-        self.assertEqual(acu.relative_filename(), "aa/afile.odd.py")
-        self.assertEqual(bcu.relative_filename(), "aa/bb/bfile.odd.py")
-        self.assertEqual(b2cu.relative_filename(), "aa/bb.odd/bfile.py")
-        self.assertEqual(acu.source(), "# afile.odd.py\n")
-        self.assertEqual(bcu.source(), "# bfile.odd.py\n")
-        self.assertEqual(b2cu.source(), "# bfile.py\n")
+        assert acu.relative_filename() == "aa/afile.odd.py"
+        assert bcu.relative_filename() == "aa/bb/bfile.odd.py"
+        assert b2cu.relative_filename() == "aa/bb.odd/bfile.py"
+        assert acu.source() == "# afile.odd.py\n"
+        assert bcu.source() == "# bfile.odd.py\n"
+        assert b2cu.source() == "# bfile.py\n"
 
     def test_modules(self):
         import aa
@@ -54,12 +50,12 @@ class FileReporterTest(UsingModulesMixin, CoverageTest):
         acu = PythonFileReporter(aa)
         bcu = PythonFileReporter(aa.bb)
         ccu = PythonFileReporter(aa.bb.cc)
-        self.assertEqual(acu.relative_filename(), native("aa/__init__.py"))
-        self.assertEqual(bcu.relative_filename(), native("aa/bb/__init__.py"))
-        self.assertEqual(ccu.relative_filename(), native("aa/bb/cc/__init__.py"))
-        self.assertEqual(acu.source(), "# aa\n")
-        self.assertEqual(bcu.source(), "# bb\n")
-        self.assertEqual(ccu.source(), "")  # yes, empty
+        assert acu.relative_filename() == os_sep("aa/__init__.py")
+        assert bcu.relative_filename() == os_sep("aa/bb/__init__.py")
+        assert ccu.relative_filename() == os_sep("aa/bb/cc/__init__.py")
+        assert acu.source() == "# aa\n"
+        assert bcu.source() == "# bb\n"
+        assert ccu.source() == ""  # yes, empty
 
     def test_module_files(self):
         import aa.afile
@@ -69,12 +65,12 @@ class FileReporterTest(UsingModulesMixin, CoverageTest):
         acu = PythonFileReporter(aa.afile)
         bcu = PythonFileReporter(aa.bb.bfile)
         ccu = PythonFileReporter(aa.bb.cc.cfile)
-        self.assertEqual(acu.relative_filename(), native("aa/afile.py"))
-        self.assertEqual(bcu.relative_filename(), native("aa/bb/bfile.py"))
-        self.assertEqual(ccu.relative_filename(), native("aa/bb/cc/cfile.py"))
-        self.assertEqual(acu.source(), "# afile.py\n")
-        self.assertEqual(bcu.source(), "# bfile.py\n")
-        self.assertEqual(ccu.source(), "# cfile.py\n")
+        assert acu.relative_filename() == os_sep("aa/afile.py")
+        assert bcu.relative_filename() == os_sep("aa/bb/bfile.py")
+        assert ccu.relative_filename() == os_sep("aa/bb/cc/cfile.py")
+        assert acu.source() == "# afile.py\n"
+        assert bcu.source() == "# bfile.py\n"
+        assert ccu.source() == "# cfile.py\n"
 
     def test_comparison(self):
         acu = FileReporter("aa/afile.py")
@@ -87,18 +83,20 @@ class FileReporterTest(UsingModulesMixin, CoverageTest):
         assert acu < bcu and acu <= bcu and acu != bcu
         assert bcu > acu and bcu >= acu and bcu != acu
 
-    def test_egg(self):
-        # Test that we can get files out of eggs, and read their source files.
-        # The egg1 module is installed by an action in igor.py.
-        import egg1
-        import egg1.egg1
+    def test_zipfile(self):
+        sys.path.append("tests/zip1.zip")
 
-        # Verify that we really imported from an egg.  If we did, then the
+        # Test that we can get files out of zipfiles, and read their source files.
+        # The zip1 module is installed by an action in igor.py.
+        import zip1
+        import zip1.zip1
+
+        # Verify that we really imported from an zipfile.  If we did, then the
         # __file__ won't be an actual file, because one of the "directories"
-        # in the path is actually the .egg zip file.
-        self.assert_doesnt_exist(egg1.__file__)
+        # in the path is actually the zip file.
+        self.assert_doesnt_exist(zip1.__file__)
 
-        ecu = PythonFileReporter(egg1)
-        eecu = PythonFileReporter(egg1.egg1)
-        self.assertEqual(ecu.source(), u"")
-        self.assertIn(u"# My egg file!", eecu.source().splitlines())
+        z1 = PythonFileReporter(zip1)
+        z1z1 = PythonFileReporter(zip1.zip1)
+        assert z1.source() == ""
+        assert "# My zip file!" in z1z1.source().splitlines()

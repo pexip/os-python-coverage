@@ -4,6 +4,7 @@
 """Oddball cases for testing coverage.py"""
 
 import os.path
+import re
 import sys
 
 from flaky import flaky
@@ -11,10 +12,11 @@ import pytest
 
 import coverage
 from coverage import env
-from coverage.backward import import_local_file
 from coverage.files import abs_file
+from coverage.misc import import_local_file
 
 from tests.coveragetest import CoverageTest
+from tests.helpers import swallow_warnings
 from tests import osinfo
 
 
@@ -80,21 +82,22 @@ class RecursionTest(CoverageTest):
 
     def test_long_recursion(self):
         # We can't finish a very deep recursion, but we don't crash.
-        with self.assertRaises(RuntimeError):
-            self.check_coverage("""\
-                def recur(n):
-                    if n == 0:
-                        return 0
-                    else:
-                        return recur(n-1)+1
+        with pytest.raises(RuntimeError):
+            with swallow_warnings("Trace function changed, data is likely wrong: None"):
+                self.check_coverage("""\
+                    def recur(n):
+                        if n == 0:
+                            return 0
+                        else:
+                            return recur(n-1)+1
 
-                recur(100000)  # This is definitely too many frames.
-                """,
-                [1, 2, 3, 5, 7], ""
+                    recur(100000)  # This is definitely too many frames.
+                    """,
+                    [1, 2, 3, 5, 7], ""
                 )
 
     def test_long_recursion_recovery(self):
-        # Test the core of bug 93: https://bitbucket.org/ned/coveragepy/issue/93
+        # Test the core of bug 93: https://github.com/nedbat/coveragepy/issues/93
         # When recovering from a stack overflow, the Python trace function is
         # disabled, but the C trace function is not.  So if we're using a
         # Python trace function, we won't trace anything after the stack
@@ -117,7 +120,8 @@ class RecursionTest(CoverageTest):
             """)
 
         cov = coverage.Coverage()
-        self.start_import_stop(cov, "recur")
+        with swallow_warnings("Trace function changed, data is likely wrong: None"):
+            self.start_import_stop(cov, "recur")
 
         pytrace = (cov._collector.tracer_name() == "PyTracer")
         expected_missing = [3]
@@ -125,32 +129,35 @@ class RecursionTest(CoverageTest):
             expected_missing += [9, 10, 11]
 
         _, statements, missing, _ = cov.analysis("recur.py")
-        self.assertEqual(statements, [1, 2, 3, 5, 7, 8, 9, 10, 11])
-        self.assertEqual(expected_missing, missing)
+        assert statements == [1, 2, 3, 5, 7, 8, 9, 10, 11]
+        assert expected_missing == missing
 
         # Get a warning about the stackoverflow effect on the tracing function.
         if pytrace:                                 # pragma: no metacov
-            self.assertEqual(cov._warnings,
-                ["Trace function changed, measurement is likely wrong: None"]
-                )
+            assert len(cov._warnings) == 1
+            assert re.fullmatch(
+                r"Trace function changed, data is likely wrong: None != " +
+                r"<bound method PyTracer._trace of " +
+                "<PyTracer at 0x[0-9a-fA-F]+: 5 lines in 1 files>>",
+                cov._warnings[0],
+            )
         else:
-            self.assertEqual(cov._warnings, [])
+            assert not cov._warnings
 
 
 class MemoryLeakTest(CoverageTest):
     """Attempt the impossible: test that memory doesn't leak.
 
     Note: this test is truly unusual, and has had a colorful history.  See
-    for example: https://bitbucket.org/ned/coveragepy/issue/186
+    for example: https://github.com/nedbat/coveragepy/issues/186
 
     It may still fail occasionally, especially on PyPy.
 
     """
     @flaky
+    @pytest.mark.skipif(env.JYTHON, reason="Don't bother on Jython")
+    @pytest.mark.skipif(not env.C_TRACER, reason="Only the C tracer has refcounting issues")
     def test_for_leaks(self):
-        if env.JYTHON:
-            self.skipTest("Don't bother on Jython")
-
         # Our original bad memory leak only happened on line numbers > 255, so
         # make a code object with more lines than that.  Ugly string mumbo
         # jumbo to get 300 blank lines at the beginning..
@@ -190,17 +197,16 @@ class MemoryLeakTest(CoverageTest):
                 fails += 1                                  # pragma: only failure
 
         if fails > 8:
-            self.fail("RAM grew by %d" % (ram_growth))      # pragma: only failure
+            pytest.fail("RAM grew by %d" % (ram_growth))      # pragma: only failure
 
 
 class MemoryFumblingTest(CoverageTest):
     """Test that we properly manage the None refcount."""
 
+    @pytest.mark.skipif(not env.C_TRACER, reason="Only the C tracer has refcounting issues")
     def test_dropping_none(self):                           # pragma: not covered
-        if not env.C_TRACER:
-            self.skipTest("Only the C tracer has refcounting issues")
         # TODO: Mark this so it will only be run sometimes.
-        self.skipTest("This is too expensive for now (30s)")
+        pytest.skip("This is too expensive for now (30s)")
         # Start and stop coverage thousands of times to flush out bad
         # reference counting, maybe.
         self.make_file("the_code.py", """\
@@ -224,18 +230,16 @@ class MemoryFumblingTest(CoverageTest):
             print("Final None refcount: %d" % (sys.getrefcount(None)))
             """)
         status, out = self.run_command_status("python main.py")
-        self.assertEqual(status, 0)
-        self.assertIn("Final None refcount", out)
-        self.assertNotIn("Fatal", out)
+        assert status == 0
+        assert "Final None refcount" in out
+        assert "Fatal" not in out
 
 
+@pytest.mark.skipif(env.JYTHON, reason="Pyexpat isn't a problem on Jython")
 class PyexpatTest(CoverageTest):
     """Pyexpat screws up tracing. Make sure we've counter-defended properly."""
 
     def test_pyexpat(self):
-        if env.JYTHON:
-            self.skipTest("Pyexpat isn't a problem on Jython")
-
         # pyexpat calls the trace function explicitly (inexplicably), and does
         # it wrong for exceptions.  Parsing a DOCTYPE for some reason throws
         # an exception internally, and triggers its wrong behavior.  This test
@@ -268,20 +272,18 @@ class PyexpatTest(CoverageTest):
         self.start_import_stop(cov, "outer")
 
         _, statements, missing, _ = cov.analysis("trydom.py")
-        self.assertEqual(statements, [1, 3, 8, 9, 10, 11, 13])
-        self.assertEqual(missing, [])
+        assert statements == [1, 3, 8, 9, 10, 11, 13]
+        assert missing == []
 
         _, statements, missing, _ = cov.analysis("outer.py")
-        self.assertEqual(statements, [101, 102])
-        self.assertEqual(missing, [])
+        assert statements == [101, 102]
+        assert missing == []
 
         # Make sure pyexpat isn't recorded as a source file.
-        # https://bitbucket.org/ned/coveragepy/issues/419/nosource-no-source-for-code-path-to-c
+        # https://github.com/nedbat/coveragepy/issues/419
         files = cov.get_data().measured_files()
-        self.assertFalse(
-            any(f.endswith("pyexpat.c") for f in files),
-            "Pyexpat.c is in the measured files!: %r:" % (files,)
-        )
+        msg = f"Pyexpat.c is in the measured files!: {files!r}:"
+        assert not any(f.endswith("pyexpat.c") for f in files), msg
 
 
 class ExceptionTest(CoverageTest):
@@ -344,25 +346,25 @@ class ExceptionTest(CoverageTest):
                 'doit.py': [302, 303, 304, 305],
                 'fly.py': [102, 103],
                 'oops.py': [2, 3],
-                }),
+            }),
             ("doit catch oops", {
                 'doit.py': [302, 303],
                 'catch.py': [202, 203, 204, 206, 207],
                 'oops.py': [2, 3],
-                }),
+            }),
             ("doit fly catch oops", {
                 'doit.py': [302, 303],
                 'fly.py': [102, 103, 104],
                 'catch.py': [202, 203, 204, 206, 207],
                 'oops.py': [2, 3],
-                }),
+            }),
             ("doit catch fly oops", {
                 'doit.py': [302, 303],
                 'catch.py': [202, 203, 204, 206, 207],
                 'fly.py': [102, 103],
                 'oops.py': [2, 3],
-                }),
-            ]
+            }),
+        ]
 
         for callnames, lines_expected in runs:
 
@@ -393,14 +395,20 @@ class ExceptionTest(CoverageTest):
                 for lines in lines_expected.values():
                     lines[:] = [l for l in lines if l not in invisible]
 
-            self.assertEqual(clean_lines, lines_expected)
+            assert clean_lines == lines_expected
 
 
 class DoctestTest(CoverageTest):
     """Tests invoked with doctest should measure properly."""
 
     def test_doctest(self):
-        self.check_coverage('''\
+        # Doctests used to be traced, with their line numbers credited to the
+        # file they were in.  Below, one of the doctests has four lines (1-4),
+        # which would incorrectly claim that lines 1-4 of the file were
+        # executed.  In this file, line 2 is not executed.
+        self.make_file("the_doctest.py", '''\
+            if "x" in "abc":
+                print("hello")
             def return_arg_or_void(arg):
                 """If <arg> is None, return "Void"; otherwise return <arg>
 
@@ -410,6 +418,11 @@ class DoctestTest(CoverageTest):
                 'arg'
                 >>> return_arg_or_void("None")
                 'None'
+                >>> if "x" in "xyz":                # line 1
+                ...   if "a" in "aswed":            # line 2
+                ...      if "a" in "abc":           # line 3
+                ...         return_arg_or_void(12)  # line 4
+                12
                 """
                 if arg is None:
                     return "Void"
@@ -418,14 +431,19 @@ class DoctestTest(CoverageTest):
 
             import doctest, sys
             doctest.testmod(sys.modules[__name__])  # we're not __main__ :(
-            ''',
-            [1, 11, 12, 14, 16, 17], "")
+            ''')
+        cov = coverage.Coverage()
+        self.start_import_stop(cov, "the_doctest")
+        data = cov.get_data()
+        assert len(data.measured_files()) == 1
+        lines = data.lines(data.measured_files().pop())
+        assert lines == [1, 3, 18, 19, 21, 23, 24]
 
 
 class GettraceTest(CoverageTest):
     """Tests that we work properly with `sys.gettrace()`."""
     def test_round_trip_in_untraced_function(self):
-        # https://bitbucket.org/ned/coveragepy/issues/575/running-doctest-prevents-complete-coverage
+        # https://github.com/nedbat/coveragepy/issues/575
         self.make_file("main.py", """import sample""")
         self.make_file("sample.py", """\
             from swap import swap_it
@@ -451,19 +469,21 @@ class GettraceTest(CoverageTest):
         cov = coverage.Coverage(source=["sample"])
         self.start_import_stop(cov, "main")
 
-        self.assertEqual(self.stdout(), "10\n7\n3\n5\n9\n12\n")
+        assert self.stdout() == "10\n7\n3\n5\n9\n12\n"
 
         _, statements, missing, _ = cov.analysis("sample.py")
-        self.assertEqual(statements, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
-        self.assertEqual(missing, [])
+        assert statements == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        assert missing == []
 
     def test_setting_new_trace_function(self):
-        # https://bitbucket.org/ned/coveragepy/issues/436/disabled-coverage-ctracer-may-rise-from
+        # https://github.com/nedbat/coveragepy/issues/436
         self.check_coverage('''\
+            import os.path
             import sys
 
             def tracer(frame, event, arg):
-                print("%s: %s @ %d" % (event, frame.f_code.co_filename, frame.f_lineno))
+                filename = os.path.basename(frame.f_code.co_filename)
+                print(f"{event}: {filename} @ {frame.f_lineno}")
                 return tracer
 
             def begin():
@@ -483,28 +503,24 @@ class GettraceTest(CoverageTest):
             a = 21
             b = 22
             ''',
-            lines=[1, 3, 4, 5, 7, 8, 10, 11, 12, 14, 15, 16, 18, 19, 20, 21, 22],
-            missing="4-5, 11-12",
+            lines=[1, 2, 4, 5, 6, 7, 9, 10, 12, 13, 14, 16, 17, 18, 20, 21, 22, 23, 24],
+            missing="5-7, 13-14",
         )
 
         out = self.stdout().replace(self.last_module_name, "coverage_test")
-
-        self.assertEqual(
-            out,
-            (
-                "call: coverage_test.py @ 10\n"
-                "line: coverage_test.py @ 11\n"
-                "line: coverage_test.py @ 12\n"
-                "return: coverage_test.py @ 12\n"
-            ),
+        expected = (
+            "call: coverage_test.py @ 12\n" +
+            "line: coverage_test.py @ 13\n" +
+            "line: coverage_test.py @ 14\n" +
+            "return: coverage_test.py @ 14\n"
         )
+        assert expected == out
 
     @pytest.mark.expensive
-    def test_atexit_gettrace(self):             # pragma: no metacov
+    @pytest.mark.skipif(env.METACOV, reason="Can't set trace functions during meta-coverage")
+    def test_atexit_gettrace(self):
         # This is not a test of coverage at all, but of our understanding
         # of this edge-case behavior in various Pythons.
-        if env.METACOV:
-            self.skipTest("Can't set trace functions during meta-coverage")
 
         self.make_file("atexit_gettrace.py", """\
             import atexit, sys
@@ -523,19 +539,19 @@ class GettraceTest(CoverageTest):
             # This will show what the trace function is at the end of the program.
             """)
         status, out = self.run_command_status("python atexit_gettrace.py")
-        self.assertEqual(status, 0)
+        assert status == 0
         if env.PYPY and env.PYPYVERSION >= (5, 4):
             # Newer PyPy clears the trace function before atexit runs.
-            self.assertEqual(out, "None\n")
+            assert out == "None\n"
         else:
             # Other Pythons leave the trace function in place.
-            self.assertEqual(out, "trace_function\n")
+            assert out == "trace_function\n"
 
 
 class ExecTest(CoverageTest):
     """Tests of exec."""
     def test_correct_filename(self):
-        # https://bitbucket.org/ned/coveragepy/issues/380/code-executed-by-exec-excluded-from
+        # https://github.com/nedbat/coveragepy/issues/380
         # Bug was that exec'd files would have their lines attributed to the
         # calling file.  Make two files, both with ~30 lines, but no lines in
         # common.  Line 30 in to_exec.py was recorded as line 30 in main.py,
@@ -557,16 +573,14 @@ class ExecTest(CoverageTest):
         self.start_import_stop(cov, "main")
 
         _, statements, missing, _ = cov.analysis("main.py")
-        self.assertEqual(statements, [1, 2, 3, 4, 35])
-        self.assertEqual(missing, [])
+        assert statements == [1, 2, 3, 4, 35]
+        assert missing == []
         _, statements, missing, _ = cov.analysis("to_exec.py")
-        self.assertEqual(statements, [31])
-        self.assertEqual(missing, [])
+        assert statements == [31]
+        assert missing == []
 
     def test_unencodable_filename(self):
         # https://github.com/nedbat/coveragepy/issues/891
-        if env.PYVERSION < (3, 0):
-            self.skipTest("Python 2 can't seem to compile the file.")
         self.make_file("bug891.py", r"""exec(compile("pass", "\udcff.py", "exec"))""")
         cov = coverage.Coverage()
         self.start_import_stop(cov, "bug891")
@@ -579,7 +593,7 @@ class ExecTest(CoverageTest):
 class MockingProtectionTest(CoverageTest):
     """Tests about protecting ourselves from aggressive mocking.
 
-    https://bitbucket.org/ned/coveragepy/issues/416/coverage-40-is-causing-existing-unit-tests
+    https://github.com/nedbat/coveragepy/issues/416
 
     """
     def test_os_path_exists(self):
@@ -588,8 +602,7 @@ class MockingProtectionTest(CoverageTest):
         # StopIteration error.
         self.make_file("bug416.py", """\
             import os.path
-
-            import mock
+            from unittest import mock
 
             @mock.patch('os.path.exists')
             def test_path_exists(mock_exists):
@@ -609,4 +622,4 @@ class MockingProtectionTest(CoverageTest):
         import py_compile
         py_compile.compile("bug416a.py")
         out = self.run_command("coverage run bug416.py")
-        self.assertEqual(out, "in test\nbug416a.py\n23\n17\n")
+        assert out == "in test\nbug416a.py\n23\n17\n"

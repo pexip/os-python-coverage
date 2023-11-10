@@ -2,12 +2,13 @@
 
 - Check that the current virtualenv matches the current coverage branch.
 - Version number in coverage/version.py
-        version_info = (4, 0, 2, 'alpha', 1)
-        version_info = (4, 0, 2, 'beta', 1)
-        version_info = (4, 0, 2, 'candidate', 1)
-        version_info = (4, 0, 2, 'final', 0)
-- Python version number in classifiers in setup.py
+        version_info = (4, 0, 2, "alpha", 1)
+        version_info = (4, 0, 2, "beta", 1)
+        version_info = (4, 0, 2, "candidate", 1)
+        version_info = (4, 0, 2, "final", 0)
+- Supported Python version numbers. Search for "PYVERSIONS".
 - Copyright date in NOTICE.txt
+- run `python igor.py cheats` to get useful snippets for next steps.
 - Update CHANGES.rst, including release date.
     - don't forget the jump target
 - Update README.rst
@@ -15,56 +16,49 @@
     - Python versions supported
 - Update docs
     - Python versions in doc/index.rst
-    - Version of latest stable release in doc/index.rst
+    - IF PRE-RELEASE:
+        - Version of latest stable release in doc/index.rst
     - Version, release, release_date and copyright date in doc/conf.py
         - Look for CHANGEME comments
+    - Make sure the docs are cogged:
+        $ make prebuild
     - Don't forget the man page: doc/python-coverage.1.txt
     - Check that the docs build correctly:
         $ tox -e doc
-            there will be warnings about the readthedocs links being broken,
-            because this version's docs haven't been published yet.
-    - Done with changes to source files, check them in.
-        - git push
-    - Generate new sample_html to get the latest, incl footer version number:
-        make clean
-        pip install -e .
-        cd ~/cog/trunk
-        rm -rf htmlcov
-        coverage run --branch --source=cogapp -m pytest -k CogTestsInMemory; coverage combine; coverage html
-        - IF PRE-RELEASE:
-            rm -f ~/coverage/trunk/doc/sample_html_beta/*.*
-            cp -r htmlcov/ ~/coverage/trunk/doc/sample_html_beta/
-        - IF NOT PRE-RELEASE:
-            rm -f ~/coverage/trunk/doc/sample_html/*.*
-            cp -r htmlcov/ ~/coverage/trunk/doc/sample_html/
-        cd ~/coverage/trunk
-        - IF NOT PRE-RELEASE:
-            check in the new sample html
-    - Build and publish docs:
-        - IF PRE-RELEASE:
-            $ make publishbeta
-        - ELSE:
-            $ make publish
+- commit the release-prep changes
+- Generate new sample_html to get the latest, incl footer version number:
+    - IF PRE-RELEASE:
+        $ make sample_html_beta
+    - IF NOT PRE-RELEASE:
+        $ make sample_html
+        check in the new sample html
+- Done with changes to source files, check them in.
+    $ git push
+- Build and publish docs:
+    - IF PRE-RELEASE:
+        $ make publishbeta
+    - ELSE:
+        $ make publish
 - Kits:
-    - Start fresh:
-        - $ make sterile
-    - Source kit and wheels:
-        - $ make kit wheel
-    - Linux wheels:
-        - $ make kit_linux
-    - Windows kits
-        - wait for over an hour for Appveyor to build kits.
-            - https://ci.appveyor.com/project/nedbat/coveragepy
-        - $ make download_appveyor
+    - Trigger the kit GitHub Action
+        $ make build_kits
+        - wait for it to finish:
+            - https://github.com/nedbat/coveragepy/actions/workflows/kit.yml
+    - Download and check built kits from GitHub Actions:
+        $ make clean download_kits check_kits
     - examine the dist directory, and remove anything that looks malformed.
     - test the pypi upload:
-        - $ make test_upload
+        $ make test_upload
 - Update PyPI:
     - upload kits:
-        - $ make kit_upload
+        $ make kit_upload
 - Tag the tree
-    - git tag coverage-3.0.1
-    - git push --tags
+    $ make tag
+    - IF NOT PRE-RELEASE:
+        - update git "stable" branch to point to latest release
+            $ make update_stable
+- Update GitHub releases:
+    $ make clean github_releases
 - Bump version:
     - coverage/version.py
         - increment version number
@@ -72,28 +66,27 @@
             - set to alpha-0 if just released.
     - CHANGES.rst
         - add an "Unreleased" section to the top.
-    - git push
-- Update Tidelift:
-    - make upload_relnotes
+    $ git push
 - Update readthedocs
-    - IF NOT PRE-RELEASE:
-        - update git "stable" branch to point to latest release
-            - git branch -f stable <latest-tag>
-            - git push --all
-        - visit https://readthedocs.org/projects/coverage/builds/
-        - wait for the new tag build to finish successfully.
-        - visit https://readthedocs.org/dashboard/coverage/advanced/
-        - change the default version to the new version
-    - visit https://readthedocs.org/projects/coverage/versions/
+    - @ https://readthedocs.org/projects/coverage/versions/
         - find the latest tag in the inactive list, edit it, make it active.
             - readthedocs won't find the tag until a commit is made on master.
-        - keep just the latest version of each x.y release, make the rest inactive.
+        - keep just the latest version of each x.y release, make the rest active but hidden.
+    - IF NOT PRE-RELEASE:
+        - @ https://readthedocs.org/projects/coverage/builds/
+            - wait for the new tag build to finish successfully.
+        - @ https://readthedocs.org/dashboard/coverage/advanced/
+            - change the default version to the new version
 - Visit the fixed issues on GitHub and mention the version it was fixed in.
-    - make a milestone for the next release and move open issues into it.
+    $ make comment_on_fixes
+        - "This is now released as part of [coverage 5.2](https://pypi.org/project/coverage/5.2)."
 - Announce:
     - twitter @coveragepy
     - nedbatchelder.com blog post?
-    - testing-in-python mailing list?
+- things to automate:
+    - url to link to latest changes in docs
+    - next version.py line
+    - readthedocs api to do the readthedocs changes
 
 
 * Testing
@@ -102,9 +95,6 @@
     - Create and activate a virtualenv
     - pip install -r requirements/dev.pip
     - $ tox
-
-- Testing on Linux:
-    - $ make test_linux
 
 - For complete coverage testing:
 

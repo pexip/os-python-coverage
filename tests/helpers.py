@@ -3,17 +3,22 @@
 
 """Helpers for coverage.py tests."""
 
-import glob
+import collections
+import contextlib
 import os
+import os.path
 import re
 import shutil
 import subprocess
-import sys
+import textwrap
+import warnings
 
-from unittest_mixins import ModuleCleaner
+from unittest import mock
+
+import pytest
 
 from coverage import env
-from coverage.backward import invalidate_import_caches, unicode_class
+from coverage.exceptions import CoverageWarning
 from coverage.misc import output_encoding
 
 
@@ -23,8 +28,11 @@ def run_command(cmd):
     Returns the exit status code and the combined stdout and stderr.
 
     """
-    if env.PY2 and isinstance(cmd, unicode_class):
-        cmd = cmd.encode(sys.getfilesystemencoding())
+    # Subprocesses are expensive, but convenient, and so may be over-used in
+    # the test suite.  Use these lines to get a list of the tests using them:
+    if 0:       # pragma: debugging
+        with open("/tmp/processes.txt", "a") as proctxt:
+            print(os.environ.get("PYTEST_CURRENT_TEST", "unknown"), file=proctxt, flush=True)
 
     # In some strange cases (PyPy3 in a virtualenv!?) the stdout encoding of
     # the subprocess is set incorrectly to ascii.  Use an environment variable
@@ -36,21 +44,74 @@ def run_command(cmd):
         cmd,
         shell=True,
         env=sub_env,
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT
-        )
+    )
     output, _ = proc.communicate()
     status = proc.returncode
 
     # Get the output, and canonicalize it to strings with newlines.
-    if not isinstance(output, str):
-        output = output.decode(output_encoding())
-    output = output.replace('\r', '')
-
+    output = output.decode(output_encoding()).replace("\r", "")
     return status, output
 
 
-class CheckUniqueFilenames(object):
+def make_file(filename, text="", bytes=b"", newline=None):
+    """Create a file for testing.
+
+    `filename` is the relative path to the file, including directories if
+    desired, which will be created if need be.
+
+    `text` is the content to create in the file, a native string (bytes in
+    Python 2, unicode in Python 3), or `bytes` are the bytes to write.
+
+    If `newline` is provided, it is a string that will be used as the line
+    endings in the created file, otherwise the line endings are as provided
+    in `text`.
+
+    Returns `filename`.
+
+    """
+    # pylint: disable=redefined-builtin     # bytes
+    if bytes:
+        data = bytes
+    else:
+        text = textwrap.dedent(text)
+        if newline:
+            text = text.replace("\n", newline)
+        data = text.encode("utf-8")
+
+    # Make sure the directories are available.
+    dirs, _ = os.path.split(filename)
+    if dirs and not os.path.exists(dirs):
+        os.makedirs(dirs)
+
+    # Create the file.
+    with open(filename, 'wb') as f:
+        f.write(data)
+
+    # For debugging, enable this to show the contents of files created.
+    if 0:       # pragma: debugging
+        print(f"   ───┬──┤ {filename} ├───────────────────────")
+        for lineno, line in enumerate(data.splitlines(), start=1):
+            print(f"{lineno:6}│ {line.rstrip().decode()}")
+        print()
+
+    return filename
+
+
+def nice_file(*fparts):
+    """Canonicalize the file name composed of the parts in `fparts`."""
+    fname = os.path.join(*fparts)
+    return os.path.normcase(os.path.abspath(os.path.realpath(fname)))
+
+
+def os_sep(s):
+    """Replace slashes in `s` with the correct separator for the OS."""
+    return s.replace("/", os.sep)
+
+
+class CheckUniqueFilenames:
     """Asserts the uniqueness of file names passed to a function."""
     def __init__(self, wrapped):
         self.filenames = set()
@@ -75,72 +136,55 @@ class CheckUniqueFilenames(object):
     def wrapper(self, filename, *args, **kwargs):
         """The replacement method.  Check that we don't have dupes."""
         assert filename not in self.filenames, (
-            "File name %r passed to %r twice" % (filename, self.wrapped)
-            )
+            f"File name {filename!r} passed to {self.wrapped!r} twice"
+        )
         self.filenames.add(filename)
         ret = self.wrapped(filename, *args, **kwargs)
         return ret
 
 
-def re_lines(text, pat, match=True):
-    """Return the text of lines that match `pat` in the string `text`.
+def re_lines(pat, text, match=True):
+    """Return a list of lines selected by `pat` in the string `text`.
 
     If `match` is false, the selection is inverted: only the non-matching
     lines are included.
 
-    Returns a string, the text of only the selected lines.
+    Returns a list, the selected lines, without line endings.
 
     """
-    return "".join(l for l in text.splitlines(True) if bool(re.search(pat, l)) == match)
+    assert len(pat) < 200, "It's super-easy to swap the arguments to re_lines"
+    return [l for l in text.splitlines() if bool(re.search(pat, l)) == match]
 
 
-def re_line(text, pat):
+def re_lines_text(pat, text, match=True):
+    """Return the multi-line text of lines selected by `pat`."""
+    return "".join(l + "\n" for l in re_lines(pat, text, match=match))
+
+
+def re_line(pat, text):
     """Return the one line in `text` that matches regex `pat`.
 
     Raises an AssertionError if more than one, or less than one, line matches.
 
     """
-    lines = re_lines(text, pat).splitlines()
+    lines = re_lines(pat, text)
     assert len(lines) == 1
     return lines[0]
 
 
-def remove_files(*patterns):
-    """Remove all files that match any of the patterns."""
-    for pattern in patterns:
-        for fname in glob.glob(pattern):
-            os.remove(fname)
+def remove_tree(dirname):
+    """Remove a directory tree.
 
-
-class SuperModuleCleaner(ModuleCleaner):
-    """Remember the state of sys.modules and restore it later."""
-
-    def clean_local_file_imports(self):
-        """Clean up the results of calls to `import_local_file`.
-
-        Use this if you need to `import_local_file` the same file twice in
-        one test.
-
-        """
-        # So that we can re-import files, clean them out first.
-        self.cleanup_modules()
-
-        # Also have to clean out the .pyc file, since the timestamp
-        # resolution is only one second, a changed file might not be
-        # picked up.
-        remove_files("*.pyc", "*$py.class")
-        if os.path.exists("__pycache__"):
-            shutil.rmtree("__pycache__")
-
-        invalidate_import_caches()
+    It's fine for the directory to not exist in the first place.
+    """
+    if os.path.exists(dirname):
+        shutil.rmtree(dirname)
 
 
 # Map chars to numbers for arcz_to_arcs
 _arcz_map = {'.': -1}
-_arcz_map.update(dict((c, ord(c) - ord('0')) for c in '123456789'))
-_arcz_map.update(dict(
-    (c, 10 + ord(c) - ord('A')) for c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-))
+_arcz_map.update({c: ord(c) - ord('0') for c in '123456789'})
+_arcz_map.update({c: 10 + ord(c) - ord('A') for c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'})
 
 def arcz_to_arcs(arcz):
     """Convert a compact textual representation of arcs to a list of pairs.
@@ -196,10 +240,85 @@ def arcs_to_arcz_repr(arcs):
 
     """
     repr_list = []
-    for a, b in arcs:
+    for a, b in (arcs or ()):
         line = repr((a, b))
         line += " # "
         line += _arcs_to_arcz_repr_one(a)
         line += _arcs_to_arcz_repr_one(b)
         repr_list.append(line)
     return "\n".join(repr_list) + "\n"
+
+
+@contextlib.contextmanager
+def change_dir(new_dir):
+    """Change directory, and then change back.
+
+    Use as a context manager, it will return to the original
+    directory at the end of the block.
+
+    """
+    old_dir = os.getcwd()
+    os.chdir(str(new_dir))
+    try:
+        yield
+    finally:
+        os.chdir(old_dir)
+
+
+def without_module(using_module, missing_module_name):
+    """
+    Hide a module for testing.
+
+    Use this in a test function to make an optional module unavailable during
+    the test::
+
+        with without_module(product.something, 'tomli'):
+            use_toml_somehow()
+
+    Arguments:
+        using_module: a module in which to hide `missing_module_name`.
+        missing_module_name (str): the name of the module to hide.
+
+    """
+    return mock.patch.object(using_module, missing_module_name, None)
+
+
+def assert_count_equal(a, b):
+    """
+    A pytest-friendly implementation of assertCountEqual.
+
+    Assert that `a` and `b` have the same elements, but maybe in different order.
+    This only works for hashable elements.
+    """
+    assert collections.Counter(list(a)) == collections.Counter(list(b))
+
+
+def assert_coverage_warnings(warns, *msgs):
+    """
+    Assert that the CoverageWarning's in `warns` have `msgs` as messages.
+    """
+    assert msgs     # don't call this without some messages.
+    warns = [w for w in warns if issubclass(w.category, CoverageWarning)]
+    assert len(warns) == len(msgs)
+    for actual, expected in zip((w.message.args[0] for w in warns), msgs):
+        if hasattr(expected, "search"):
+            assert expected.search(actual), f"{actual!r} didn't match {expected!r}"
+        else:
+            assert expected == actual
+
+
+@contextlib.contextmanager
+def swallow_warnings(message=r".", category=CoverageWarning):
+    """Swallow particular warnings.
+
+    It's OK if they happen, or if they don't happen. Just ignore them.
+    """
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=category, message=message)
+        yield
+
+
+xfail_pypy_3749 = pytest.mark.xfail(
+    env.PYVERSION[:2] == (3, 8) and env.PYPY and env.PYPYVERSION >= (7, 3, 10),
+    reason="Avoid a PyPy bug: https://foss.heptapod.net/pypy/pypy/-/issues/3749",
+)

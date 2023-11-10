@@ -4,7 +4,7 @@
 """Code coverage measurement for Python"""
 
 # Distutils setup for coverage.py
-# This file is used unchanged under all versions of Python, 2.x and 3.x.
+# This file is used unchanged under all versions of Python.
 
 import os
 import sys
@@ -12,27 +12,39 @@ import sys
 # Setuptools has to be imported before distutils, or things break.
 from setuptools import setup
 from distutils.core import Extension                # pylint: disable=wrong-import-order
-from distutils.command.build_ext import build_ext   # pylint: disable=wrong-import-order
+from setuptools.command.build_ext import build_ext  # pylint: disable=wrong-import-order
 from distutils import errors                        # pylint: disable=wrong-import-order
+import distutils.log                                # pylint: disable=wrong-import-order
 
+# $set_env.py: COVERAGE_QUIETER - Set to remove some noise from test output.
+if bool(int(os.getenv("COVERAGE_QUIETER", "0"))):
+    # Distutils has its own mini-logging code, and it sets the level too high.
+    # When I ask for --quiet when running tests, I don't want to see warnings.
+    old_set_verbosity = distutils.log.set_verbosity
+    def better_set_verbosity(v):
+        """--quiet means no warnings!"""
+        if v <= 0:
+            distutils.log.set_threshold(distutils.log.ERROR)
+        else:
+            old_set_verbosity(v)
+    distutils.log.set_verbosity = better_set_verbosity
 
 # Get or massage our metadata.  We exec coverage/version.py so we can avoid
 # importing the product code into setup.py.
 
+# PYVERSIONS
 classifiers = """\
 Environment :: Console
 Intended Audience :: Developers
 License :: OSI Approved :: Apache Software License
 Operating System :: OS Independent
 Programming Language :: Python
-Programming Language :: Python :: 2
-Programming Language :: Python :: 2.7
 Programming Language :: Python :: 3
-Programming Language :: Python :: 3.5
-Programming Language :: Python :: 3.6
 Programming Language :: Python :: 3.7
 Programming Language :: Python :: 3.8
 Programming Language :: Python :: 3.9
+Programming Language :: Python :: 3.10
+Programming Language :: Python :: 3.11
 Programming Language :: Python :: Implementation :: CPython
 Programming Language :: Python :: Implementation :: PyPy
 Topic :: Software Development :: Quality Assurance
@@ -65,7 +77,7 @@ elif version_info[3] in ['beta', 'candidate']:
 else:
     assert version_info[3] == 'final'
     devstat = "5 - Production/Stable"
-classifier_list.append("Development Status :: " + devstat)
+classifier_list.append(f"Development Status :: {devstat}")
 
 # Create the keyword arguments for setup()
 
@@ -85,8 +97,8 @@ setup_args = dict(
     },
 
     entry_points={
-        # Install a script as "coverage", and as "coverage[23]", and as
-        # "coverage-2.7" (or whatever).
+        # Install a script as "coverage", and as "coverage3", and as
+        # "coverage-3.7" (or whatever).
         'console_scripts': [
             'coverage = coverage.cmdline:main',
             'coverage%d = coverage.cmdline:main' % sys.version_info[:1],
@@ -96,13 +108,13 @@ setup_args = dict(
 
     extras_require={
         # Enable pyproject.toml support.
-        'toml': ['toml'],
+        'toml': ['tomli; python_full_version<="3.11.0a6"'],
     },
 
     # We need to get HTML assets from our htmlfiles directory.
     zip_safe=False,
 
-    author='Ned Batchelder and {} others'.format(num_others),
+    author=f'Ned Batchelder and {num_others} others',
     author_email='ned@nedbatchelder.com',
     description=doc,
     long_description=long_description,
@@ -114,12 +126,13 @@ setup_args = dict(
     project_urls={
         'Documentation': __url__,
         'Funding': (
-            'https://tidelift.com/subscription/pkg/pypi-coverage'
+            'https://tidelift.com/subscription/pkg/pypi-coverage' +
             '?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=pypi'
         ),
         'Issues': 'https://github.com/nedbat/coveragepy/issues',
+        'Twitter': 'https://twitter.com/coveragepy',
     },
-    python_requires=">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, <4",
+    python_requires=">=3.7",    # minimum of PYVERSIONS
 )
 
 # A replacement for the build_ext command which raises a single exception
@@ -150,8 +163,8 @@ class ve_build_ext(build_ext):
         """Wrap `run` with `BuildFailed`."""
         try:
             build_ext.run(self)
-        except errors.DistutilsPlatformError:
-            raise BuildFailed()
+        except errors.DistutilsPlatformError as exc:
+            raise BuildFailed() from exc
 
     def build_extension(self, ext):
         """Wrap `build_extension` with `BuildFailed`."""
@@ -159,12 +172,12 @@ class ve_build_ext(build_ext):
             # Uncomment to test compile failure handling:
             #   raise errors.CCompilerError("OOPS")
             build_ext.build_extension(self, ext)
-        except ext_errors:
-            raise BuildFailed()
+        except ext_errors as exc:
+            raise BuildFailed() from exc
         except ValueError as err:
             # this can happen on Windows 64 bit, see Python issue 7511
             if "'path'" in str(err):    # works with both py 2/3
-                raise BuildFailed()
+                raise BuildFailed() from err
             raise
 
 # There are a few reasons we might not be able to compile the C extension.
@@ -207,8 +220,8 @@ def main():
         setup(**setup_args)
     except BuildFailed as exc:
         msg = "Couldn't install with extension module, trying without it..."
-        exc_msg = "%s: %s" % (exc.__class__.__name__, exc.cause)
-        print("**\n** %s\n** %s\n**" % (msg, exc_msg))
+        exc_msg = f"{exc.__class__.__name__}: {exc.cause}"
+        print(f"**\n** {msg}\n** {exc_msg}\n**")
 
         del setup_args['ext_modules']
         setup(**setup_args)

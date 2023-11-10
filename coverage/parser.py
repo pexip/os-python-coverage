@@ -11,16 +11,14 @@ import token
 import tokenize
 
 from coverage import env
-from coverage.backward import range    # pylint: disable=redefined-builtin
-from coverage.backward import bytes_to_ints, string_class
 from coverage.bytecode import code_objects
 from coverage.debug import short_stack
+from coverage.exceptions import NoSource, NotPython, _StopEverything
 from coverage.misc import contract, join_regex, new_contract, nice_pair, one_of
-from coverage.misc import NoSource, NotPython, StopEverything
 from coverage.phystokens import compile_unicode, generate_tokens, neuter_encoding_declaration
 
 
-class PythonParser(object):
+class PythonParser:
     """Parse code to find executable lines, excluded lines, etc.
 
     This information is all based on static analysis: no code execution is
@@ -42,10 +40,8 @@ class PythonParser(object):
             from coverage.python import get_python_source
             try:
                 self.text = get_python_source(self.filename)
-            except IOError as err:
-                raise NoSource(
-                    "No source for code: '%s': %s" % (self.filename, err)
-                )
+            except OSError as err:
+                raise NoSource(f"No source for code: '{self.filename}': {err}") from err
 
         self.exclude = exclude
 
@@ -71,7 +67,7 @@ class PythonParser(object):
         # The raw line numbers of excluded lines of code, as marked by pragmas.
         self.raw_excluded = set()
 
-        # The line numbers of class and function definitions.
+        # The line numbers of class definitions.
         self.raw_classdefs = set()
 
         # The line numbers of docstring lines.
@@ -84,17 +80,9 @@ class PythonParser(object):
         # multi-line statements.
         self._multiline = {}
 
-        # Lazily-created ByteParser, arc data, and missing arc descriptions.
-        self._byte_parser = None
+        # Lazily-created arc data, and missing arc descriptions.
         self._all_arcs = None
         self._missing_arc_fragments = None
-
-    @property
-    def byte_parser(self):
-        """Create a ByteParser on demand."""
-        if not self._byte_parser:
-            self._byte_parser = ByteParser(self.text, filename=self.filename)
-        return self._byte_parser
 
     def lines_matching(self, *regexes):
         """Find the lines matching one of a list of regexes.
@@ -105,8 +93,6 @@ class PythonParser(object):
 
         """
         combined = join_regex(regexes)
-        if env.PY2:
-            combined = combined.decode("utf8")
         regex_c = re.compile(combined)
         matches = set()
         for i, ltext in enumerate(self.lines, start=1):
@@ -134,6 +120,7 @@ class PythonParser(object):
         first_line = None
         empty = True
         first_on_line = True
+        nesting = 0
 
         tokgen = generate_tokens(self.text)
         for toktype, ttext, (slineno, _), (elineno, _), ltext in tokgen:
@@ -153,7 +140,7 @@ class PythonParser(object):
                     # lines with the 'class' keyword.
                     self.raw_classdefs.add(slineno)
             elif toktype == token.OP:
-                if ttext == ':':
+                if ttext == ':' and nesting == 0:
                     should_exclude = (elineno in self.raw_excluded) or excluding_decorators
                     if not excluding and should_exclude:
                         # Start excluding a suite.  We trigger off of the colon
@@ -169,6 +156,10 @@ class PythonParser(object):
                         excluding_decorators = True
                     if excluding_decorators:
                         self.raw_excluded.add(elineno)
+                elif ttext in "([{":
+                    nesting += 1
+                elif ttext in ")]}":
+                    nesting -= 1
             elif toktype == token.STRING and prev_toktype == token.INDENT:
                 # Strings that are first on an indented line are docstrings.
                 # (a trick from trace.py in the stdlib.) This works for
@@ -203,7 +194,14 @@ class PythonParser(object):
 
         # Find the starts of the executable statements.
         if not empty:
-            self.raw_statements.update(self.byte_parser._find_statements())
+            byte_parser = ByteParser(self.text, filename=self.filename)
+            self.raw_statements.update(byte_parser._find_statements())
+
+        # The first line of modules can lie and say 1 always, even if the first
+        # line of code is later. If so, map 1 to the actual first line of the
+        # module.
+        if env.PYBEHAVIOR.module_firstline_1 and self._multiline:
+            self._multiline[1] = min(self.raw_statements)
 
     def first_line(self, line):
         """Return the first line number of the statement including `line`."""
@@ -220,7 +218,7 @@ class PythonParser(object):
         Returns a set of the first lines.
 
         """
-        return set(self.first_line(l) for l in lines)
+        return {self.first_line(l) for l in lines}
 
     def translate_lines(self, lines):
         """Implement `FileReporter.translate_lines`."""
@@ -245,10 +243,9 @@ class PythonParser(object):
             else:
                 lineno = err.args[1][0]     # TokenError
             raise NotPython(
-                u"Couldn't parse '%s' as Python source: '%s' at line %d" % (
-                    self.filename, err.args[0], lineno
-                )
-            )
+                f"Couldn't parse '{self.filename}' as Python source: " +
+                f"{err.args[0]!r} at line {lineno}"
+            ) from err
 
         self.excluded = self.first_lines(self.raw_excluded)
 
@@ -332,9 +329,7 @@ class PythonParser(object):
         fragment_pairs = self._missing_arc_fragments.get((start, end), [(None, None)])
 
         msgs = []
-        for fragment_pair in fragment_pairs:
-            smsg, emsg = fragment_pair
-
+        for smsg, emsg in fragment_pairs:
             if emsg is None:
                 if end < 0:
                     # Hmm, maybe we have a one-line callable, let's check.
@@ -345,16 +340,16 @@ class PythonParser(object):
                     emsg = "didn't jump to line {lineno}"
             emsg = emsg.format(lineno=end)
 
-            msg = "line {start} {emsg}".format(start=actual_start, emsg=emsg)
+            msg = f"line {actual_start} {emsg}"
             if smsg is not None:
-                msg += ", because {smsg}".format(smsg=smsg.format(lineno=actual_start))
+                msg += f", because {smsg.format(lineno=actual_start)}"
 
             msgs.append(msg)
 
         return " or ".join(msgs)
 
 
-class ByteParser(object):
+class ByteParser:
     """Parse bytecode to understand the structure of code."""
 
     @contract(text='unicode')
@@ -367,17 +362,17 @@ class ByteParser(object):
                 self.code = compile_unicode(text, filename, "exec")
             except SyntaxError as synerr:
                 raise NotPython(
-                    u"Couldn't parse '%s' as Python source: '%s' at line %d" % (
+                    "Couldn't parse '%s' as Python source: '%s' at line %d" % (
                         filename, synerr.msg, synerr.lineno
                     )
-                )
+                ) from synerr
 
         # Alternative Python implementations don't always provide all the
         # attributes on code objects that we need to do the analysis.
         for attr in ['co_lnotab', 'co_firstlineno']:
             if not hasattr(self.code, attr):
-                raise StopEverything(                   # pragma: only jython
-                    "This implementation of Python doesn't support code analysis.\n"
+                raise _StopEverything(                  # pragma: only jython
+                    "This implementation of Python doesn't support code analysis.\n" +
                     "Run coverage.py under another Python for this command."
                 )
 
@@ -389,34 +384,35 @@ class ByteParser(object):
         """
         return (ByteParser(self.text, code=c) for c in code_objects(self.code))
 
-    def _bytes_lines(self):
-        """Map byte offsets to line numbers in `code`.
+    def _line_numbers(self):
+        """Yield the line numbers possible in this code object.
 
-        Uses co_lnotab described in Python/compile.c to map byte offsets to
-        line numbers.  Produces a sequence: (b0, l0), (b1, l1), ...
-
-        Only byte offsets that correspond to line numbers are included in the
-        results.
-
+        Uses co_lnotab described in Python/compile.c to find the
+        line numbers.  Produces a sequence: l0, l1, ...
         """
-        # Adapted from dis.py in the standard library.
-        byte_increments = bytes_to_ints(self.code.co_lnotab[0::2])
-        line_increments = bytes_to_ints(self.code.co_lnotab[1::2])
+        if hasattr(self.code, "co_lines"):
+            for _, _, line in self.code.co_lines():
+                if line:
+                    yield line
+        else:
+            # Adapted from dis.py in the standard library.
+            byte_increments = self.code.co_lnotab[0::2]
+            line_increments = self.code.co_lnotab[1::2]
 
-        last_line_num = None
-        line_num = self.code.co_firstlineno
-        byte_num = 0
-        for byte_incr, line_incr in zip(byte_increments, line_increments):
-            if byte_incr:
-                if line_num != last_line_num:
-                    yield (byte_num, line_num)
-                    last_line_num = line_num
-                byte_num += byte_incr
-            if env.PYBEHAVIOR.negative_lnotab and line_incr >= 0x80:
-                line_incr -= 0x100
-            line_num += line_incr
-        if line_num != last_line_num:
-            yield (byte_num, line_num)
+            last_line_num = None
+            line_num = self.code.co_firstlineno
+            byte_num = 0
+            for byte_incr, line_incr in zip(byte_increments, line_increments):
+                if byte_incr:
+                    if line_num != last_line_num:
+                        yield line_num
+                        last_line_num = line_num
+                    byte_num += byte_incr
+                if env.PYBEHAVIOR.negative_lnotab and line_incr >= 0x80:
+                    line_incr -= 0x100
+                line_num += line_incr
+            if line_num != last_line_num:
+                yield line_num
 
     def _find_statements(self):
         """Find the statements in `self.code`.
@@ -427,15 +423,45 @@ class ByteParser(object):
         """
         for bp in self.child_parsers():
             # Get all of the lineno information from this code.
-            for _, l in bp._bytes_lines():
-                yield l
+            yield from bp._line_numbers()
 
 
 #
 # AST analysis
 #
 
-class LoopBlock(object):
+class BlockBase:
+    """
+    Blocks need to handle various exiting statements in their own ways.
+
+    All of these methods take a list of exits, and a callable `add_arc`
+    function that they can use to add arcs if needed.  They return True if the
+    exits are handled, or False if the search should continue up the block
+    stack.
+    """
+    # pylint: disable=unused-argument
+    def process_break_exits(self, exits, add_arc):
+        """Process break exits."""
+        # Because break can only appear in loops, and most subclasses
+        # implement process_break_exits, this function is never reached.
+        raise AssertionError
+
+    def process_continue_exits(self, exits, add_arc):
+        """Process continue exits."""
+        # Because continue can only appear in loops, and most subclasses
+        # implement process_continue_exits, this function is never reached.
+        raise AssertionError
+
+    def process_raise_exits(self, exits, add_arc):
+        """Process raise exits."""
+        return False
+
+    def process_return_exits(self, exits, add_arc):
+        """Process return exits."""
+        return False
+
+
+class LoopBlock(BlockBase):
     """A block on the block stack representing a `for` or `while` loop."""
     @contract(start=int)
     def __init__(self, start):
@@ -444,8 +470,17 @@ class LoopBlock(object):
         # A set of ArcStarts, the arcs from break statements exiting this loop.
         self.break_exits = set()
 
+    def process_break_exits(self, exits, add_arc):
+        self.break_exits.update(exits)
+        return True
 
-class FunctionBlock(object):
+    def process_continue_exits(self, exits, add_arc):
+        for xit in exits:
+            add_arc(xit.lineno, self.start, xit.cause)
+        return True
+
+
+class FunctionBlock(BlockBase):
     """A block on the block stack representing a function definition."""
     @contract(start=int, name=str)
     def __init__(self, start, name):
@@ -454,8 +489,24 @@ class FunctionBlock(object):
         # The name of the function.
         self.name = name
 
+    def process_raise_exits(self, exits, add_arc):
+        for xit in exits:
+            add_arc(
+                xit.lineno, -self.start, xit.cause,
+                f"didn't except from function {self.name!r}",
+            )
+        return True
 
-class TryBlock(object):
+    def process_return_exits(self, exits, add_arc):
+        for xit in exits:
+            add_arc(
+                xit.lineno, -self.start, xit.cause,
+                f"didn't return from function {self.name!r}",
+            )
+        return True
+
+
+class TryBlock(BlockBase):
     """A block on the block stack representing a `try` block."""
     @contract(handler_start='int|None', final_start='int|None')
     def __init__(self, handler_start, final_start):
@@ -468,8 +519,73 @@ class TryBlock(object):
         # that need to route through the "finally:" clause.
         self.break_from = set()
         self.continue_from = set()
-        self.return_from = set()
         self.raise_from = set()
+        self.return_from = set()
+
+    def process_break_exits(self, exits, add_arc):
+        if self.final_start is not None:
+            self.break_from.update(exits)
+            return True
+        return False
+
+    def process_continue_exits(self, exits, add_arc):
+        if self.final_start is not None:
+            self.continue_from.update(exits)
+            return True
+        return False
+
+    def process_raise_exits(self, exits, add_arc):
+        if self.handler_start is not None:
+            for xit in exits:
+                add_arc(xit.lineno, self.handler_start, xit.cause)
+        else:
+            assert self.final_start is not None
+            self.raise_from.update(exits)
+        return True
+
+    def process_return_exits(self, exits, add_arc):
+        if self.final_start is not None:
+            self.return_from.update(exits)
+            return True
+        return False
+
+
+class WithBlock(BlockBase):
+    """A block on the block stack representing a `with` block."""
+    @contract(start=int)
+    def __init__(self, start):
+        # We only ever use this block if it is needed, so that we don't have to
+        # check this setting in all the methods.
+        assert env.PYBEHAVIOR.exit_through_with
+
+        # The line number of the with statement.
+        self.start = start
+
+        # The ArcStarts for breaks/continues/returns/raises inside the "with:"
+        # that need to go through the with-statement while exiting.
+        self.break_from = set()
+        self.continue_from = set()
+        self.return_from = set()
+
+    def _process_exits(self, exits, add_arc, from_set=None):
+        """Helper to process the four kinds of exits."""
+        for xit in exits:
+            add_arc(xit.lineno, self.start, xit.cause)
+        if from_set is not None:
+            from_set.update(exits)
+        return True
+
+    def process_break_exits(self, exits, add_arc):
+        return self._process_exits(exits, add_arc, self.break_from)
+
+    def process_continue_exits(self, exits, add_arc):
+        return self._process_exits(exits, add_arc, self.continue_from)
+
+    def process_raise_exits(self, exits, add_arc):
+        return self._process_exits(exits, add_arc)
+
+    def process_return_exits(self, exits, add_arc):
+        return self._process_exits(exits, add_arc, self.return_from)
 
 
 class ArcStart(collections.namedtuple("Arc", "lineno, cause")):
@@ -485,7 +601,7 @@ class ArcStart(collections.namedtuple("Arc", "lineno, cause")):
 
     """
     def __new__(cls, lineno, cause=None):
-        return super(ArcStart, cls).__new__(cls, lineno, cause)
+        return super().__new__(cls, lineno, cause)
 
 
 # Define contract words that PyContract doesn't have.
@@ -493,11 +609,7 @@ class ArcStart(collections.namedtuple("Arc", "lineno, cause")):
 new_contract('ArcStarts', lambda seq: all(isinstance(x, ArcStart) for x in seq))
 
 
-# Turn on AST dumps with an environment variable.
-# $set_env.py: COVERAGE_AST_DUMP - Dump the AST nodes when parsing code.
-AST_DUMP = bool(int(os.environ.get("COVERAGE_AST_DUMP", 0)))
-
-class NodeList(object):
+class NodeList:
     """A synthetic fictitious node, containing a sequence of nodes.
 
     This is used when collapsing optimized if-statements, to represent the
@@ -508,25 +620,33 @@ class NodeList(object):
         self.body = body
         self.lineno = body[0].lineno
 
-
 # TODO: some add_arcs methods here don't add arcs, they return them. Rename them.
 # TODO: the cause messages have too many commas.
 # TODO: Shouldn't the cause messages join with "and" instead of "or"?
 
-class AstArcAnalyzer(object):
+def ast_parse(text):
+    """How we create an AST parse."""
+    return ast.parse(neuter_encoding_declaration(text))
+
+
+class AstArcAnalyzer:
     """Analyze source text with an AST to find executable code paths."""
 
     @contract(text='unicode', statements=set)
     def __init__(self, text, statements, multiline):
-        self.root_node = ast.parse(neuter_encoding_declaration(text))
+        self.root_node = ast_parse(text)
         # TODO: I think this is happening in too many places.
-        self.statements = set(multiline.get(l, l) for l in statements)
+        self.statements = {multiline.get(l, l) for l in statements}
         self.multiline = multiline
 
-        if AST_DUMP:                                # pragma: debugging
+        # Turn on AST dumps with an environment variable.
+        # $set_env.py: COVERAGE_AST_DUMP - Dump the AST nodes when parsing code.
+        dump_ast = bool(int(os.environ.get("COVERAGE_AST_DUMP", 0)))
+
+        if dump_ast:                                # pragma: debugging
             # Dump the AST so that failing tests have helpful output.
-            print("Statements: {}".format(self.statements))
-            print("Multiline map: {}".format(self.multiline))
+            print(f"Statements: {self.statements}")
+            print(f"Multiline map: {self.multiline}")
             ast_dump(self.root_node)
 
         self.arcs = set()
@@ -539,7 +659,7 @@ class AstArcAnalyzer(object):
         self.missing_arc_fragments = collections.defaultdict(list)
         self.block_stack = []
 
-        # $set_env.py: COVERAGE_TRACK_ARCS - Trace every arc added while parsing code.
+        # $set_env.py: COVERAGE_TRACK_ARCS - Trace possible arcs added while parsing code.
         self.debug = bool(int(os.environ.get("COVERAGE_TRACK_ARCS", 0)))
 
     def analyze(self):
@@ -559,8 +679,8 @@ class AstArcAnalyzer(object):
     def add_arc(self, start, end, smsg=None, emsg=None):
         """Add an arc, including message fragments to use if it is missing."""
         if self.debug:                      # pragma: debugging
-            print("\nAdding arc: ({}, {}): {!r}, {!r}".format(start, end, smsg, emsg))
-            print(short_stack(limit=6))
+            print(f"\nAdding possible arc: ({start}, {end}): {smsg!r}, {emsg!r}")
+            print(short_stack(limit=10))
         self.arcs.add((start, end))
 
         if smsg is not None or emsg is not None:
@@ -587,7 +707,7 @@ class AstArcAnalyzer(object):
     def _line_decorated(self, node):
         """Compute first line number for things that can be decorated (classes and functions)."""
         lineno = node.lineno
-        if env.PYBEHAVIOR.trace_decorated_def:
+        if env.PYBEHAVIOR.trace_decorated_def or env.PYBEHAVIOR.def_ast_no_decorator:
             if node.decorator_list:
                 lineno = node.decorator_list[0].lineno
         return lineno
@@ -598,8 +718,7 @@ class AstArcAnalyzer(object):
     _line__ClassDef = _line_decorated
 
     def _line__Dict(self, node):
-        # Python 3.5 changed how dict literals are made.
-        if env.PYVERSION >= (3, 5) and node.keys:
+        if node.keys:
             if node.keys[0] is not None:
                 return node.keys[0].lineno
             else:
@@ -619,17 +738,19 @@ class AstArcAnalyzer(object):
             return node.lineno
 
     def _line__Module(self, node):
-        if node.body:
+        if env.PYBEHAVIOR.module_firstline_1:
+            return 1
+        elif node.body:
             return self.line_for_node(node.body[0])
         else:
             # Empty modules have no line number, they always start at 1.
             return 1
 
     # The node types that just flow to the next node with no complications.
-    OK_TO_DEFAULT = set([
-        "Assign", "Assert", "AugAssign", "Delete", "Exec", "Expr", "Global",
-        "Import", "ImportFrom", "Nonlocal", "Pass", "Print",
-    ])
+    OK_TO_DEFAULT = {
+        "AnnAssign", "Assign", "Assert", "AugAssign", "Delete", "Expr", "Global",
+        "Import", "ImportFrom", "Nonlocal", "Pass",
+    }
 
     @contract(returns='ArcStarts')
     def add_arcs(self, node):
@@ -654,14 +775,13 @@ class AstArcAnalyzer(object):
             return handler(node)
         else:
             # No handler: either it's something that's ok to default (a simple
-            # statement), or it's something we overlooked. Change this 0 to 1
-            # to see if it's overlooked.
-            if 0:
+            # statement), or it's something we overlooked.
+            if env.TESTING:
                 if node_name not in self.OK_TO_DEFAULT:
-                    print("*** Unhandled: {}".format(node))
+                    raise Exception(f"*** Unhandled: {node}")       # pragma: only failure
 
             # Default for simple statements: one exit from this node.
-            return set([ArcStart(self.line_for_node(node))])
+            return {ArcStart(self.line_for_node(node))}
 
     @one_of("from_start, prev_starts")
     @contract(returns='ArcStarts')
@@ -677,7 +797,7 @@ class AstArcAnalyzer(object):
 
         """
         if prev_starts is None:
-            prev_starts = set([from_start])
+            prev_starts = {from_start}
         for body_node in body:
             lineno = self.line_for_node(body_node)
             first_line = self.multiline.get(lineno, lineno)
@@ -792,61 +912,30 @@ class AstArcAnalyzer(object):
     @contract(exits='ArcStarts')
     def process_break_exits(self, exits):
         """Add arcs due to jumps from `exits` being breaks."""
-        for block in self.nearest_blocks():
-            if isinstance(block, LoopBlock):
-                block.break_exits.update(exits)
-                break
-            elif isinstance(block, TryBlock) and block.final_start is not None:
-                block.break_from.update(exits)
+        for block in self.nearest_blocks():                         # pragma: always breaks
+            if block.process_break_exits(exits, self.add_arc):
                 break
 
     @contract(exits='ArcStarts')
     def process_continue_exits(self, exits):
         """Add arcs due to jumps from `exits` being continues."""
-        for block in self.nearest_blocks():
-            if isinstance(block, LoopBlock):
-                for xit in exits:
-                    self.add_arc(xit.lineno, block.start, xit.cause)
-                break
-            elif isinstance(block, TryBlock) and block.final_start is not None:
-                block.continue_from.update(exits)
+        for block in self.nearest_blocks():                         # pragma: always breaks
+            if block.process_continue_exits(exits, self.add_arc):
                 break
 
     @contract(exits='ArcStarts')
     def process_raise_exits(self, exits):
         """Add arcs due to jumps from `exits` being raises."""
         for block in self.nearest_blocks():
-            if isinstance(block, TryBlock):
-                if block.handler_start is not None:
-                    for xit in exits:
-                        self.add_arc(xit.lineno, block.handler_start, xit.cause)
-                    break
-                elif block.final_start is not None:
-                    block.raise_from.update(exits)
-                    break
-            elif isinstance(block, FunctionBlock):
-                for xit in exits:
-                    self.add_arc(
-                        xit.lineno, -block.start, xit.cause,
-                        "didn't except from function {!r}".format(block.name),
-                    )
+            if block.process_raise_exits(exits, self.add_arc):
                 break
 
     @contract(exits='ArcStarts')
     def process_return_exits(self, exits):
         """Add arcs due to jumps from `exits` being returns."""
-        for block in self.nearest_blocks():
-            if isinstance(block, TryBlock) and block.final_start is not None:
-                block.return_from.update(exits)
+        for block in self.nearest_blocks():                         # pragma: always breaks
+            if block.process_return_exits(exits, self.add_arc):
                 break
-            elif isinstance(block, FunctionBlock):
-                for xit in exits:
-                    self.add_arc(
-                        xit.lineno, -block.start, xit.cause,
-                        "didn't return from function {!r}".format(block.name),
-                    )
-                break
-
 
     # Handlers: _handle__*
     #
@@ -855,6 +944,9 @@ class AstArcAnalyzer(object):
     # also call self.add_arc to record arcs they find.  These functions mirror
     # the Python semantics of each syntactic construct.  See the docstring
     # for add_arcs to understand the concept of exits from a node.
+    #
+    # Every node type that represents a statement should have a handler, or it
+    # should be listed in OK_TO_DEFAULT.
 
     @contract(returns='ArcStarts')
     def _handle__Break(self, node):
@@ -867,10 +959,11 @@ class AstArcAnalyzer(object):
     def _handle_decorated(self, node):
         """Add arcs for things that can be decorated (classes and functions)."""
         main_line = last = node.lineno
-        if node.decorator_list:
-            if env.PYBEHAVIOR.trace_decorated_def:
+        decs = node.decorator_list
+        if decs:
+            if env.PYBEHAVIOR.trace_decorated_def or env.PYBEHAVIOR.def_ast_no_decorator:
                 last = None
-            for dec_node in node.decorator_list:
+            for dec_node in decs:
                 dec_start = self.line_for_node(dec_node)
                 if last is not None and dec_start != last:
                     self.add_arc(last, dec_start)
@@ -878,6 +971,11 @@ class AstArcAnalyzer(object):
             if env.PYBEHAVIOR.trace_decorated_def:
                 self.add_arc(last, main_line)
                 last = main_line
+            if env.PYBEHAVIOR.trace_decorator_line_again:
+                for top, bot in zip(decs, decs[1:]):
+                    self.add_arc(self.line_for_node(bot), self.line_for_node(top))
+                self.add_arc(self.line_for_node(decs[0]), main_line)
+                self.add_arc(main_line, self.line_for_node(decs[-1]))
             # The definition line may have been missed, but we should have it
             # in `self.statements`.  For some constructs, `line_for_node` is
             # not what we'd think of as the first line in the statement, so map
@@ -890,7 +988,7 @@ class AstArcAnalyzer(object):
                         self.add_arc(last, lineno)
                         last = lineno
         # The body is handled in collect_arcs.
-        return set([ArcStart(last)])
+        return {ArcStart(last)}
 
     _handle__ClassDef = _handle_decorated
 
@@ -936,6 +1034,24 @@ class AstArcAnalyzer(object):
         return exits
 
     @contract(returns='ArcStarts')
+    def _handle__Match(self, node):
+        start = self.line_for_node(node)
+        last_start = start
+        exits = set()
+        had_wildcard = False
+        for case in node.cases:
+            case_start = self.line_for_node(case.pattern)
+            if isinstance(case.pattern, ast.MatchAs):
+                had_wildcard = True
+            self.add_arc(last_start, case_start, "the pattern on line {lineno} always matched")
+            from_start = ArcStart(case_start, cause="the pattern on line {lineno} never matched")
+            exits |= self.add_body_arcs(case.body, from_start=from_start)
+            last_start = case_start
+        if not had_wildcard:
+            exits.add(from_start)
+        return exits
+
+    @contract(returns='ArcStarts')
     def _handle__NodeList(self, node):
         start = self.line_for_node(node)
         exits = self.add_body_arcs(node.body, from_start=ArcStart(start))
@@ -969,6 +1085,9 @@ class AstArcAnalyzer(object):
         else:
             final_start = None
 
+        # This is true by virtue of Python syntax: have to have either except
+        # or finally, or both.
+        assert handler_start is not None or final_start is not None
         try_block = TryBlock(handler_start, final_start)
         self.block_stack.append(try_block)
 
@@ -984,7 +1103,7 @@ class AstArcAnalyzer(object):
                 # If there are `except` clauses, then raises in the try body
                 # will already jump to them.  Start this set over for raises in
                 # `except` and `else`.
-                try_block.raise_from = set([])
+                try_block.raise_from = set()
         else:
             self.block_stack.pop()
 
@@ -1079,39 +1198,19 @@ class AstArcAnalyzer(object):
             if start.cause is not None:
                 causes.append(start.cause.format(lineno=start.lineno))
         cause = " or ".join(causes)
-        exits = set(ArcStart(xit.lineno, cause) for xit in exits)
+        exits = {ArcStart(xit.lineno, cause) for xit in exits}
         return exits
 
     @contract(returns='ArcStarts')
-    def _handle__TryExcept(self, node):
-        # Python 2.7 uses separate TryExcept and TryFinally nodes. If we get
-        # TryExcept, it means there was no finally, so fake it, and treat as
-        # a general Try node.
-        node.finalbody = []
-        return self._handle__Try(node)
-
-    @contract(returns='ArcStarts')
-    def _handle__TryFinally(self, node):
-        # Python 2.7 uses separate TryExcept and TryFinally nodes. If we get
-        # TryFinally, see if there's a TryExcept nested inside. If so, merge
-        # them. Otherwise, fake fields to complete a Try node.
-        node.handlers = []
-        node.orelse = []
-
-        first = node.body[0]
-        if first.__class__.__name__ == "TryExcept" and node.lineno == first.lineno:
-            assert len(node.body) == 1
-            node.body = first.body
-            node.handlers = first.handlers
-            node.orelse = first.orelse
-
-        return self._handle__Try(node)
-
-    @contract(returns='ArcStarts')
     def _handle__While(self, node):
-        constant_test = self.is_constant_expr(node.test)
         start = to_top = self.line_for_node(node.test)
-        if constant_test and (env.PY3 or constant_test == "Num"):
+        constant_test = self.is_constant_expr(node.test)
+        top_is_body0 = False
+        if constant_test:
+            top_is_body0 = True
+        if env.PYBEHAVIOR.keep_constant_test:
+            top_is_body0 = False
+        if top_is_body0:
             to_top = self.line_for_node(node.body[0])
         self.block_stack.append(LoopBlock(start=to_top))
         from_start = ArcStart(start, cause="the condition on line {lineno} was never true")
@@ -1134,10 +1233,36 @@ class AstArcAnalyzer(object):
     @contract(returns='ArcStarts')
     def _handle__With(self, node):
         start = self.line_for_node(node)
+        if env.PYBEHAVIOR.exit_through_with:
+            self.block_stack.append(WithBlock(start=start))
         exits = self.add_body_arcs(node.body, from_start=ArcStart(start))
+        if env.PYBEHAVIOR.exit_through_with:
+            with_block = self.block_stack.pop()
+            with_exit = {ArcStart(start)}
+            if exits:
+                for xit in exits:
+                    self.add_arc(xit.lineno, start)
+                exits = with_exit
+            if with_block.break_from:
+                self.process_break_exits(
+                    self._combine_finally_starts(with_block.break_from, with_exit)
+                )
+            if with_block.continue_from:
+                self.process_continue_exits(
+                    self._combine_finally_starts(with_block.continue_from, with_exit)
+                )
+            if with_block.return_from:
+                self.process_return_exits(
+                    self._combine_finally_starts(with_block.return_from, with_exit)
+                )
         return exits
 
     _handle__AsyncWith = _handle__With
+
+    # Code object dispatchers: _code_object__*
+    #
+    # These methods are used by analyze() as the start of the analysis.
+    # There is one for each construct with a code object.
 
     def _code_object__Module(self, node):
         start = self.line_for_node(node)
@@ -1166,86 +1291,85 @@ class AstArcAnalyzer(object):
         for xit in exits:
             self.add_arc(
                 xit.lineno, -start, xit.cause,
-                "didn't exit the body of class {!r}".format(node.name),
+                f"didn't exit the body of class {node.name!r}",
             )
 
-    def _make_oneline_code_method(noun):     # pylint: disable=no-self-argument
-        """A function to make methods for online callable _code_object__ methods."""
-        def _code_object__oneline_callable(self, node):
+    def _make_expression_code_method(noun):                     # pylint: disable=no-self-argument
+        """A function to make methods for expression-based callable _code_object__ methods."""
+        def _code_object__expression_callable(self, node):
             start = self.line_for_node(node)
-            self.add_arc(-start, start, None, "didn't run the {} on line {}".format(noun, start))
-            self.add_arc(
-                start, -start, None,
-                "didn't finish the {} on line {}".format(noun, start),
-            )
-        return _code_object__oneline_callable
+            self.add_arc(-start, start, None, f"didn't run the {noun} on line {start}")
+            self.add_arc(start, -start, None, f"didn't finish the {noun} on line {start}")
+        return _code_object__expression_callable
 
-    _code_object__Lambda = _make_oneline_code_method("lambda")
-    _code_object__GeneratorExp = _make_oneline_code_method("generator expression")
-    _code_object__DictComp = _make_oneline_code_method("dictionary comprehension")
-    _code_object__SetComp = _make_oneline_code_method("set comprehension")
-    if env.PY3:
-        _code_object__ListComp = _make_oneline_code_method("list comprehension")
+    _code_object__Lambda = _make_expression_code_method("lambda")
+    _code_object__GeneratorExp = _make_expression_code_method("generator expression")
+    _code_object__DictComp = _make_expression_code_method("dictionary comprehension")
+    _code_object__SetComp = _make_expression_code_method("set comprehension")
+    _code_object__ListComp = _make_expression_code_method("list comprehension")
 
 
-if AST_DUMP:            # pragma: debugging
-    # Code only used when dumping the AST for debugging.
+# Code only used when dumping the AST for debugging.
 
-    SKIP_DUMP_FIELDS = ["ctx"]
+SKIP_DUMP_FIELDS = ["ctx"]
 
-    def _is_simple_value(value):
-        """Is `value` simple enough to be displayed on a single line?"""
-        return (
-            value in [None, [], (), {}, set()] or
-            isinstance(value, (string_class, int, float))
-        )
+def _is_simple_value(value):
+    """Is `value` simple enough to be displayed on a single line?"""
+    return (
+        value in [None, [], (), {}, set()] or
+        isinstance(value, (bytes, int, float, str))
+    )
 
-    def ast_dump(node, depth=0):
-        """Dump the AST for `node`.
+def ast_dump(node, depth=0, print=print):   # pylint: disable=redefined-builtin
+    """Dump the AST for `node`.
 
-        This recursively walks the AST, printing a readable version.
+    This recursively walks the AST, printing a readable version.
 
-        """
-        indent = " " * depth
-        if not isinstance(node, ast.AST):
-            print("{}<{} {!r}>".format(indent, node.__class__.__name__, node))
-            return
+    """
+    indent = " " * depth
+    lineno = getattr(node, "lineno", None)
+    if lineno is not None:
+        linemark = f" @ {node.lineno},{node.col_offset}"
+        if hasattr(node, "end_lineno"):
+            linemark += ":"
+            if node.end_lineno != node.lineno:
+                linemark += f"{node.end_lineno},"
+            linemark += f"{node.end_col_offset}"
+    else:
+        linemark = ""
+    head = f"{indent}<{node.__class__.__name__}{linemark}"
 
-        lineno = getattr(node, "lineno", None)
-        if lineno is not None:
-            linemark = " @ {}".format(node.lineno)
-        else:
-            linemark = ""
-        head = "{}<{}{}".format(indent, node.__class__.__name__, linemark)
+    named_fields = [
+        (name, value)
+        for name, value in ast.iter_fields(node)
+        if name not in SKIP_DUMP_FIELDS
+    ]
+    if not named_fields:
+        print(f"{head}>")
+    elif len(named_fields) == 1 and _is_simple_value(named_fields[0][1]):
+        field_name, value = named_fields[0]
+        print(f"{head} {field_name}: {value!r}>")
+    else:
+        print(head)
+        if 0:
+            print("{}# mro: {}".format(
+                indent, ", ".join(c.__name__ for c in node.__class__.__mro__[1:]),
+            ))
+        next_indent = indent + "    "
+        for field_name, value in named_fields:
+            prefix = f"{next_indent}{field_name}:"
+            if _is_simple_value(value):
+                print(f"{prefix} {value!r}")
+            elif isinstance(value, list):
+                print(f"{prefix} [")
+                for n in value:
+                    if _is_simple_value(n):
+                        print(f"{next_indent}    {n!r}")
+                    else:
+                        ast_dump(n, depth + 8, print=print)
+                print(f"{next_indent}]")
+            else:
+                print(prefix)
+                ast_dump(value, depth + 8, print=print)
 
-        named_fields = [
-            (name, value)
-            for name, value in ast.iter_fields(node)
-            if name not in SKIP_DUMP_FIELDS
-        ]
-        if not named_fields:
-            print("{}>".format(head))
-        elif len(named_fields) == 1 and _is_simple_value(named_fields[0][1]):
-            field_name, value = named_fields[0]
-            print("{} {}: {!r}>".format(head, field_name, value))
-        else:
-            print(head)
-            if 0:
-                print("{}# mro: {}".format(
-                    indent, ", ".join(c.__name__ for c in node.__class__.__mro__[1:]),
-                ))
-            next_indent = indent + "    "
-            for field_name, value in named_fields:
-                prefix = "{}{}:".format(next_indent, field_name)
-                if _is_simple_value(value):
-                    print("{} {!r}".format(prefix, value))
-                elif isinstance(value, list):
-                    print("{} [".format(prefix))
-                    for n in value:
-                        ast_dump(n, depth + 8)
-                    print("{}]".format(next_indent))
-                else:
-                    print(prefix)
-                    ast_dump(value, depth + 8)
-
-            print("{}>".format(indent))
+        print(f"{indent}>")

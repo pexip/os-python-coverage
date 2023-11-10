@@ -112,11 +112,13 @@ register your dynamic context switcher.
 
 """
 
+import functools
+
 from coverage import files
 from coverage.misc import contract, _needs_to_implement
 
 
-class CoveragePlugin(object):
+class CoveragePlugin:
     """Base class for coverage.py plug-ins."""
 
     def file_tracer(self, filename):        # pylint: disable=unused-argument
@@ -232,7 +234,7 @@ class CoveragePlugin(object):
         return []
 
 
-class FileTracer(object):
+class FileTracer:
     """Support needed for files during the execution phase.
 
     File tracer plug-ins implement subclasses of FileTracer to return from
@@ -315,7 +317,8 @@ class FileTracer(object):
         return lineno, lineno
 
 
-class FileReporter(object):
+@functools.total_ordering
+class FileReporter:
     """Support needed for files during the analysis and reporting phases.
 
     File tracer plug-ins implement a subclass of `FileReporter`, and return
@@ -359,12 +362,12 @@ class FileReporter(object):
         Returns a Unicode string.
 
         The base implementation simply reads the `self.filename` file and
-        decodes it as UTF8.  Override this method if your file isn't readable
+        decodes it as UTF-8.  Override this method if your file isn't readable
         as a text file, or if you need other encoding support.
 
         """
         with open(self.filename, "rb") as f:
-            return f.read().decode("utf8")
+            return f.read().decode("utf-8")
 
     def lines(self):
         """Get the executable lines in this file.
@@ -476,7 +479,7 @@ class FileReporter(object):
         to {end}".
 
         """
-        return "Line {start} didn't jump to line {end}".format(start=start, end=end)
+        return f"Line {start} didn't jump to line {end}"
 
     def source_token_lines(self):
         """Generate a series of tokenized lines, one for each line in `source`.
@@ -509,25 +512,10 @@ class FileReporter(object):
         for line in self.source().splitlines():
             yield [('txt', line)]
 
-    # Annoying comparison operators. Py3k wants __lt__ etc, and Py2k needs all
-    # of them defined.
-
     def __eq__(self, other):
         return isinstance(other, FileReporter) and self.filename == other.filename
 
-    def __ne__(self, other):
-        return not (self == other)
-
     def __lt__(self, other):
-        return self.filename < other.filename
-
-    def __le__(self, other):
-        return self.filename <= other.filename
-
-    def __gt__(self, other):
-        return self.filename > other.filename
-
-    def __ge__(self, other):
-        return self.filename >= other.filename
+        return isinstance(other, FileReporter) and self.filename < other.filename
 
     __hash__ = None     # This object doesn't need to be hashed.

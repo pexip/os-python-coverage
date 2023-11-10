@@ -6,6 +6,9 @@
 import os.path
 import re
 import textwrap
+import warnings
+
+import pytest
 
 from coverage import env
 from coverage.phystokens import source_token_lines, source_encoding
@@ -16,7 +19,7 @@ from tests.coveragetest import CoverageTest, TESTS_DIR
 
 
 # A simple program and its token stream.
-SIMPLE = u"""\
+SIMPLE = """\
 # yay!
 def foo():
   say('two = %d' % 2)
@@ -31,7 +34,7 @@ SIMPLE_TOKENS = [
 ]
 
 # Mixed-whitespace program, and its token stream.
-MIXED_WS = u"""\
+MIXED_WS = """\
 def hello():
         a="Hello world!"
 \tb="indented"
@@ -44,7 +47,7 @@ MIXED_WS_TOKENS = [
 ]
 
 # https://github.com/nedbat/coveragepy/issues/822
-BUG_822 = u"""\
+BUG_822 = """\
 print( "Message 1" )
 array = [ 1,2,3,4,       # 4 numbers \\
           5,6,7 ]        # 3 numbers
@@ -67,23 +70,23 @@ class PhysTokensTest(CoverageTest):
         source = source.replace('\r\n', '\n')
         source = re.sub(r"(?m)[ \t]+$", "", source)
         tokenized = re.sub(r"(?m)[ \t]+$", "", tokenized)
-        self.assertMultiLineEqual(source, tokenized)
+        assert source == tokenized
 
     def check_file_tokenization(self, fname):
         """Use the contents of `fname` for `check_tokenization`."""
         self.check_tokenization(get_python_source(fname))
 
     def test_simple(self):
-        self.assertEqual(list(source_token_lines(SIMPLE)), SIMPLE_TOKENS)
+        assert list(source_token_lines(SIMPLE)) == SIMPLE_TOKENS
         self.check_tokenization(SIMPLE)
 
     def test_missing_final_newline(self):
         # We can tokenize source that is missing the final newline.
-        self.assertEqual(list(source_token_lines(SIMPLE.rstrip())), SIMPLE_TOKENS)
+        assert list(source_token_lines(SIMPLE.rstrip())) == SIMPLE_TOKENS
 
     def test_tab_indentation(self):
         # Mixed tabs and spaces...
-        self.assertEqual(list(source_token_lines(MIXED_WS)), MIXED_WS_TOKENS)
+        assert list(source_token_lines(MIXED_WS)) == MIXED_WS_TOKENS
 
     def test_bug_822(self):
         self.check_tokenization(BUG_822)
@@ -93,19 +96,59 @@ class PhysTokensTest(CoverageTest):
         real_file = os.path.join(TESTS_DIR, "test_coverage.py")
         self.check_file_tokenization(real_file)
 
-    def test_stress(self):
-        # Check the tokenization of a stress-test file.
-        stress = os.path.join(TESTS_DIR, "stress_phystoken.tok")
-        self.check_file_tokenization(stress)
-        stress = os.path.join(TESTS_DIR, "stress_phystoken_dos.tok")
-        self.check_file_tokenization(stress)
+    @pytest.mark.parametrize("fname", [
+        "stress_phystoken.tok",
+        "stress_phystoken_dos.tok",
+    ])
+    def test_stress(self, fname):
+        # Check the tokenization of the stress-test files.
+        # And check that those files haven't been incorrectly "fixed".
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=r".*invalid escape sequence",)
+
+            stress = os.path.join(TESTS_DIR, fname)
+            self.check_file_tokenization(stress)
+            with open(stress) as fstress:
+                assert re.search(r"(?m) $", fstress.read()), f"{stress} needs a trailing space."
+
+@pytest.mark.skipif(not env.PYBEHAVIOR.soft_keywords, reason="Soft keywords are new in Python 3.10")
+class SoftKeywordTest(CoverageTest):
+    """Tests the tokenizer handling soft keywords."""
+
+    run_in_temp_dir = False
+
+    def test_soft_keywords(self):
+        source = textwrap.dedent("""\
+            match re.match(something):
+                case ["what"]:
+                    match = case("hello")
+                case [_]:
+                    match("hello")
+                    match another.thing:
+                        case 1:
+                            pass
+
+            class case(): pass
+            def match():
+                global case
+            """)
+        tokens = list(source_token_lines(source))
+        assert tokens[0][0] == ("key", "match")
+        assert tokens[0][4] == ("nam", "match")
+        assert tokens[1][1] == ("key", "case")
+        assert tokens[2][1] == ("nam", "match")
+        assert tokens[2][5] == ("nam", "case")
+        assert tokens[3][1] == ("key", "case")
+        assert tokens[4][1] == ("nam", "match")
+        assert tokens[5][1] == ("key", "match")
+        assert tokens[6][1] == ("key", "case")
+        assert tokens[9][2] == ("nam", "case")
+        assert tokens[10][2] == ("nam", "match")
+        assert tokens[11][3] == ("nam", "case")
 
 
 # The default encoding is different in Python 2 and Python 3.
-if env.PY3:
-    DEF_ENCODING = "utf-8"
-else:
-    DEF_ENCODING = "ascii"
+DEF_ENCODING = "utf-8"
 
 
 ENCODING_DECLARATION_SOURCES = [
@@ -128,48 +171,40 @@ class SourceEncodingTest(CoverageTest):
 
     def test_detect_source_encoding(self):
         for _, source, expected in ENCODING_DECLARATION_SOURCES:
-            self.assertEqual(
-                source_encoding(source),
-                expected,
-                "Wrong encoding in %r" % source
-            )
+            assert source_encoding(source) == expected, f"Wrong encoding in {source!r}"
 
     def test_detect_source_encoding_not_in_comment(self):
-        if env.PYPY3:           # pragma: no metacov
-            # PyPy3 gets this case wrong. Not sure what I can do about it,
-            # so skip the test.
-            self.skipTest("PyPy3 is wrong about non-comment encoding. Skip it.")
         # Should not detect anything here
         source = b'def parse(src, encoding=None):\n    pass'
-        self.assertEqual(source_encoding(source), DEF_ENCODING)
+        assert source_encoding(source) == DEF_ENCODING
 
     def test_dont_detect_source_encoding_on_third_line(self):
         # A coding declaration doesn't count on the third line.
         source = b"\n\n# coding=cp850\n\n"
-        self.assertEqual(source_encoding(source), DEF_ENCODING)
+        assert source_encoding(source) == DEF_ENCODING
 
     def test_detect_source_encoding_of_empty_file(self):
         # An important edge case.
-        self.assertEqual(source_encoding(b""), DEF_ENCODING)
+        assert source_encoding(b"") == DEF_ENCODING
 
     def test_bom(self):
         # A BOM means utf-8.
         source = b"\xEF\xBB\xBFtext = 'hello'\n"
-        self.assertEqual(source_encoding(source), 'utf-8-sig')
+        assert source_encoding(source) == 'utf-8-sig'
 
     def test_bom_with_encoding(self):
         source = b"\xEF\xBB\xBF# coding: utf-8\ntext = 'hello'\n"
-        self.assertEqual(source_encoding(source), 'utf-8-sig')
+        assert source_encoding(source) == 'utf-8-sig'
 
     def test_bom_is_wrong(self):
         # A BOM with an explicit non-utf8 encoding is an error.
         source = b"\xEF\xBB\xBF# coding: cp850\n"
-        with self.assertRaisesRegex(SyntaxError, "encoding problem: utf-8"):
+        with pytest.raises(SyntaxError, match="encoding problem: utf-8"):
             source_encoding(source)
 
     def test_unknown_encoding(self):
         source = b"# coding: klingon\n"
-        with self.assertRaisesRegex(SyntaxError, "unknown encoding: klingon"):
+        with pytest.raises(SyntaxError, match="unknown encoding: klingon"):
             source_encoding(source)
 
 
@@ -186,49 +221,45 @@ class NeuterEncodingDeclarationTest(CoverageTest):
             # The neutered source should have the same number of lines.
             source_lines = source.splitlines()
             neutered_lines = neutered.splitlines()
-            self.assertEqual(len(source_lines), len(neutered_lines))
+            assert len(source_lines) == len(neutered_lines)
 
             # Only one of the lines should be different.
             lines_different = sum(
                 int(nline != sline) for nline, sline in zip(neutered_lines, source_lines)
             )
-            self.assertEqual(lines_diff_expected, lines_different)
+            assert lines_diff_expected == lines_different
 
             # The neutered source will be detected as having no encoding
             # declaration.
-            self.assertEqual(
-                source_encoding(neutered),
-                DEF_ENCODING,
-                "Wrong encoding in %r" % neutered
-            )
+            assert source_encoding(neutered) == DEF_ENCODING, f"Wrong encoding in {neutered!r}"
 
     def test_two_encoding_declarations(self):
-        input_src = textwrap.dedent(u"""\
+        input_src = textwrap.dedent("""\
             # -*- coding: ascii -*-
             # -*- coding: utf-8 -*-
             # -*- coding: utf-16 -*-
             """)
-        expected_src = textwrap.dedent(u"""\
+        expected_src = textwrap.dedent("""\
             # (deleted declaration) -*-
             # (deleted declaration) -*-
             # -*- coding: utf-16 -*-
             """)
         output_src = neuter_encoding_declaration(input_src)
-        self.assertEqual(expected_src, output_src)
+        assert expected_src == output_src
 
     def test_one_encoding_declaration(self):
-        input_src = textwrap.dedent(u"""\
+        input_src = textwrap.dedent("""\
             # -*- coding: utf-16 -*-
             # Just a comment.
             # -*- coding: ascii -*-
             """)
-        expected_src = textwrap.dedent(u"""\
+        expected_src = textwrap.dedent("""\
             # (deleted declaration) -*-
             # Just a comment.
             # -*- coding: ascii -*-
             """)
         output_src = neuter_encoding_declaration(input_src)
-        self.assertEqual(expected_src, output_src)
+        assert expected_src == output_src
 
 
 class Bug529Test(CoverageTest):
@@ -258,8 +289,8 @@ class Bug529Test(CoverageTest):
                 unittest.main()
             ''')
         status, out = self.run_command_status("coverage run the_test.py")
-        self.assertEqual(status, 0)
-        self.assertIn("OK", out)
+        assert status == 0
+        assert "OK" in out
         # If this test fails, the output will be super-confusing, because it
         # has a failing unit test contained within the failing unit test.
 
@@ -271,19 +302,19 @@ class CompileUnicodeTest(CoverageTest):
 
     def assert_compile_unicode(self, source):
         """Assert that `source` will compile properly with `compile_unicode`."""
-        source += u"a = 42\n"
+        source += "a = 42\n"
         # This doesn't raise an exception:
         code = compile_unicode(source, "<string>", "exec")
         globs = {}
         exec(code, globs)
-        self.assertEqual(globs['a'], 42)
+        assert globs['a'] == 42
 
     def test_cp1252(self):
-        uni = u"""# coding: cp1252\n# \u201C curly \u201D\n"""
+        uni = """# coding: cp1252\n# \u201C curly \u201D\n"""
         self.assert_compile_unicode(uni)
 
     def test_double_coding_declaration(self):
         # Build this string in a weird way so that actual vim's won't try to
         # interpret it...
-        uni = u"# -*-  coding:utf-8 -*-\n# v" "im: fileencoding=utf-8\n"
+        uni = "# -*-  coding:utf-8 -*-\n# v" + "im: fileencoding=utf-8\n"
         self.assert_compile_unicode(uni)

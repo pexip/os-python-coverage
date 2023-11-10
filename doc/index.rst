@@ -16,14 +16,17 @@ not.
 The latest version is coverage.py |release|, released |release_date|.  It is
 supported on:
 
-* Python versions 2.7, 3.5, 3.6, 3.7, 3.8, and 3.9 alpha.
+.. PYVERSIONS
 
-* PyPy2 7.3.0 and PyPy3 7.3.0.
+* Python versions 3.7 through 3.11.0 rc2.
+
+* PyPy3 7.3.8.
 
 .. ifconfig:: prerelease
 
     **This is a pre-release build.  The usual warnings about possible bugs
-    apply.** The latest stable version is coverage.py 4.5.4, `described here`_.
+    apply.** The latest stable version is coverage.py 6.4, `described here`_.
+
 
 .. _described here: http://coverage.readthedocs.io/
 
@@ -65,9 +68,7 @@ Getting started is easy:
 
     Instructions for specific test runners:
 
-    .. tabs::
-
-        .. tab:: pytest
+    - **pytest**
 
             If you usually use::
 
@@ -80,7 +81,7 @@ Getting started is easy:
             Many people choose to use the `pytest-cov`_ plugin, but for most
             purposes, it is unnecessary.
 
-        .. tab:: unittest
+    - **unittest**
 
             Change "python" to "coverage run", so this::
 
@@ -90,18 +91,18 @@ Getting started is easy:
 
                 $ coverage run -m unittest discover
 
-        .. tab:: nosetest
-
-            *Nose has been unmaintained for a long time. You should seriously
-            consider adopting a different test runner.*
-
-            Change this::
-
-                $ nosetests arg1 arg2
-
-            to::
-
-                $ coverage run -m nose arg1 arg2
+    .. - **nosetest**
+    ..
+    ..        *Nose has been unmaintained for a long time. You should seriously
+    ..        consider adopting a different test runner.*
+    ..
+    ..        Change this::
+    ..
+    ..            $ nosetests arg1 arg2
+    ..
+    ..        to this::
+    ..
+    ..            $ coverage run -m nose arg1 arg2
 
     To limit coverage measurement to code in the current directory, and also
     find files that weren't executed at all, add the ``--source=.`` argument to
@@ -135,6 +136,25 @@ Getting started is easy:
 
 .. _report like this: https://nedbatchelder.com/files/sample_coverage_html/index.html
 .. _report like this one: https://nedbatchelder.com/files/sample_coverage_html_beta/index.html
+
+
+Capabilities
+------------
+
+Coverage.py can do a number of things:
+
+- By default it will measure line (statement) coverage.
+
+- It can also measure :ref:`branch coverage <branch>`.
+
+- It can tell you :ref:`what tests ran which lines <dynamic_contexts>`.
+
+- It can produce reports in a number of formats: :ref:`text <cmd_report>`,
+  :ref:`HTML <cmd_html>`, :ref:`XML <cmd_xml>`, :ref:`LCOV <cmd_lcov>`,
+  and :ref:`JSON <cmd_json>`.
+
+- For advanced uses, there's an :ref:`API <api>`, and the result data is
+  available in a :ref:`SQLite database <dbschema>`.
 
 
 Using coverage.py
@@ -204,6 +224,5 @@ More information
     contributing
     trouble
     faq
-    whatsnew5x
-    changes
+    Change history <changes>
     sleepy

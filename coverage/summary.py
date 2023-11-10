@@ -5,13 +5,13 @@
 
 import sys
 
-from coverage import env
+from coverage.exceptions import ConfigError, NoDataError
+from coverage.misc import human_sorted_items
 from coverage.report import get_analysis_to_report
 from coverage.results import Numbers
-from coverage.misc import NotPython, CoverageException, output_encoding
 
 
-class SummaryReporter(object):
+class SummaryReporter:
     """A reporter for writing the summary report."""
 
     def __init__(self, coverage):
@@ -22,13 +22,11 @@ class SummaryReporter(object):
         self.fr_analysis = []
         self.skipped_count = 0
         self.empty_count = 0
-        self.total = Numbers()
-        self.fmt_err = u"%s   %s: %s"
+        self.total = Numbers(precision=self.config.precision)
+        self.fmt_err = "%s   %s: %s"
 
     def writeout(self, line):
         """Write a line to the output, adding a newline."""
-        if env.PY2:
-            line = line.encode(output_encoding())
         self.outfile.write(line.rstrip())
         self.outfile.write("\n")
 
@@ -47,22 +45,22 @@ class SummaryReporter(object):
 
         # Prepare the formatting strings, header, and column sorting.
         max_name = max([len(fr.relative_filename()) for (fr, analysis) in self.fr_analysis] + [5])
-        fmt_name = u"%%- %ds  " % max_name
-        fmt_skip_covered = u"\n%s file%s skipped due to complete coverage."
-        fmt_skip_empty = u"\n%s empty file%s skipped."
+        fmt_name = "%%- %ds  " % max_name
+        fmt_skip_covered = "\n%s file%s skipped due to complete coverage."
+        fmt_skip_empty = "\n%s empty file%s skipped."
 
-        header = (fmt_name % "Name") + u" Stmts   Miss"
-        fmt_coverage = fmt_name + u"%6d %6d"
+        header = (fmt_name % "Name") + " Stmts   Miss"
+        fmt_coverage = fmt_name + "%6d %6d"
         if self.branches:
-            header += u" Branch BrPart"
-            fmt_coverage += u" %6d %6d"
-        width100 = Numbers.pc_str_width()
-        header += u"%*s" % (width100+4, "Cover")
-        fmt_coverage += u"%%%ds%%%%" % (width100+3,)
+            header += " Branch BrPart"
+            fmt_coverage += " %6d %6d"
+        width100 = Numbers(precision=self.config.precision).pc_str_width()
+        header += "%*s" % (width100+4, "Cover")
+        fmt_coverage += "%%%ds%%%%" % (width100+3,)
         if self.config.show_missing:
-            header += u"   Missing"
-            fmt_coverage += u"   %s"
-        rule = u"-" * len(header)
+            header += "   Missing"
+            fmt_coverage += "   %s"
+        rule = "-" * len(header)
 
         column_order = dict(name=0, stmts=1, miss=2, cover=-1)
         if self.branches:
@@ -78,42 +76,41 @@ class SummaryReporter(object):
         lines = []
 
         for (fr, analysis) in self.fr_analysis:
-            try:
-                nums = analysis.numbers
+            nums = analysis.numbers
 
-                args = (fr.relative_filename(), nums.n_statements, nums.n_missing)
-                if self.branches:
-                    args += (nums.n_branches, nums.n_partial_branches)
-                args += (nums.pc_covered_str,)
-                if self.config.show_missing:
-                    args += (analysis.missing_formatted(branches=True),)
-                text = fmt_coverage % args
-                # Add numeric percent coverage so that sorting makes sense.
-                args += (nums.pc_covered,)
-                lines.append((text, args))
-            except Exception:
-                report_it = not self.config.ignore_errors
-                if report_it:
-                    typ, msg = sys.exc_info()[:2]
-                    # NotPython is only raised by PythonFileReporter, which has a
-                    # should_be_python() method.
-                    if typ is NotPython and not fr.should_be_python():
-                        report_it = False
-                if report_it:
-                    self.writeout(self.fmt_err % (fr.relative_filename(), typ.__name__, msg))
+            args = (fr.relative_filename(), nums.n_statements, nums.n_missing)
+            if self.branches:
+                args += (nums.n_branches, nums.n_partial_branches)
+            args += (nums.pc_covered_str,)
+            if self.config.show_missing:
+                args += (analysis.missing_formatted(branches=True),)
+            text = fmt_coverage % args
+            # Add numeric percent coverage so that sorting makes sense.
+            args += (nums.pc_covered,)
+            lines.append((text, args))
 
         # Sort the lines and write them out.
-        if getattr(self.config, 'sort', None):
-            position = column_order.get(self.config.sort.lower())
+        sort_option = (self.config.sort or "name").lower()
+        reverse = False
+        if sort_option[0] == '-':
+            reverse = True
+            sort_option = sort_option[1:]
+        elif sort_option[0] == '+':
+            sort_option = sort_option[1:]
+
+        if sort_option == "name":
+            lines = human_sorted_items(lines, reverse=reverse)
+        else:
+            position = column_order.get(sort_option)
             if position is None:
-                raise CoverageException("Invalid sorting option: {!r}".format(self.config.sort))
-            lines.sort(key=lambda l: (l[1][position], l[0]))
+                raise ConfigError(f"Invalid sorting option: {self.config.sort!r}")
+            lines.sort(key=lambda l: (l[1][position], l[0]), reverse=reverse)
 
         for line in lines:
             self.writeout(line[0])
 
-        # Write a TOTAl line if we had more than one file.
-        if self.total.n_files > 1:
+        # Write a TOTAL line if we had at least one file.
+        if self.total.n_files > 0:
             self.writeout(rule)
             args = ("TOTAL", self.total.n_statements, self.total.n_missing)
             if self.branches:
@@ -125,16 +122,16 @@ class SummaryReporter(object):
 
         # Write other final lines.
         if not self.total.n_files and not self.skipped_count:
-            raise CoverageException("No data to report.")
+            raise NoDataError("No data to report.")
 
         if self.config.skip_covered and self.skipped_count:
             self.writeout(
                 fmt_skip_covered % (self.skipped_count, 's' if self.skipped_count > 1 else '')
-                )
+            )
         if self.config.skip_empty and self.empty_count:
             self.writeout(
                 fmt_skip_empty % (self.empty_count, 's' if self.empty_count > 1 else '')
-                )
+            )
 
         return self.total.n_statements and self.total.pc_covered
 

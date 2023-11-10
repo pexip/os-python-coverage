@@ -5,31 +5,26 @@
 
 import contextlib
 import datetime
-import functools
+import difflib
 import glob
+import io
 import os
 import os.path
 import random
 import re
 import shlex
 import sys
-import types
 
 import pytest
-from unittest_mixins import (
-    EnvironmentAwareMixin, StdStreamCapturingMixin, TempDirMixin,
-    DelayedAssertionMixin,
-)
 
 import coverage
 from coverage import env
-from coverage.backunittest import TestCase, unittest
-from coverage.backward import StringIO, import_local_file, string_class, shlex_quote
 from coverage.cmdline import CoverageScript
-from coverage.misc import StopEverything
+from coverage.misc import import_local_file
 
-from tests.helpers import arcs_to_arcz_repr, arcz_to_arcs
-from tests.helpers import run_command, SuperModuleCleaner
+from tests.helpers import arcs_to_arcz_repr, arcz_to_arcs, assert_count_equal
+from tests.helpers import nice_file, run_command
+from tests.mixins import PytestBase, StdStreamCapturingMixin, RestoreModulesMixin, TempDirMixin
 
 
 # Status returns for the command line.
@@ -38,38 +33,17 @@ OK, ERR = 0, 1
 # The coverage/tests directory, for all sorts of finding test helping things.
 TESTS_DIR = os.path.dirname(__file__)
 
+# Install arguments to pass to pip when reinstalling ourselves.
+# Defaults to the top of the source tree, but can be overridden if we need
+# some help on certain platforms.
+COVERAGE_INSTALL_ARGS = os.getenv("COVERAGE_INSTALL_ARGS", nice_file(TESTS_DIR, ".."))
 
-def convert_skip_exceptions(method):
-    """A decorator for test methods to convert StopEverything to SkipTest."""
-    @functools.wraps(method)
-    def _wrapper(*args, **kwargs):
-        try:
-            result = method(*args, **kwargs)
-        except StopEverything:
-            raise unittest.SkipTest("StopEverything!")
-        return result
-    return _wrapper
-
-
-class SkipConvertingMetaclass(type):
-    """Decorate all test methods to convert StopEverything to SkipTest."""
-    def __new__(cls, name, bases, attrs):
-        for attr_name, attr_value in attrs.items():
-            if attr_name.startswith('test_') and isinstance(attr_value, types.FunctionType):
-                attrs[attr_name] = convert_skip_exceptions(attr_value)
-
-        return super(SkipConvertingMetaclass, cls).__new__(cls, name, bases, attrs)
-
-
-CoverageTestMethodsMixin = SkipConvertingMetaclass('CoverageTestMethodsMixin', (), {})
 
 class CoverageTest(
-    EnvironmentAwareMixin,
     StdStreamCapturingMixin,
+    RestoreModulesMixin,
     TempDirMixin,
-    DelayedAssertionMixin,
-    CoverageTestMethodsMixin,
-    TestCase,
+    PytestBase,
 ):
     """A base class for coverage.py test cases."""
 
@@ -82,33 +56,13 @@ class CoverageTest(
     # Let stderr go to stderr, pytest will capture it for us.
     show_stderr = True
 
-    # Temp dirs go to $TMPDIR/coverage_test/*
-    temp_dir_prefix = "coverage_test/"
-    if os.getenv('COVERAGE_ENV_ID'):
-        temp_dir_prefix += "{}/".format(os.getenv('COVERAGE_ENV_ID'))
-
-    # Keep the temp directories if the env says to.
-    # $set_env.py: COVERAGE_KEEP_TMP - Keep the temp directories made by tests.
-    keep_temp_dir = bool(int(os.getenv("COVERAGE_KEEP_TMP", "0")))
-
     def setUp(self):
-        super(CoverageTest, self).setUp()
-
-        self.module_cleaner = SuperModuleCleaner()
+        super().setUp()
 
         # Attributes for getting info about what happened.
         self.last_command_status = None
         self.last_command_output = None
         self.last_module_name = None
-
-    def clean_local_file_imports(self):
-        """Clean up the results of calls to `import_local_file`.
-
-        Use this if you need to `import_local_file` the same file twice in
-        one test.
-
-        """
-        self.module_cleaner.clean_local_file_imports()
 
     def start_import_stop(self, cov, modname, modfile=None):
         """Start coverage, import a file, then stop coverage.
@@ -129,22 +83,42 @@ class CoverageTest(
             cov.stop()
         return mod
 
+    def get_report(self, cov, squeeze=True, **kwargs):
+        """Get the report from `cov`, and canonicalize it."""
+        repout = io.StringIO()
+        kwargs.setdefault("show_missing", False)
+        cov.report(file=repout, **kwargs)
+        report = repout.getvalue().replace('\\', '/')
+        if squeeze:
+            report = re.sub(r" +", " ", report)
+        return report
+
     def get_module_name(self):
         """Return a random module name to use for this test run."""
         self.last_module_name = 'coverage_test_' + str(random.random())[2:]
         return self.last_module_name
 
-    def assert_equal_arcs(self, a1, a2, msg=None):
-        """Assert that the arc lists `a1` and `a2` are equal."""
+    def _check_arcs(self, a1, a2, arc_type):
+        """Check that the arc lists `a1` and `a2` are equal.
+
+        If they are equal, return empty string. If they are unequal, return
+        a string explaining what is different.
+        """
         # Make them into multi-line strings so we can see what's going wrong.
         s1 = arcs_to_arcz_repr(a1)
         s2 = arcs_to_arcz_repr(a2)
-        self.assertMultiLineEqual(s1, s2, msg)
+        if s1 != s2:
+            lines1 = s1.splitlines(True)
+            lines2 = s2.splitlines(True)
+            diff = "".join(difflib.ndiff(lines1, lines2))
+            return "\n" + arc_type + " arcs differ: minus is expected, plus is actual\n" + diff
+        else:
+            return ""
 
     def check_coverage(
         self, text, lines=None, missing="", report="",
         excludes=None, partials="",
-        arcz=None, arcz_missing="", arcz_unpredicted="",
+        arcz=None, arcz_missing=None, arcz_unpredicted=None,
         arcs=None, arcs_missing=None, arcs_unpredicted=None,
     ):
         """Check the coverage measurement of `text`.
@@ -165,6 +139,8 @@ class CoverageTest(
         Returns the Coverage object, in case you want to poke at it some more.
 
         """
+        __tracebackhide__ = True    # pytest, please don't show me this function.
+
         # We write the code into a file so that we can import it.
         # Coverage.py wants to deal with things as modules with file names.
         modname = self.get_module_name()
@@ -173,9 +149,9 @@ class CoverageTest(
 
         if arcs is None and arcz is not None:
             arcs = arcz_to_arcs(arcz)
-        if arcs_missing is None:
+        if arcs_missing is None and arcz_missing is not None:
             arcs_missing = arcz_to_arcs(arcz_missing)
-        if arcs_unpredicted is None:
+        if arcs_unpredicted is None and arcz_unpredicted is not None:
             arcs_unpredicted = arcz_to_arcs(arcz_unpredicted)
 
         # Start up coverage.py.
@@ -198,7 +174,7 @@ class CoverageTest(
             if isinstance(lines[0], int):
                 # lines is just a list of numbers, it must match the statements
                 # found in the code.
-                self.assertEqual(statements, lines)
+                assert statements == lines, f"{statements!r} != {lines!r}"
             else:
                 # lines is a list of possible line number lists, one of them
                 # must match.
@@ -206,42 +182,51 @@ class CoverageTest(
                     if statements == line_list:
                         break
                 else:
-                    self.fail("None of the lines choices matched %r" % statements)
+                    assert False, f"None of the lines choices matched {statements!r}"
 
             missing_formatted = analysis.missing_formatted()
-            if isinstance(missing, string_class):
-                self.assertEqual(missing_formatted, missing)
+            if isinstance(missing, str):
+                msg = f"{missing_formatted!r} != {missing!r}"
+                assert missing_formatted == missing, msg
             else:
                 for missing_list in missing:
                     if missing_formatted == missing_list:
                         break
                 else:
-                    self.fail("None of the missing choices matched %r" % missing_formatted)
+                    assert False, f"None of the missing choices matched {missing_formatted!r}"
 
         if arcs is not None:
-            with self.delayed_assertions():
-                self.assert_equal_arcs(
-                    arcs, analysis.arc_possibilities(),
-                    "Possible arcs differ: minus is expected, plus is actual"
-                )
-
-                self.assert_equal_arcs(
-                    arcs_missing, analysis.arcs_missing(),
-                    "Missing arcs differ: minus is expected, plus is actual"
-                )
-
-                self.assert_equal_arcs(
-                    arcs_unpredicted, analysis.arcs_unpredicted(),
-                    "Unpredicted arcs differ: minus is expected, plus is actual"
-                )
+            # print("Possible arcs:")
+            # print(" expected:", arcs)
+            # print(" actual:", analysis.arc_possibilities())
+            # print("Executed:")
+            # print(" actual:", sorted(set(analysis.arcs_executed())))
+            # TODO: this would be nicer with pytest-check, once we can run that.
+            msg = (
+                self._check_arcs(arcs, analysis.arc_possibilities(), "Possible") +
+                self._check_arcs(arcs_missing, analysis.arcs_missing(), "Missing") +
+                self._check_arcs(arcs_unpredicted, analysis.arcs_unpredicted(), "Unpredicted")
+            )
+            if msg:
+                assert False, msg
 
         if report:
-            frep = StringIO()
+            frep = io.StringIO()
             cov.report(mod, file=frep, show_missing=True)
             rep = " ".join(frep.getvalue().split("\n")[2].split()[1:])
-            self.assertEqual(report, rep)
+            assert report == rep, f"{report!r} != {rep!r}"
 
         return cov
+
+    def make_data_file(self, basename=None, suffix=None, lines=None, file_tracers=None):
+        """Write some data into a coverage data file."""
+        data = coverage.CoverageData(basename=basename, suffix=suffix)
+        if lines:
+            data.add_lines(lines)
+        if file_tracers:
+            data.add_file_tracers(file_tracers)
+        data.write()
+        return data
 
     @contextlib.contextmanager
     def assert_warnings(self, cov, warnings, not_warnings=()):
@@ -260,12 +245,13 @@ class CoverageTest(
         warnings.
 
         """
+        __tracebackhide__ = True
         saved_warnings = []
         def capture_warning(msg, slug=None, once=False):        # pylint: disable=unused-argument
             """A fake implementation of Coverage._warn, to capture warnings."""
             # NOTE: we don't implement `once`.
             if slug:
-                msg = "%s (%s)" % (msg, slug)
+                msg = f"{msg} ({slug})"
             saved_warnings.append(msg)
 
         original_warn = cov._warn
@@ -282,56 +268,46 @@ class CoverageTest(
                         if re.search(warning_regex, saved):
                             break
                     else:
-                        self.fail("Didn't find warning %r in %r" % (warning_regex, saved_warnings))
+                        msg = f"Didn't find warning {warning_regex!r} in {saved_warnings!r}"
+                        assert False, msg
                 for warning_regex in not_warnings:
                     for saved in saved_warnings:
                         if re.search(warning_regex, saved):
-                            self.fail("Found warning %r in %r" % (warning_regex, saved_warnings))
+                            msg = f"Found warning {warning_regex!r} in {saved_warnings!r}"
+                            assert False, msg
             else:
                 # No warnings expected. Raise if any warnings happened.
                 if saved_warnings:
-                    self.fail("Unexpected warnings: %r" % (saved_warnings,))
+                    assert False, f"Unexpected warnings: {saved_warnings!r}"
         finally:
             cov._warn = original_warn
 
-    def nice_file(self, *fparts):
-        """Canonicalize the file name composed of the parts in `fparts`."""
-        fname = os.path.join(*fparts)
-        return os.path.normcase(os.path.abspath(os.path.realpath(fname)))
-
     def assert_same_files(self, flist1, flist2):
         """Assert that `flist1` and `flist2` are the same set of file names."""
-        flist1_nice = [self.nice_file(f) for f in flist1]
-        flist2_nice = [self.nice_file(f) for f in flist2]
-        self.assertCountEqual(flist1_nice, flist2_nice)
+        flist1_nice = [nice_file(f) for f in flist1]
+        flist2_nice = [nice_file(f) for f in flist2]
+        assert_count_equal(flist1_nice, flist2_nice)
 
     def assert_exists(self, fname):
         """Assert that `fname` is a file that exists."""
-        msg = "File %r should exist" % fname
-        self.assertTrue(os.path.exists(fname), msg)
+        assert os.path.exists(fname), f"File {fname!r} should exist"
 
     def assert_doesnt_exist(self, fname):
         """Assert that `fname` is a file that doesn't exist."""
-        msg = "File %r shouldn't exist" % fname
-        self.assertTrue(not os.path.exists(fname), msg)
+        assert not os.path.exists(fname), f"File {fname!r} shouldn't exist"
 
     def assert_file_count(self, pattern, count):
         """Assert that there are `count` files matching `pattern`."""
         files = sorted(glob.glob(pattern))
         msg = "There should be {} files matching {!r}, but there are these: {}"
         msg = msg.format(count, pattern, files)
-        self.assertEqual(len(files), count, msg)
-
-    def assert_starts_with(self, s, prefix, msg=None):
-        """Assert that `s` starts with `prefix`."""
-        if not s.startswith(prefix):
-            self.fail(msg or ("%r doesn't start with %r" % (s, prefix)))
+        assert len(files) == count, msg
 
     def assert_recent_datetime(self, dt, seconds=10, msg=None):
         """Assert that `dt` marks a time at most `seconds` seconds ago."""
         age = datetime.datetime.now() - dt
-        self.assertGreaterEqual(age.total_seconds(), 0, msg)
-        self.assertLessEqual(age.total_seconds(), seconds, msg)
+        assert age.total_seconds() >= 0, msg
+        assert age.total_seconds() <= seconds, msg
 
     def command_line(self, args, ret=OK):
         """Run `args` through the command line.
@@ -346,8 +322,12 @@ class CoverageTest(
 
         """
         ret_actual = command_line(args)
-        self.assertEqual(ret_actual, ret)
+        assert ret_actual == ret, f"{ret_actual!r} != {ret!r}"
 
+    # Some distros rename the coverage command, and need a way to indicate
+    # their new command name to the tests. This is here for them to override,
+    # for example:
+    # https://salsa.debian.org/debian/pkg-python-coverage/-/blob/master/debian/patches/02.rename-public-programs.patch
     coverage_command = "coverage"
 
     def run_command(self, cmd):
@@ -405,7 +385,7 @@ class CoverageTest(
             if env.JYTHON:                  # pragma: only jython
                 # Jython can't do reporting, so let's skip the test now.
                 if command_args and command_args[0] in ('report', 'html', 'xml', 'annotate'):
-                    self.skipTest("Can't run reporting commands in Jython")
+                    pytest.skip("Can't run reporting commands in Jython")
                 # Jython can't run "coverage" as a command because the shebang
                 # refers to another shebang'd Python script. So run them as
                 # modules.
@@ -418,7 +398,7 @@ class CoverageTest(
         else:
             command_words = [command_name]
 
-        cmd = " ".join([shlex_quote(w) for w in command_words] + command_args)
+        cmd = " ".join([shlex.quote(w) for w in command_words] + command_args)
 
         # Add our test modules directory to PYTHONPATH.  I'm sure there's too
         # much path munging here, but...
@@ -426,8 +406,8 @@ class CoverageTest(
         if env.JYTHON:
             pythonpath_name = "JYTHONPATH"          # pragma: only jython
 
-        testmods = self.nice_file(self.working_root(), 'tests/modules')
-        zipfile = self.nice_file(self.working_root(), 'tests/zipmods.zip')
+        testmods = nice_file(self.working_root(), "tests/modules")
+        zipfile = nice_file(self.working_root(), "tests/zipmods.zip")
         pypath = os.getenv(pythonpath_name, '')
         if pypath:
             pypath += os.pathsep
@@ -440,18 +420,18 @@ class CoverageTest(
 
     def working_root(self):
         """Where is the root of the coverage.py working tree?"""
-        return os.path.dirname(self.nice_file(coverage.__file__, ".."))
+        return os.path.dirname(nice_file(__file__, ".."))
 
     def report_from_command(self, cmd):
         """Return the report from the `cmd`, with some convenience added."""
         report = self.run_command(cmd).replace('\\', '/')
-        self.assertNotIn("error", report.lower())
+        assert "error" not in report.lower()
         return report
 
     def report_lines(self, report):
         """Return the lines of the report, as a list."""
         lines = report.split('\n')
-        self.assertEqual(lines[-1], "")
+        assert lines[-1] == ""
         return lines[:-1]
 
     def line_count(self, report):
@@ -476,16 +456,25 @@ class CoverageTest(
         return {os.path.basename(filename): filename
                 for filename in coverage_data.measured_files()}
 
+    def get_missing_arc_description(self, cov, start, end):
+        """Get the missing-arc description for a line arc in a coverage run."""
+        # ugh, unexposed methods??
+        filename = self.last_module_name + ".py"
+        fr = cov._get_file_reporter(filename)
+        arcs_executed = cov._analyze(filename).arcs_executed()
+        return fr.missing_arc_description(start, end, arcs_executed)
 
-class UsingModulesMixin(object):
+
+class UsingModulesMixin:
     """A mixin for importing modules from tests/modules and tests/moremodules."""
 
     def setUp(self):
-        super(UsingModulesMixin, self).setUp()
+        super().setUp()
 
         # Parent class saves and restores sys.path, we can just modify it.
-        sys.path.append(self.nice_file(TESTS_DIR, 'modules'))
-        sys.path.append(self.nice_file(TESTS_DIR, 'moremodules'))
+        sys.path.append(nice_file(TESTS_DIR, "modules"))
+        sys.path.append(nice_file(TESTS_DIR, "moremodules"))
+        sys.path.append(nice_file(TESTS_DIR, "zipmods.zip"))
 
 
 def command_line(args):
@@ -497,8 +486,3 @@ def command_line(args):
     script = CoverageScript()
     ret = script.command_line(shlex.split(args))
     return ret
-
-
-def xfail(condition, reason):
-    """A decorator to mark as test as expected to fail."""
-    return pytest.mark.xfail(condition, reason=reason, strict=True)

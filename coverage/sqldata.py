@@ -1,33 +1,34 @@
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
-"""Sqlite coverage data."""
-
-# TODO: factor out dataop debugging to a wrapper class?
-# TODO: make sure all dataop debugging is in place somehow
+"""SQLite coverage data."""
 
 import collections
 import datetime
+import functools
 import glob
 import itertools
 import os
+import random
 import re
+import socket
 import sqlite3
 import sys
+import textwrap
+import threading
 import zlib
 
-from coverage import env
-from coverage.backward import get_thread_id, iitems, to_bytes, to_string
 from coverage.debug import NoDebugging, SimpleReprMixin, clipped_repr
+from coverage.exceptions import CoverageException, DataError
 from coverage.files import PathAliases
-from coverage.misc import CoverageException, contract, file_be_gone, filename_suffix, isolate_module
+from coverage.misc import contract, file_be_gone, isolate_module
 from coverage.numbits import numbits_to_nums, numbits_union, nums_to_numbits
 from coverage.version import __version__
 
 os = isolate_module(os)
 
 # If you change the schema, increment the SCHEMA_VERSION, and update the
-# docs in docs/dbschema.rst also.
+# docs in docs/dbschema.rst by running "make cogdoc".
 
 SCHEMA_VERSION = 7
 
@@ -167,7 +168,8 @@ class CoverageData(SimpleReprMixin):
     To record data for contexts, use :meth:`set_context` to set a context to
     be used for subsequent :meth:`add_lines` and :meth:`add_arcs` calls.
 
-    To add a source file without any measured data, use :meth:`touch_file`.
+    To add a source file without any measured data, use :meth:`touch_file`,
+    or :meth:`touch_files` for a list of such files.
 
     Write the data to its file with :meth:`write`.
 
@@ -178,6 +180,10 @@ class CoverageData(SimpleReprMixin):
     Data in a :class:`CoverageData` can be serialized and deserialized with
     :meth:`dumps` and :meth:`loads`.
 
+    The methods used during the coverage.py collection phase
+    (:meth:`add_lines`, :meth:`add_arcs`, :meth:`set_context`, and
+    :meth:`add_file_tracers`) are thread-safe.  Other methods may not be.
+
     """
 
     def __init__(self, basename=None, suffix=None, no_disk=False, warn=None, debug=None):
@@ -185,7 +191,7 @@ class CoverageData(SimpleReprMixin):
 
         Arguments:
             basename (str): the base name of the data file, defaulting to
-                ".coverage".
+                ".coverage". This can be a path to a file in another directory.
             suffix (str or bool): has the same meaning as the `data_suffix`
                 argument to :class:`coverage.Coverage`.
             no_disk (bool): if True, keep all data in memory, and don't
@@ -206,6 +212,8 @@ class CoverageData(SimpleReprMixin):
         # Maps thread ids to SqliteDb objects.
         self._dbs = {}
         self._pid = os.getpid()
+        # Synchronize the operations used during collection.
+        self._lock = threading.RLock()
 
         # Are we in sync with the data file?
         self._have_used = False
@@ -216,6 +224,19 @@ class CoverageData(SimpleReprMixin):
         self._current_context = None
         self._current_context_id = None
         self._query_context_ids = None
+
+    def _locked(method):            # pylint: disable=no-self-argument
+        """A decorator for methods that should hold self._lock."""
+        @functools.wraps(method)
+        def _wrapped(self, *args, **kwargs):
+            if self._debug.should("lock"):
+                self._debug.write(f"Locking {self._lock!r} for {method.__name__}")
+            with self._lock:
+                if self._debug.should("lock"):
+                    self._debug.write(f"Locked  {self._lock!r} for {method.__name__}")
+                # pylint: disable=not-callable
+                return method(self, *args, **kwargs)
+        return _wrapped
 
     def _choose_filename(self):
         """Set self._filename based on inited attributes."""
@@ -229,55 +250,38 @@ class CoverageData(SimpleReprMixin):
 
     def _reset(self):
         """Reset our attributes."""
-        if self._dbs:
+        if not self._no_disk:
             for db in self._dbs.values():
                 db.close()
-        self._dbs = {}
+            self._dbs = {}
         self._file_map = {}
         self._have_used = False
         self._current_context_id = None
 
-    def _create_db(self):
-        """Create a db file that doesn't exist yet.
-
-        Initializes the schema and certain metadata.
-        """
-        if self._debug.should('dataio'):
-            self._debug.write("Creating data file {!r}".format(self._filename))
-        self._dbs[get_thread_id()] = db = SqliteDb(self._filename, self._debug)
-        with db:
-            db.executescript(SCHEMA)
-            db.execute("insert into coverage_schema (version) values (?)", (SCHEMA_VERSION,))
-            db.executemany(
-                "insert into meta (key, value) values (?, ?)",
-                [
-                    ('sys_argv', str(getattr(sys, 'argv', None))),
-                    ('version', __version__),
-                    ('when', datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
-                ]
-            )
-
     def _open_db(self):
         """Open an existing db file, and read its metadata."""
-        if self._debug.should('dataio'):
-            self._debug.write("Opening data file {!r}".format(self._filename))
-        self._dbs[get_thread_id()] = SqliteDb(self._filename, self._debug)
+        if self._debug.should("dataio"):
+            self._debug.write(f"Opening data file {self._filename!r}")
+        self._dbs[threading.get_ident()] = SqliteDb(self._filename, self._debug)
         self._read_db()
 
     def _read_db(self):
         """Read the metadata from a database so that we are ready to use it."""
-        with self._dbs[get_thread_id()] as db:
+        with self._dbs[threading.get_ident()] as db:
             try:
                 schema_version, = db.execute_one("select version from coverage_schema")
             except Exception as exc:
-                raise CoverageException(
-                    "Data file {!r} doesn't seem to be a coverage data file: {}".format(
-                        self._filename, exc
-                    )
-                )
+                if "no such table: coverage_schema" in str(exc):
+                    self._init_db(db)
+                else:
+                    raise DataError(
+                        "Data file {!r} doesn't seem to be a coverage data file: {}".format(
+                            self._filename, exc
+                        )
+                    ) from exc
             else:
                 if schema_version != SCHEMA_VERSION:
-                    raise CoverageException(
+                    raise DataError(
                         "Couldn't use data file {!r}: wrong schema: {} instead of {}".format(
                             self._filename, schema_version, SCHEMA_VERSION
                         )
@@ -287,20 +291,32 @@ class CoverageData(SimpleReprMixin):
                 self._has_arcs = bool(int(row[0]))
                 self._has_lines = not self._has_arcs
 
-            for path, file_id in db.execute("select path, id from file"):
+            for file_id, path in db.execute("select id, path from file"):
                 self._file_map[path] = file_id
+
+    def _init_db(self, db):
+        """Write the initial contents of the database."""
+        if self._debug.should("dataio"):
+            self._debug.write(f"Initing data file {self._filename!r}")
+        db.executescript(SCHEMA)
+        db.execute("insert into coverage_schema (version) values (?)", (SCHEMA_VERSION,))
+        db.executemany(
+            "insert or ignore into meta (key, value) values (?, ?)",
+            [
+                ("sys_argv", str(getattr(sys, "argv", None))),
+                ("version", __version__),
+                ("when", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+            ]
+        )
 
     def _connect(self):
         """Get the SqliteDb object to use."""
-        if get_thread_id() not in self._dbs:
-            if os.path.exists(self._filename):
-                self._open_db()
-            else:
-                self._create_db()
-        return self._dbs[get_thread_id()]
+        if threading.get_ident() not in self._dbs:
+            self._open_db()
+        return self._dbs[threading.get_ident()]
 
-    def __nonzero__(self):
-        if (get_thread_id() not in self._dbs and not os.path.exists(self._filename)):
+    def __bool__(self):
+        if (threading.get_ident() not in self._dbs and not os.path.exists(self._filename)):
             return False
         try:
             with self._connect() as con:
@@ -309,9 +325,7 @@ class CoverageData(SimpleReprMixin):
         except CoverageException:
             return False
 
-    __bool__ = __nonzero__
-
-    @contract(returns='bytes')
+    @contract(returns="bytes")
     def dumps(self):
         """Serialize the current data to a byte string.
 
@@ -319,23 +333,31 @@ class CoverageData(SimpleReprMixin):
         suitable for use with :meth:`loads` in the same version of
         coverage.py.
 
+        Note that this serialization is not what gets stored in coverage data
+        files.  This method is meant to produce bytes that can be transmitted
+        elsewhere and then deserialized with :meth:`loads`.
+
         Returns:
             A byte string of serialized data.
 
         .. versionadded:: 5.0
 
         """
-        if self._debug.should('dataio'):
-            self._debug.write("Dumping data from data file {!r}".format(self._filename))
+        if self._debug.should("dataio"):
+            self._debug.write(f"Dumping data from data file {self._filename!r}")
         with self._connect() as con:
-            return b'z' + zlib.compress(to_bytes(con.dump()))
+            script = con.dump()
+            return b"z" + zlib.compress(script.encode("utf-8"))
 
-    @contract(data='bytes')
+    @contract(data="bytes")
     def loads(self, data):
-        """Deserialize data from :meth:`dumps`
+        """Deserialize data from :meth:`dumps`.
 
         Use with a newly-created empty :class:`CoverageData` object.  It's
         undefined what happens if the object already has data in it.
+
+        Note that this is not for reading data from a coverage data file.  It
+        is only for use on data you produced with :meth:`dumps`.
 
         Arguments:
             data: A byte string of serialized data produced by :meth:`dumps`.
@@ -343,14 +365,14 @@ class CoverageData(SimpleReprMixin):
         .. versionadded:: 5.0
 
         """
-        if self._debug.should('dataio'):
-            self._debug.write("Loading data into data file {!r}".format(self._filename))
-        if data[:1] != b'z':
-            raise CoverageException(
-                "Unrecognized serialization: {!r} (head of {} bytes)".format(data[:40], len(data))
-                )
-        script = to_string(zlib.decompress(data[1:]))
-        self._dbs[get_thread_id()] = db = SqliteDb(self._filename, self._debug)
+        if self._debug.should("dataio"):
+            self._debug.write(f"Loading data into data file {self._filename!r}")
+        if data[:1] != b"z":
+            raise DataError(
+                f"Unrecognized serialization: {data[:40]!r} (head of {len(data)} bytes)"
+            )
+        script = zlib.decompress(data[1:]).decode("utf-8")
+        self._dbs[threading.get_ident()] = db = SqliteDb(self._filename, self._debug)
         with db:
             db.executescript(script)
         self._read_db()
@@ -365,8 +387,10 @@ class CoverageData(SimpleReprMixin):
         if filename not in self._file_map:
             if add:
                 with self._connect() as con:
-                    cur = con.execute("insert or replace into file (path) values (?)", (filename,))
-                    self._file_map[filename] = cur.lastrowid
+                    self._file_map[filename] = con.execute_for_rowid(
+                        "insert or replace into file (path) values (?)",
+                        (filename,)
+                    )
         return self._file_map.get(filename)
 
     def _context_id(self, context):
@@ -380,6 +404,7 @@ class CoverageData(SimpleReprMixin):
             else:
                 return None
 
+    @_locked
     def set_context(self, context):
         """Set the current context for future :meth:`add_lines` etc.
 
@@ -389,8 +414,8 @@ class CoverageData(SimpleReprMixin):
         .. versionadded:: 5.0
 
         """
-        if self._debug.should('dataop'):
-            self._debug.write("Setting context: %r" % (context,))
+        if self._debug.should("dataop"):
+            self._debug.write(f"Setting context: {context!r}")
         self._current_context = context
         self._current_context_id = None
 
@@ -402,8 +427,10 @@ class CoverageData(SimpleReprMixin):
             self._current_context_id = context_id
         else:
             with self._connect() as con:
-                cur = con.execute("insert into context (context) values (?)", (context,))
-                self._current_context_id = cur.lastrowid
+                self._current_context_id = con.execute_for_rowid(
+                    "insert into context (context) values (?)",
+                    (context,)
+                )
 
     def base_filename(self):
         """The base filename for storing data.
@@ -421,15 +448,16 @@ class CoverageData(SimpleReprMixin):
         """
         return self._filename
 
+    @_locked
     def add_lines(self, line_data):
         """Add measured line data.
 
-        `line_data` is a dictionary mapping file names to dictionaries::
+        `line_data` is a dictionary mapping file names to iterables of ints::
 
-            { filename: { lineno: None, ... }, ...}
+            { filename: { line1, line2, ... }, ...}
 
         """
-        if self._debug.should('dataop'):
+        if self._debug.should("dataop"):
             self._debug.write("Adding lines: %d files, %d lines total" % (
                 len(line_data), sum(len(lines) for lines in line_data.values())
             ))
@@ -439,7 +467,7 @@ class CoverageData(SimpleReprMixin):
             return
         with self._connect() as con:
             self._set_context_id()
-            for filename, linenos in iitems(line_data):
+            for filename, linenos in line_data.items():
                 linemap = nums_to_numbits(linenos)
                 file_id = self._file_id(filename, add=True)
                 query = "select numbits from line_bits where file_id = ? and context_id = ?"
@@ -448,20 +476,22 @@ class CoverageData(SimpleReprMixin):
                     linemap = numbits_union(linemap, existing[0][0])
 
                 con.execute(
-                    "insert or replace into line_bits "
+                    "insert or replace into line_bits " +
                     " (file_id, context_id, numbits) values (?, ?, ?)",
                     (file_id, self._current_context_id, linemap),
                 )
 
+    @_locked
     def add_arcs(self, arc_data):
         """Add measured arc data.
 
-        `arc_data` is a dictionary mapping file names to dictionaries::
+        `arc_data` is a dictionary mapping file names to iterables of pairs of
+        ints::
 
-            { filename: { (l1,l2): None, ... }, ...}
+            { filename: { (l1,l2), (l1,l2), ... }, ...}
 
         """
-        if self._debug.should('dataop'):
+        if self._debug.should("dataop"):
             self._debug.write("Adding arcs: %d files, %d arcs total" % (
                 len(arc_data), sum(len(arcs) for arcs in arc_data.values())
             ))
@@ -471,11 +501,11 @@ class CoverageData(SimpleReprMixin):
             return
         with self._connect() as con:
             self._set_context_id()
-            for filename, arcs in iitems(arc_data):
+            for filename, arcs in arc_data.items():
                 file_id = self._file_id(filename, add=True)
                 data = [(file_id, self._current_context_id, fromno, tono) for fromno, tono in arcs]
                 con.executemany(
-                    "insert or ignore into arc "
+                    "insert or ignore into arc " +
                     "(file_id, context_id, fromno, tono) values (?, ?, ?, ?)",
                     data,
                 )
@@ -485,42 +515,47 @@ class CoverageData(SimpleReprMixin):
         assert lines or arcs
         assert not (lines and arcs)
         if lines and self._has_arcs:
-            raise CoverageException("Can't add lines to existing arc data")
+            if self._debug.should("dataop"):
+                self._debug.write("Error: Can't add line measurements to existing branch data")
+            raise DataError("Can't add line measurements to existing branch data")
         if arcs and self._has_lines:
-            raise CoverageException("Can't add arcs to existing line data")
+            if self._debug.should("dataop"):
+                self._debug.write("Error: Can't add branch measurements to existing line data")
+            raise DataError("Can't add branch measurements to existing line data")
         if not self._has_arcs and not self._has_lines:
             self._has_lines = lines
             self._has_arcs = arcs
             with self._connect() as con:
                 con.execute(
-                    "insert into meta (key, value) values (?, ?)",
-                    ('has_arcs', str(int(arcs)))
+                    "insert or ignore into meta (key, value) values (?, ?)",
+                    ("has_arcs", str(int(arcs)))
                 )
 
+    @_locked
     def add_file_tracers(self, file_tracers):
         """Add per-file plugin information.
 
         `file_tracers` is { filename: plugin_name, ... }
 
         """
-        if self._debug.should('dataop'):
+        if self._debug.should("dataop"):
             self._debug.write("Adding file tracers: %d files" % (len(file_tracers),))
         if not file_tracers:
             return
         self._start_using()
         with self._connect() as con:
-            for filename, plugin_name in iitems(file_tracers):
+            for filename, plugin_name in file_tracers.items():
                 file_id = self._file_id(filename)
                 if file_id is None:
-                    raise CoverageException(
-                        "Can't add file tracer data for unmeasured file '%s'" % (filename,)
+                    raise DataError(
+                        f"Can't add file tracer data for unmeasured file '{filename}'"
                     )
 
                 existing_plugin = self.file_tracer(filename)
                 if existing_plugin:
                     if existing_plugin != plugin_name:
-                        raise CoverageException(
-                            "Conflicting file tracer name for '%s': %r vs %r" % (
+                        raise DataError(
+                            "Conflicting file tracer name for '{}': {!r} vs {!r}".format(
                                 filename, existing_plugin, plugin_name,
                             )
                         )
@@ -536,16 +571,26 @@ class CoverageData(SimpleReprMixin):
         `plugin_name` is the name of the plugin responsible for this file. It is used
         to associate the right filereporter, etc.
         """
-        if self._debug.should('dataop'):
-            self._debug.write("Touching %r" % (filename,))
-        self._start_using()
-        if not self._has_arcs and not self._has_lines:
-            raise CoverageException("Can't touch files in an empty CoverageData")
+        self.touch_files([filename], plugin_name)
 
-        self._file_id(filename, add=True)
-        if plugin_name:
-            # Set the tracer for this file
-            self.add_file_tracers({filename: plugin_name})
+    def touch_files(self, filenames, plugin_name=""):
+        """Ensure that `filenames` appear in the data, empty if needed.
+
+        `plugin_name` is the name of the plugin responsible for these files. It is used
+        to associate the right filereporter, etc.
+        """
+        if self._debug.should("dataop"):
+            self._debug.write(f"Touching {filenames!r}")
+        self._start_using()
+        with self._connect(): # Use this to get one transaction.
+            if not self._has_arcs and not self._has_lines:
+                raise DataError("Can't touch files in an empty CoverageData")
+
+            for filename in filenames:
+                self._file_id(filename, add=True)
+                if plugin_name:
+                    # Set the tracer for this file
+                    self.add_file_tracers({filename: plugin_name})
 
     def update(self, other_data, aliases=None):
         """Update this data with data from several other :class:`CoverageData` instances.
@@ -553,98 +598,95 @@ class CoverageData(SimpleReprMixin):
         If `aliases` is provided, it's a `PathAliases` object that is used to
         re-map paths to match the local machine's.
         """
-        if self._debug.should('dataop'):
-            self._debug.write("Updating with data from %r" % (
-                getattr(other_data, '_filename', '???'),
+        if self._debug.should("dataop"):
+            self._debug.write("Updating with data from {!r}".format(
+                getattr(other_data, "_filename", "???"),
             ))
         if self._has_lines and other_data._has_arcs:
-            raise CoverageException("Can't combine arc data with line data")
+            raise DataError("Can't combine arc data with line data")
         if self._has_arcs and other_data._has_lines:
-            raise CoverageException("Can't combine line data with arc data")
+            raise DataError("Can't combine line data with arc data")
 
         aliases = aliases or PathAliases()
 
-        # Force the database we're writing to to exist before we start nesting
-        # contexts.
+        # Force the database we're writing to to exist before we start nesting contexts.
         self._start_using()
 
         # Collector for all arcs, lines and tracers
         other_data.read()
-        with other_data._connect() as conn:
+        with other_data._connect() as con:
             # Get files data.
-            cur = conn.execute('select path from file')
+            cur = con.execute("select path from file")
             files = {path: aliases.map(path) for (path,) in cur}
             cur.close()
 
             # Get contexts data.
-            cur = conn.execute('select context from context')
+            cur = con.execute("select context from context")
             contexts = [context for (context,) in cur]
             cur.close()
 
             # Get arc data.
-            cur = conn.execute(
-                'select file.path, context.context, arc.fromno, arc.tono '
-                'from arc '
-                'inner join file on file.id = arc.file_id '
-                'inner join context on context.id = arc.context_id'
+            cur = con.execute(
+                "select file.path, context.context, arc.fromno, arc.tono " +
+                "from arc " +
+                "inner join file on file.id = arc.file_id " +
+                "inner join context on context.id = arc.context_id"
             )
             arcs = [(files[path], context, fromno, tono) for (path, context, fromno, tono) in cur]
             cur.close()
 
             # Get line data.
-            cur = conn.execute(
-                'select file.path, context.context, line_bits.numbits '
-                'from line_bits '
-                'inner join file on file.id = line_bits.file_id '
-                'inner join context on context.id = line_bits.context_id'
-                )
-            lines = {
-                (files[path], context): numbits
-                for (path, context, numbits) in cur
-                }
+            cur = con.execute(
+                "select file.path, context.context, line_bits.numbits " +
+                "from line_bits " +
+                "inner join file on file.id = line_bits.file_id " +
+                "inner join context on context.id = line_bits.context_id"
+            )
+            lines = {(files[path], context): numbits for (path, context, numbits) in cur}
             cur.close()
 
             # Get tracer data.
-            cur = conn.execute(
-                'select file.path, tracer '
-                'from tracer '
-                'inner join file on file.id = tracer.file_id'
+            cur = con.execute(
+                "select file.path, tracer " +
+                "from tracer " +
+                "inner join file on file.id = tracer.file_id"
             )
             tracers = {files[path]: tracer for (path, tracer) in cur}
             cur.close()
 
-        with self._connect() as conn:
-            conn.con.isolation_level = 'IMMEDIATE'
+        with self._connect() as con:
+            con.con.isolation_level = "IMMEDIATE"
 
             # Get all tracers in the DB. Files not in the tracers are assumed
             # to have an empty string tracer. Since Sqlite does not support
             # full outer joins, we have to make two queries to fill the
             # dictionary.
-            this_tracers = {path: '' for path, in conn.execute('select path from file')}
+            this_tracers = {path: "" for path, in con.execute("select path from file")}
             this_tracers.update({
                 aliases.map(path): tracer
-                for path, tracer in conn.execute(
-                    'select file.path, tracer from tracer '
-                    'inner join file on file.id = tracer.file_id'
+                for path, tracer in con.execute(
+                    "select file.path, tracer from tracer " +
+                    "inner join file on file.id = tracer.file_id"
                 )
             })
 
             # Create all file and context rows in the DB.
-            conn.executemany(
-                'insert or ignore into file (path) values (?)',
+            con.executemany(
+                "insert or ignore into file (path) values (?)",
                 ((file,) for file in files.values())
             )
             file_ids = {
                 path: id
-                for id, path in conn.execute('select id, path from file')
+                for id, path in con.execute("select id, path from file")
             }
-            conn.executemany(
-                'insert or ignore into context (context) values (?)',
+            self._file_map.update(file_ids)
+            con.executemany(
+                "insert or ignore into context (context) values (?)",
                 ((context,) for context in contexts)
             )
             context_ids = {
                 context: id
-                for id, context in conn.execute('select id, context from context')
+                for id, context in con.execute("select id, context from context")
             }
 
             # Prepare tracers and fail, if a conflict is found.
@@ -653,11 +695,11 @@ class CoverageData(SimpleReprMixin):
             tracer_map = {}
             for path in files.values():
                 this_tracer = this_tracers.get(path)
-                other_tracer = tracers.get(path, '')
+                other_tracer = tracers.get(path, "")
                 # If there is no tracer, there is always the None tracer.
                 if this_tracer is not None and this_tracer != other_tracer:
-                    raise CoverageException(
-                        "Conflicting file tracer name for '%s': %r vs %r" % (
+                    raise DataError(
+                        "Conflicting file tracer name for '{}': {!r} vs {!r}".format(
                             path, this_tracer, other_tracer
                         )
                     )
@@ -672,12 +714,12 @@ class CoverageData(SimpleReprMixin):
             )
 
             # Get line data.
-            cur = conn.execute(
-                'select file.path, context.context, line_bits.numbits '
-                'from line_bits '
-                'inner join file on file.id = line_bits.file_id '
-                'inner join context on context.id = line_bits.context_id'
-                )
+            cur = con.execute(
+                "select file.path, context.context, line_bits.numbits " +
+                "from line_bits " +
+                "inner join file on file.id = line_bits.file_id " +
+                "inner join context on context.id = line_bits.context_id"
+            )
             for path, context, numbits in cur:
                 key = (aliases.map(path), context)
                 if key in lines:
@@ -689,31 +731,32 @@ class CoverageData(SimpleReprMixin):
                 self._choose_lines_or_arcs(arcs=True)
 
                 # Write the combined data.
-                conn.executemany(
-                    'insert or ignore into arc '
-                    '(file_id, context_id, fromno, tono) values (?, ?, ?, ?)',
+                con.executemany(
+                    "insert or ignore into arc " +
+                    "(file_id, context_id, fromno, tono) values (?, ?, ?, ?)",
                     arc_rows
                 )
 
             if lines:
                 self._choose_lines_or_arcs(lines=True)
-                conn.execute("delete from line_bits")
-                conn.executemany(
-                    "insert into line_bits "
+                con.execute("delete from line_bits")
+                con.executemany(
+                    "insert into line_bits " +
                     "(file_id, context_id, numbits) values (?, ?, ?)",
                     [
                         (file_ids[file], context_ids[context], numbits)
                         for (file, context), numbits in lines.items()
                     ]
                 )
-            conn.executemany(
-                'insert or ignore into tracer (file_id, tracer) values (?, ?)',
+            con.executemany(
+                "insert or ignore into tracer (file_id, tracer) values (?, ?)",
                 ((file_ids[filename], tracer) for filename, tracer in tracer_map.items())
             )
 
-        # Update all internal cache data.
-        self._reset()
-        self.read()
+        if not self._no_disk:
+            # Update all internal cache data.
+            self._reset()
+            self.read()
 
     def erase(self, parallel=False):
         """Erase the data in this object.
@@ -725,22 +768,23 @@ class CoverageData(SimpleReprMixin):
         self._reset()
         if self._no_disk:
             return
-        if self._debug.should('dataio'):
-            self._debug.write("Erasing data file {!r}".format(self._filename))
+        if self._debug.should("dataio"):
+            self._debug.write(f"Erasing data file {self._filename!r}")
         file_be_gone(self._filename)
         if parallel:
             data_dir, local = os.path.split(self._filename)
-            localdot = local + '.*'
-            pattern = os.path.join(os.path.abspath(data_dir), localdot)
+            local_abs_path = os.path.join(os.path.abspath(data_dir), local)
+            pattern = glob.escape(local_abs_path) + ".*"
             for filename in glob.glob(pattern):
-                if self._debug.should('dataio'):
-                    self._debug.write("Erasing parallel data file {!r}".format(filename))
+                if self._debug.should("dataio"):
+                    self._debug.write(f"Erasing parallel data file {filename!r}")
                 file_be_gone(filename)
 
     def read(self):
         """Start using an existing data file."""
-        with self._connect():       # TODO: doesn't look right
-            self._have_used = True
+        if os.path.exists(self._filename):
+            with self._connect():
+                self._have_used = True
 
     def write(self):
         """Ensure the data is written to the data file."""
@@ -773,7 +817,7 @@ class CoverageData(SimpleReprMixin):
         """
         self._start_using()
         with self._connect() as con:
-            contexts = set(row[0] for row in con.execute("select distinct(context) from context"))
+            contexts = {row[0] for row in con.execute("select distinct(context) from context")}
         return contexts
 
     def file_tracer(self, filename):
@@ -825,14 +869,14 @@ class CoverageData(SimpleReprMixin):
         self._start_using()
         if contexts:
             with self._connect() as con:
-                context_clause = ' or '.join(['context regexp ?'] * len(contexts))
+                context_clause = " or ".join(["context regexp ?"] * len(contexts))
                 cur = con.execute("select id from context where " + context_clause, contexts)
                 self._query_context_ids = [row[0] for row in cur.fetchall()]
         else:
             self._query_context_ids = None
 
     def lines(self, filename):
-        """Get the list of lines executed for a file.
+        """Get the list of lines executed for a source file.
 
         If the file was not measured, returns None.  A file might be measured,
         and have no lines executed, in which case an empty list is returned.
@@ -846,7 +890,7 @@ class CoverageData(SimpleReprMixin):
             arcs = self.arcs(filename)
             if arcs is not None:
                 all_lines = itertools.chain.from_iterable(arcs)
-                return list(set(l for l in all_lines if l > 0))
+                return list({l for l in all_lines if l > 0})
 
         with self._connect() as con:
             file_id = self._file_id(filename)
@@ -856,7 +900,7 @@ class CoverageData(SimpleReprMixin):
                 query = "select numbits from line_bits where file_id = ?"
                 data = [file_id]
                 if self._query_context_ids is not None:
-                    ids_array = ', '.join('?' * len(self._query_context_ids))
+                    ids_array = ", ".join("?" * len(self._query_context_ids))
                     query += " and context_id in (" + ids_array + ")"
                     data += self._query_context_ids
                 bitmaps = list(con.execute(query, data))
@@ -891,7 +935,7 @@ class CoverageData(SimpleReprMixin):
                 query = "select distinct fromno, tono from arc where file_id = ?"
                 data = [file_id]
                 if self._query_context_ids is not None:
-                    ids_array = ', '.join('?' * len(self._query_context_ids))
+                    ids_array = ", ".join("?" * len(self._query_context_ids))
                     query += " and context_id in (" + ids_array + ")"
                     data += self._query_context_ids
                 arcs = con.execute(query, data)
@@ -906,43 +950,45 @@ class CoverageData(SimpleReprMixin):
         .. versionadded:: 5.0
 
         """
-        lineno_contexts_map = collections.defaultdict(list)
         self._start_using()
         with self._connect() as con:
             file_id = self._file_id(filename)
             if file_id is None:
-                return lineno_contexts_map
+                return {}
+
+            lineno_contexts_map = collections.defaultdict(set)
             if self.has_arcs():
                 query = (
-                    "select arc.fromno, arc.tono, context.context "
-                    "from arc, context "
+                    "select arc.fromno, arc.tono, context.context " +
+                    "from arc, context " +
                     "where arc.file_id = ? and arc.context_id = context.id"
                 )
                 data = [file_id]
                 if self._query_context_ids is not None:
-                    ids_array = ', '.join('?' * len(self._query_context_ids))
+                    ids_array = ", ".join("?" * len(self._query_context_ids))
                     query += " and arc.context_id in (" + ids_array + ")"
                     data += self._query_context_ids
                 for fromno, tono, context in con.execute(query, data):
-                    if context not in lineno_contexts_map[fromno]:
-                        lineno_contexts_map[fromno].append(context)
-                    if context not in lineno_contexts_map[tono]:
-                        lineno_contexts_map[tono].append(context)
+                    if fromno > 0:
+                        lineno_contexts_map[fromno].add(context)
+                    if tono > 0:
+                        lineno_contexts_map[tono].add(context)
             else:
                 query = (
-                    "select l.numbits, c.context from line_bits l, context c "
-                    "where l.context_id = c.id "
+                    "select l.numbits, c.context from line_bits l, context c " +
+                    "where l.context_id = c.id " +
                     "and file_id = ?"
-                    )
+                )
                 data = [file_id]
                 if self._query_context_ids is not None:
-                    ids_array = ', '.join('?' * len(self._query_context_ids))
+                    ids_array = ", ".join("?" * len(self._query_context_ids))
                     query += " and l.context_id in (" + ids_array + ")"
                     data += self._query_context_ids
                 for numbits, context in con.execute(query, data):
                     for lineno in numbits_to_nums(numbits):
-                        lineno_contexts_map[lineno].append(context)
-        return lineno_contexts_map
+                        lineno_contexts_map[lineno].add(context)
+
+        return {lineno: list(contexts) for lineno, contexts in lineno_contexts_map.items()}
 
     @classmethod
     def sys_info(cls):
@@ -953,14 +999,35 @@ class CoverageData(SimpleReprMixin):
         """
         with SqliteDb(":memory:", debug=NoDebugging()) as db:
             temp_store = [row[0] for row in db.execute("pragma temp_store")]
-            compile_options = [row[0] for row in db.execute("pragma compile_options")]
+            copts = [row[0] for row in db.execute("pragma compile_options")]
+            copts = textwrap.wrap(", ".join(copts), width=75)
 
         return [
-            ('sqlite3_version', sqlite3.version),
-            ('sqlite3_sqlite_version', sqlite3.sqlite_version),
-            ('sqlite3_temp_store', temp_store),
-            ('sqlite3_compile_options', compile_options),
+            ("sqlite3_version", sqlite3.version),
+            ("sqlite3_sqlite_version", sqlite3.sqlite_version),
+            ("sqlite3_temp_store", temp_store),
+            ("sqlite3_compile_options", copts),
         ]
+
+
+def filename_suffix(suffix):
+    """Compute a filename suffix for a data file.
+
+    If `suffix` is a string or None, simply return it. If `suffix` is True,
+    then build a suffix incorporating the hostname, process id, and a random
+    number.
+
+    Returns a string or None.
+
+    """
+    if suffix is True:
+        # If data_suffix was a simple true value, then make a suffix with
+        # plenty of distinguishing information.  We do this here in
+        # `save()` at the last minute so that the pid will be correct even
+        # if the process forks.
+        dice = random.Random(os.urandom(8)).randint(0, 999999)
+        suffix = "%s.%s.%06d" % (socket.gethostname(), os.getpid(), dice)
+    return suffix
 
 
 class SqliteDb(SimpleReprMixin):
@@ -974,7 +1041,7 @@ class SqliteDb(SimpleReprMixin):
 
     """
     def __init__(self, filename, debug):
-        self.debug = debug if debug.should('sql') else None
+        self.debug = debug
         self.filename = filename
         self.nest = 0
         self.con = None
@@ -984,29 +1051,19 @@ class SqliteDb(SimpleReprMixin):
         if self.con is not None:
             return
 
-        # SQLite on Windows on py2 won't open a file if the filename argument
-        # has non-ascii characters in it.  Opening a relative file name avoids
-        # a problem if the current directory has non-ascii.
-        filename = self.filename
-        if env.WINDOWS and env.PY2:
-            try:
-                filename = os.path.relpath(self.filename)
-            except ValueError:
-                # ValueError can be raised under Windows when os.getcwd() returns a
-                # folder from a different drive than the drive of self.filename in
-                # which case we keep the original value of self.filename unchanged,
-                # hoping that we won't face the non-ascii directory problem.
-                pass
-
         # It can happen that Python switches threads while the tracer writes
         # data. The second thread will also try to write to the data,
         # effectively causing a nested context. However, given the idempotent
         # nature of the tracer operations, sharing a connection among threads
         # is not a problem.
-        if self.debug:
-            self.debug.write("Connecting to {!r}".format(self.filename))
-        self.con = sqlite3.connect(filename, check_same_thread=False)
-        self.con.create_function('REGEXP', 2, _regexp)
+        if self.debug.should("sql"):
+            self.debug.write(f"Connecting to {self.filename!r}")
+        try:
+            self.con = sqlite3.connect(self.filename, check_same_thread=False)
+        except sqlite3.Error as exc:
+            raise DataError(f"Couldn't use data file {self.filename!r}: {exc}") from exc
+
+        self.con.create_function("REGEXP", 2, lambda txt, pat: re.search(txt, pat) is not None)
 
         # This pragma makes writing faster. It disables rollbacks, but we never need them.
         # PyPy needs the .close() calls here, or sqlite gets twisted up:
@@ -1035,17 +1092,23 @@ class SqliteDb(SimpleReprMixin):
                 self.con.__exit__(exc_type, exc_value, traceback)
                 self.close()
             except Exception as exc:
-                if self.debug:
-                    self.debug.write("EXCEPTION from __exit__: {}".format(exc))
-                raise
+                if self.debug.should("sql"):
+                    self.debug.write(f"EXCEPTION from __exit__: {exc}")
+                raise DataError(f"Couldn't end data file {self.filename!r}: {exc}") from exc
 
     def execute(self, sql, parameters=()):
         """Same as :meth:`python:sqlite3.Connection.execute`."""
-        if self.debug:
-            tail = " with {!r}".format(parameters) if parameters else ""
-            self.debug.write("Executing {!r}{}".format(sql, tail))
+        if self.debug.should("sql"):
+            tail = f" with {parameters!r}" if parameters else ""
+            self.debug.write(f"Executing {sql!r}{tail}")
         try:
-            return self.con.execute(sql, parameters)
+            try:
+                return self.con.execute(sql, parameters)
+            except Exception:
+                # In some cases, an error might happen that isn't really an
+                # error.  Try again immediately.
+                # https://github.com/nedbat/coveragepy/issues/1010
+                return self.con.execute(sql, parameters)
         except sqlite3.Error as exc:
             msg = str(exc)
             try:
@@ -1055,14 +1118,22 @@ class SqliteDb(SimpleReprMixin):
                     cov4_sig = b"!coverage.py: This is a private format"
                     if bad_file.read(len(cov4_sig)) == cov4_sig:
                         msg = (
-                            "Looks like a coverage 4.x data file. "
+                            "Looks like a coverage 4.x data file. " +
                             "Are you mixing versions of coverage?"
                         )
-            except Exception:
+            except Exception:   # pragma: cant happen
                 pass
-            if self.debug:
-                self.debug.write("EXCEPTION from execute: {}".format(msg))
-            raise CoverageException("Couldn't use data file {!r}: {}".format(self.filename, msg))
+            if self.debug.should("sql"):
+                self.debug.write(f"EXCEPTION from execute: {msg}")
+            raise DataError(f"Couldn't use data file {self.filename!r}: {msg}") from exc
+
+    def execute_for_rowid(self, sql, parameters=()):
+        """Like execute, but returns the lastrowid."""
+        con = self.execute(sql, parameters)
+        rowid = con.lastrowid
+        if self.debug.should("sqldata"):
+            self.debug.write(f"Row id result: {rowid!r}")
+        return rowid
 
     def execute_one(self, sql, parameters=()):
         """Execute a statement and return the one row that results.
@@ -1079,18 +1150,28 @@ class SqliteDb(SimpleReprMixin):
         elif len(rows) == 1:
             return rows[0]
         else:
-            raise CoverageException("Sql {!r} shouldn't return {} rows".format(sql, len(rows)))
+            raise AssertionError(f"SQL {sql!r} shouldn't return {len(rows)} rows")
 
     def executemany(self, sql, data):
         """Same as :meth:`python:sqlite3.Connection.executemany`."""
-        if self.debug:
+        if self.debug.should("sql"):
             data = list(data)
-            self.debug.write("Executing many {!r} with {} rows".format(sql, len(data)))
-        return self.con.executemany(sql, data)
+            final = ":" if self.debug.should("sqldata") else ""
+            self.debug.write(f"Executing many {sql!r} with {len(data)} rows{final}")
+            if self.debug.should("sqldata"):
+                for i, row in enumerate(data):
+                    self.debug.write(f"{i:4d}: {row!r}")
+        try:
+            return self.con.executemany(sql, data)
+        except Exception:   # pragma: cant happen
+            # In some cases, an error might happen that isn't really an
+            # error.  Try again immediately.
+            # https://github.com/nedbat/coveragepy/issues/1010
+            return self.con.executemany(sql, data)
 
     def executescript(self, script):
         """Same as :meth:`python:sqlite3.Connection.executescript`."""
-        if self.debug:
+        if self.debug.should("sql"):
             self.debug.write("Executing script with {} chars: {}".format(
                 len(script), clipped_repr(script, 100),
             ))
@@ -1099,8 +1180,3 @@ class SqliteDb(SimpleReprMixin):
     def dump(self):
         """Return a multi-line string, the SQL dump of the database."""
         return "\n".join(self.con.iterdump())
-
-
-def _regexp(text, pattern):
-    """A regexp function for SQLite."""
-    return re.search(text, pattern) is not None

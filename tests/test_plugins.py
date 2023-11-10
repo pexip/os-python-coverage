@@ -4,23 +4,27 @@
 """Tests for plugins."""
 
 import inspect
+import io
+import math
 import os.path
 from xml.etree import ElementTree
 
+import pytest
+
 import coverage
 from coverage import env
-from coverage.backward import StringIO, import_local_file
-from coverage.data import line_counts
 from coverage.control import Plugins
-from coverage.misc import CoverageException
+from coverage.data import line_counts
+from coverage.exceptions import CoverageWarning, NoSource, PluginError
+from coverage.misc import import_local_file
 
 import coverage.plugin
 
 from tests.coveragetest import CoverageTest
-from tests.helpers import CheckUniqueFilenames
+from tests.helpers import CheckUniqueFilenames, swallow_warnings
 
 
-class FakeConfig(object):
+class FakeConfig:
     """A fake config for use in tests."""
 
     def __init__(self, plugin, options):
@@ -53,10 +57,10 @@ class LoadPluginsTest(CoverageTest):
 
         config = FakeConfig("plugin1", {})
         plugins = Plugins.load_plugins([], config)
-        self.assertFalse(plugins)
+        assert not plugins
 
         plugins = Plugins.load_plugins(["plugin1"], config)
-        self.assertTrue(plugins)
+        assert plugins
 
     def test_importing_and_configuring(self):
         self.make_file("plugin1.py", """\
@@ -74,10 +78,10 @@ class LoadPluginsTest(CoverageTest):
         config = FakeConfig("plugin1", {'a': 'hello'})
         plugins = list(Plugins.load_plugins(["plugin1"], config))
 
-        self.assertEqual(len(plugins), 1)
-        self.assertEqual(plugins[0].this_is, "me")
-        self.assertEqual(plugins[0].options, {'a': 'hello'})
-        self.assertEqual(config.asked_for, ['plugin1'])
+        assert len(plugins) == 1
+        assert plugins[0].this_is == "me"
+        assert plugins[0].options == {'a': 'hello'}
+        assert config.asked_for == ['plugin1']
 
     def test_importing_and_configuring_more_than_one(self):
         self.make_file("plugin1.py", """\
@@ -105,23 +109,23 @@ class LoadPluginsTest(CoverageTest):
         config = FakeConfig("plugin1", {'a': 'hello'})
         plugins = list(Plugins.load_plugins(["plugin1", "plugin2"], config))
 
-        self.assertEqual(len(plugins), 2)
-        self.assertEqual(plugins[0].this_is, "me")
-        self.assertEqual(plugins[0].options, {'a': 'hello'})
-        self.assertEqual(plugins[1].options, {})
-        self.assertEqual(config.asked_for, ['plugin1', 'plugin2'])
+        assert len(plugins) == 2
+        assert plugins[0].this_is == "me"
+        assert plugins[0].options == {'a': 'hello'}
+        assert plugins[1].options == {}
+        assert config.asked_for == ['plugin1', 'plugin2']
 
         # The order matters...
         config = FakeConfig("plugin1", {'a': 'second'})
         plugins = list(Plugins.load_plugins(["plugin2", "plugin1"], config))
 
-        self.assertEqual(len(plugins), 2)
-        self.assertEqual(plugins[0].options, {})
-        self.assertEqual(plugins[1].this_is, "me")
-        self.assertEqual(plugins[1].options, {'a': 'second'})
+        assert len(plugins) == 2
+        assert plugins[0].options == {}
+        assert plugins[1].this_is == "me"
+        assert plugins[1].options == {'a': 'second'}
 
     def test_cant_import(self):
-        with self.assertRaisesRegex(ImportError, "No module named '?plugin_not_there'?"):
+        with pytest.raises(ImportError, match="No module named '?plugin_not_there'?"):
             _ = Plugins.load_plugins(["plugin_not_there"], None)
 
     def test_plugin_must_define_coverage_init(self):
@@ -130,7 +134,7 @@ class LoadPluginsTest(CoverageTest):
             Nothing = 0
             """)
         msg_pat = "Plugin module 'no_plugin' didn't define a coverage_init function"
-        with self.assertRaisesRegex(CoverageException, msg_pat):
+        with pytest.raises(PluginError, match=msg_pat):
             list(Plugins.load_plugins(["no_plugin"], None))
 
 
@@ -156,11 +160,11 @@ class PluginTest(CoverageTest):
         cov.stop()      # pragma: nested
 
         with open("evidence.out") as f:
-            self.assertEqual(f.read(), "we are here!")
+            assert f.read() == "we are here!"
 
     def test_missing_plugin_raises_import_error(self):
         # Prove that a missing plugin will raise an ImportError.
-        with self.assertRaisesRegex(ImportError, "No module named '?does_not_exist_woijwoicweo'?"):
+        with pytest.raises(ImportError, match="No module named '?does_not_exist_woijwoicweo'?"):
             cov = coverage.Coverage()
             cov.set_option("run:plugins", ["does_not_exist_woijwoicweo"])
             cov.start()
@@ -169,7 +173,7 @@ class PluginTest(CoverageTest):
     def test_bad_plugin_isnt_hidden(self):
         # Prove that a plugin with an error in it will raise the error.
         self.make_file("plugin_over_zero.py", "1/0")
-        with self.assertRaises(ZeroDivisionError):
+        with pytest.raises(ZeroDivisionError):
             cov = coverage.Coverage()
             cov.set_option("run:plugins", ["plugin_over_zero"])
             cov.start()
@@ -186,25 +190,28 @@ class PluginTest(CoverageTest):
             def coverage_init(reg, options):
                 reg.add_file_tracer(Plugin())
             """)
-        debug_out = StringIO()
+        debug_out = io.StringIO()
         cov = coverage.Coverage(debug=["sys"])
         cov._debug_file = debug_out
         cov.set_option("run:plugins", ["plugin_sys_info"])
-        cov.start()
+        with swallow_warnings(
+            r"Plugin file tracers \(plugin_sys_info.Plugin\) aren't supported with PyTracer"
+        ):
+            cov.start()
         cov.stop()      # pragma: nested
 
         out_lines = [line.strip() for line in debug_out.getvalue().splitlines()]
         if env.C_TRACER:
-            self.assertIn('plugins.file_tracers: plugin_sys_info.Plugin', out_lines)
+            assert 'plugins.file_tracers: plugin_sys_info.Plugin' in out_lines
         else:
-            self.assertIn('plugins.file_tracers: plugin_sys_info.Plugin (disabled)', out_lines)
-        self.assertIn('plugins.configurers: -none-', out_lines)
+            assert 'plugins.file_tracers: plugin_sys_info.Plugin (disabled)' in out_lines
+        assert 'plugins.configurers: -none-' in out_lines
         expected_end = [
             "-- sys: plugin_sys_info.Plugin -------------------------------",
             "hello: world",
             "-- end -------------------------------------------------------",
-            ]
-        self.assertEqual(expected_end, out_lines[-len(expected_end):])
+        ]
+        assert expected_end == out_lines[-len(expected_end):]
 
     def test_plugin_with_no_sys_info(self):
         self.make_file("plugin_no_sys_info.py", """\
@@ -216,7 +223,7 @@ class PluginTest(CoverageTest):
             def coverage_init(reg, options):
                 reg.add_configurer(Plugin())
             """)
-        debug_out = StringIO()
+        debug_out = io.StringIO()
         cov = coverage.Coverage(debug=["sys"])
         cov._debug_file = debug_out
         cov.set_option("run:plugins", ["plugin_no_sys_info"])
@@ -224,13 +231,13 @@ class PluginTest(CoverageTest):
         cov.stop()      # pragma: nested
 
         out_lines = [line.strip() for line in debug_out.getvalue().splitlines()]
-        self.assertIn('plugins.file_tracers: -none-', out_lines)
-        self.assertIn('plugins.configurers: plugin_no_sys_info.Plugin', out_lines)
+        assert 'plugins.file_tracers: -none-' in out_lines
+        assert 'plugins.configurers: plugin_no_sys_info.Plugin' in out_lines
         expected_end = [
             "-- sys: plugin_no_sys_info.Plugin ----------------------------",
             "-- end -------------------------------------------------------",
-            ]
-        self.assertEqual(expected_end, out_lines[-len(expected_end):])
+        ]
+        assert expected_end == out_lines[-len(expected_end):]
 
     def test_local_files_are_importable(self):
         self.make_file("importing_plugin.py", """\
@@ -249,17 +256,15 @@ class PluginTest(CoverageTest):
         self.make_file("main_file.py", "print('MAIN')")
 
         out = self.run_command("coverage run main_file.py")
-        self.assertEqual(out, "MAIN\n")
-        out = self.run_command("coverage html")
-        self.assertEqual(out, "")
+        assert out == "MAIN\n"
+        out = self.run_command("coverage html -q")  # sneak in a test of -q
+        assert out == ""
 
 
-class PluginWarningOnPyTracer(CoverageTest):
+@pytest.mark.skipif(env.C_TRACER, reason="This test is only about PyTracer.")
+class PluginWarningOnPyTracerTest(CoverageTest):
     """Test that we get a controlled exception with plugins on PyTracer."""
     def test_exception_if_plugins_on_pytracer(self):
-        if env.C_TRACER:
-            self.skipTest("This test is only about PyTracer.")
-
         self.make_file("simple.py", "a = 1")
 
         cov = coverage.Coverage()
@@ -272,13 +277,9 @@ class PluginWarningOnPyTracer(CoverageTest):
             self.start_import_stop(cov, "simple")
 
 
+@pytest.mark.skipif(not env.C_TRACER, reason="Plugins are only supported with the C tracer.")
 class FileTracerTest(CoverageTest):
     """Tests of plugins that implement file_tracer."""
-
-    def setUp(self):
-        if not env.C_TRACER:
-            self.skipTest("Plugins are only supported with the C tracer.")
-        super(FileTracerTest, self).setUp()
 
 
 class GoodFileTracerTest(FileTracerTest):
@@ -304,11 +305,11 @@ class GoodFileTracerTest(FileTracerTest):
         self.start_import_stop(cov, "simple")
 
         _, statements, missing, _ = cov.analysis("simple.py")
-        self.assertEqual(statements, [1, 2, 3])
-        self.assertEqual(missing, [])
+        assert statements == [1, 2, 3]
+        assert missing == []
         zzfile = os.path.abspath(os.path.join("/src", "try_ABC.zz"))
         _, statements, _, _ = cov.analysis(zzfile)
-        self.assertEqual(statements, [105, 106, 107, 205, 206, 207])
+        assert statements == [105, 106, 107, 205, 206, 207]
 
     def make_render_and_caller(self):
         """Make the render.py and caller.py files we need."""
@@ -370,21 +371,21 @@ class GoodFileTracerTest(FileTracerTest):
         # have 7 lines in it.  If render() was called with line number 4,
         # then the plugin will claim that lines 4 and 5 were executed.
         _, statements, missing, _ = cov.analysis("foo_7.html")
-        self.assertEqual(statements, [1, 2, 3, 4, 5, 6, 7])
-        self.assertEqual(missing, [1, 2, 3, 6, 7])
-        self.assertIn("foo_7.html", line_counts(cov.get_data()))
+        assert statements == [1, 2, 3, 4, 5, 6, 7]
+        assert missing == [1, 2, 3, 6, 7]
+        assert "foo_7.html" in line_counts(cov.get_data())
 
         _, statements, missing, _ = cov.analysis("bar_4.html")
-        self.assertEqual(statements, [1, 2, 3, 4])
-        self.assertEqual(missing, [1, 4])
-        self.assertIn("bar_4.html", line_counts(cov.get_data()))
+        assert statements == [1, 2, 3, 4]
+        assert missing == [1, 4]
+        assert "bar_4.html" in line_counts(cov.get_data())
 
-        self.assertNotIn("quux_5.html", line_counts(cov.get_data()))
+        assert "quux_5.html" not in line_counts(cov.get_data())
 
         _, statements, missing, _ = cov.analysis("uni_3.html")
-        self.assertEqual(statements, [1, 2, 3])
-        self.assertEqual(missing, [1])
-        self.assertIn("uni_3.html", line_counts(cov.get_data()))
+        assert statements == [1, 2, 3]
+        assert missing == [1]
+        assert "uni_3.html" in line_counts(cov.get_data())
 
     def test_plugin2_with_branch(self):
         self.make_render_and_caller()
@@ -400,12 +401,12 @@ class GoodFileTracerTest(FileTracerTest):
         # have 7 lines in it.  If render() was called with line number 4,
         # then the plugin will claim that lines 4 and 5 were executed.
         analysis = cov._analyze("foo_7.html")
-        self.assertEqual(analysis.statements, set([1, 2, 3, 4, 5, 6, 7]))
+        assert analysis.statements == {1, 2, 3, 4, 5, 6, 7}
         # Plugins don't do branch coverage yet.
-        self.assertEqual(analysis.has_arcs(), True)
-        self.assertEqual(analysis.arc_possibilities(), [])
+        assert analysis.has_arcs() is True
+        assert analysis.arc_possibilities() == []
 
-        self.assertEqual(analysis.missing, set([1, 2, 3, 6, 7]))
+        assert analysis.missing == {1, 2, 3, 6, 7}
 
     def test_plugin2_with_text_report(self):
         self.make_render_and_caller()
@@ -415,7 +416,7 @@ class GoodFileTracerTest(FileTracerTest):
 
         self.start_import_stop(cov, "caller")
 
-        repout = StringIO()
+        repout = io.StringIO()
         total = cov.report(file=repout, include=["*.html"], omit=["uni*.html"], show_missing=True)
         report = repout.getvalue().splitlines()
         expected = [
@@ -425,9 +426,9 @@ class GoodFileTracerTest(FileTracerTest):
             'foo_7.html       7      5      0      0    29%   1-3, 6-7',
             '--------------------------------------------------------',
             'TOTAL           11      7      0      0    36%',
-            ]
-        self.assertEqual(expected, report)
-        self.assertAlmostEqual(total, 36.36, places=2)
+        ]
+        assert expected == report
+        assert math.isclose(total, 4 / 11 * 100)
 
     def test_plugin2_with_html_report(self):
         self.make_render_and_caller()
@@ -438,7 +439,7 @@ class GoodFileTracerTest(FileTracerTest):
         self.start_import_stop(cov, "caller")
 
         total = cov.html_report(include=["*.html"], omit=["uni*.html"])
-        self.assertAlmostEqual(total, 36.36, places=2)
+        assert math.isclose(total, 4 / 11 * 100)
 
         self.assert_exists("htmlcov/index.html")
         self.assert_exists("htmlcov/bar_4_html.html")
@@ -453,7 +454,7 @@ class GoodFileTracerTest(FileTracerTest):
         self.start_import_stop(cov, "caller")
 
         total = cov.xml_report(include=["*.html"], omit=["uni*.html"])
-        self.assertAlmostEqual(total, 36.36, places=2)
+        assert math.isclose(total, 4 / 11 * 100)
 
         dom = ElementTree.parse("coverage.xml")
         classes = {}
@@ -515,16 +516,18 @@ class GoodFileTracerTest(FileTracerTest):
         cov.set_option("run:plugins", ["fairly_odd_plugin"])
         self.start_import_stop(cov, "unsuspecting")
 
-        repout = StringIO()
+        repout = io.StringIO()
         total = cov.report(file=repout, show_missing=True)
         report = repout.getvalue().splitlines()
         expected = [
             'Name              Stmts   Miss  Cover   Missing',
             '-----------------------------------------------',
             'unsuspecting.py       6      3    50%   2, 4, 6',
-            ]
-        self.assertEqual(expected, report)
-        self.assertEqual(total, 50)
+            '-----------------------------------------------',
+            'TOTAL                 6      3    50%',
+        ]
+        assert expected == report
+        assert total == 50
 
     def test_find_unexecuted(self):
         self.make_file("unexecuted_plugin.py", """\
@@ -553,7 +556,7 @@ class GoodFileTracerTest(FileTracerTest):
 
             class MyReporter(coverage.FileReporter):
                 def lines(self):
-                    return set([99, 999, 9999])
+                    return {99, 999, 9999}
 
             def coverage_init(reg, options):
                 reg.add_file_tracer(Plugin())
@@ -565,17 +568,17 @@ class GoodFileTracerTest(FileTracerTest):
 
         # The file we executed claims to have run line 999.
         _, statements, missing, _ = cov.analysis("foo.py")
-        self.assertEqual(statements, [99, 999, 9999])
-        self.assertEqual(missing, [99, 9999])
+        assert statements == [99, 999, 9999]
+        assert missing == [99, 9999]
 
         # The completely missing file is in the results.
         _, statements, missing, _ = cov.analysis("chimera.py")
-        self.assertEqual(statements, [99, 999, 9999])
-        self.assertEqual(missing, [99, 999, 9999])
+        assert statements == [99, 999, 9999]
+        assert missing == [99, 999, 9999]
 
         # But completely new filenames are not in the results.
-        self.assertEqual(len(cov.get_data().measured_files()), 3)
-        with self.assertRaises(CoverageException):
+        assert len(cov.get_data().measured_files()) == 3
+        with pytest.raises(NoSource):
             cov.analysis("fictional.py")
 
 
@@ -611,6 +614,7 @@ class BadFileTracerTest(FileTracerTest):
         cov = coverage.Coverage()
         cov.set_option("run:plugins", [module_name])
         self.start_import_stop(cov, "simple")
+        cov.save()  # pytest-cov does a save after stop, so we'll do it too.
         return cov
 
     def run_bad_plugin(self, module_name, plugin_name, our_error=True, excmsg=None, excmsgs=None):
@@ -631,28 +635,31 @@ class BadFileTracerTest(FileTracerTest):
         explaining why.
 
         """
-        self.run_plugin(module_name)
+        with pytest.warns(Warning) as warns:
+            self.run_plugin(module_name)
 
         stderr = self.stderr()
-
+        stderr += "".join(w.message.args[0] for w in warns)
         if our_error:
-            errors = stderr.count("# Oh noes!")
             # The exception we're causing should only appear once.
-            self.assertEqual(errors, 1)
+            assert stderr.count("# Oh noes!") == 1
 
         # There should be a warning explaining what's happening, but only one.
         # The message can be in two forms:
         #   Disabling plug-in '...' due to previous exception
         # or:
         #   Disabling plug-in '...' due to an exception:
-        msg = "Disabling plug-in '%s.%s' due to " % (module_name, plugin_name)
-        warnings = stderr.count(msg)
-        self.assertEqual(warnings, 1)
+        print([str(w) for w in warns.list])
+        warns = [w for w in warns.list if issubclass(w.category, CoverageWarning)]
+        assert len(warns) == 1
+        warnmsg = warns[0].message.args[0]
+        assert f"Disabling plug-in '{module_name}.{plugin_name}' due to " in warnmsg
 
         if excmsg:
-            self.assertIn(excmsg, stderr)
+            assert excmsg in stderr
         if excmsgs:
-            self.assertTrue(any(em in stderr for em in excmsgs), "expected one of %r" % excmsgs)
+            found_exc = any(em in stderr for em in excmsgs)             #  pragma: part covered
+            assert found_exc, f"expected one of {excmsgs} in stderr"
 
     def test_file_tracer_has_no_file_tracer_method(self):
         self.make_file("bad_plugin.py", """\
@@ -700,7 +707,7 @@ class BadFileTracerTest(FileTracerTest):
             """)
         cov = self.run_plugin("bad_plugin")
         expected_msg = "Plugin 'bad_plugin.Plugin' needs to implement file_reporter()"
-        with self.assertRaisesRegex(NotImplementedError, expected_msg):
+        with pytest.raises(NotImplementedError, match=expected_msg):
             cov.report()
 
     def test_file_tracer_fails(self):
@@ -709,6 +716,37 @@ class BadFileTracerTest(FileTracerTest):
             class Plugin(coverage.plugin.CoveragePlugin):
                 def file_tracer(self, filename):
                     17/0 # Oh noes!
+
+            def coverage_init(reg, options):
+                reg.add_file_tracer(Plugin())
+            """)
+        self.run_bad_plugin("bad_plugin", "Plugin")
+
+    def test_file_tracer_fails_eventually(self):
+        # Django coverage plugin can report on a few files and then fail.
+        # https://github.com/nedbat/coveragepy/issues/1011
+        self.make_file("bad_plugin.py", """\
+            import os.path
+            import coverage.plugin
+            class Plugin(coverage.plugin.CoveragePlugin):
+                def __init__(self):
+                    self.calls = 0
+
+                def file_tracer(self, filename):
+                    print(filename)
+                    self.calls += 1
+                    if self.calls <= 2:
+                        return FileTracer(filename)
+                    else:
+                        17/0 # Oh noes!
+
+            class FileTracer(coverage.FileTracer):
+                def __init__(self, filename):
+                    self.filename = filename
+                def source_filename(self):
+                    return os.path.basename(self.filename).replace(".py", ".foo")
+                def line_number_range(self, frame):
+                    return -1, -1
 
             def coverage_init(reg, options):
                 reg.add_file_tracer(Plugin())
@@ -804,6 +842,28 @@ class BadFileTracerTest(FileTracerTest):
             """)
         self.run_bad_plugin("bad_plugin", "Plugin")
 
+    def test_line_number_range_raises_error(self):
+        self.make_file("bad_plugin.py", """\
+            import coverage.plugin
+            class Plugin(coverage.plugin.CoveragePlugin):
+                def file_tracer(self, filename):
+                    if filename.endswith("other.py"):
+                        return BadFileTracer()
+
+            class BadFileTracer(coverage.plugin.FileTracer):
+                def source_filename(self):
+                    return "something.foo"
+
+                def line_number_range(self, frame):
+                    raise Exception("borked!")
+
+            def coverage_init(reg, options):
+                reg.add_file_tracer(Plugin())
+            """)
+        self.run_bad_plugin(
+            "bad_plugin", "Plugin", our_error=False, excmsg="borked!",
+        )
+
     def test_line_number_range_returns_non_tuple(self):
         self.make_file("bad_plugin.py", """\
             import coverage.plugin
@@ -867,7 +927,11 @@ class BadFileTracerTest(FileTracerTest):
                 reg.add_file_tracer(Plugin())
             """)
         self.run_bad_plugin(
-            "bad_plugin", "Plugin", our_error=False, excmsg="an integer is required",
+            "bad_plugin", "Plugin", our_error=False,
+            excmsgs=[
+                "an integer is required",
+                "cannot be interpreted as an integer",
+            ],
         )
 
 
@@ -882,8 +946,8 @@ class ConfigurerPluginTest(CoverageTest):
         cov.start()
         cov.stop()      # pragma: nested
         excluded = cov.get_option("report:exclude_lines")
-        self.assertIn("pragma: custom", excluded)
-        self.assertIn("pragma: or whatever", excluded)
+        assert "pragma: custom" in excluded
+        assert "pragma: or whatever" in excluded
 
 
 class DynamicContextPluginTest(CoverageTest):
@@ -926,7 +990,7 @@ class DynamicContextPluginTest(CoverageTest):
         """Make some files to use while testing dynamic context plugins."""
         self.make_file("rendering.py", """\
             def html_tag(tag, content):
-                return '<%s>%s</%s>' % (tag, content, tag)
+                return f'<{tag}>{content}</{tag}>'
 
             def render_paragraph(text):
                 return html_tag('p', text)
@@ -988,16 +1052,14 @@ class DynamicContextPluginTest(CoverageTest):
         # Labeled coverage is collected
         data = cov.get_data()
         filenames = self.get_measured_filenames(data)
-        self.assertEqual(
-            ['', 'doctest:HTML_TAG', 'test:HTML_TAG', 'test:RENDERERS'],
-            sorted(data.measured_contexts()),
-        )
+        expected = ['', 'doctest:HTML_TAG', 'test:HTML_TAG', 'test:RENDERERS']
+        assert expected == sorted(data.measured_contexts())
         data.set_query_context("doctest:HTML_TAG")
-        self.assertEqual([2], data.lines(filenames['rendering.py']))
+        assert [2] == data.lines(filenames['rendering.py'])
         data.set_query_context("test:HTML_TAG")
-        self.assertEqual([2], data.lines(filenames['rendering.py']))
+        assert [2] == data.lines(filenames['rendering.py'])
         data.set_query_context("test:RENDERERS")
-        self.assertEqual([2, 5, 8, 11], sorted(data.lines(filenames['rendering.py'])))
+        assert [2, 5, 8, 11] == sorted(data.lines(filenames['rendering.py']))
 
     def test_static_context(self):
         self.make_plugin_capitalized_testnames('plugin_tests.py')
@@ -1018,7 +1080,7 @@ class DynamicContextPluginTest(CoverageTest):
             'mytests|test:HTML_TAG',
             'mytests|test:RENDERERS',
         ]
-        self.assertEqual(expected, sorted(data.measured_contexts()))
+        assert expected == sorted(data.measured_contexts())
 
     def test_plugin_with_test_function(self):
         self.make_plugin_capitalized_testnames('plugin_tests.py')
@@ -1043,11 +1105,11 @@ class DynamicContextPluginTest(CoverageTest):
             'testsuite.test_html_tag',
             'testsuite.test_renderers',
         ]
-        self.assertEqual(expected, sorted(data.measured_contexts()))
+        assert expected == sorted(data.measured_contexts())
 
         def assert_context_lines(context, lines):
             data.set_query_context(context)
-            self.assertEqual(lines, sorted(data.lines(filenames['rendering.py'])))
+            assert lines == sorted(data.lines(filenames['rendering.py']))
 
         assert_context_lines("doctest:HTML_TAG", [2])
         assert_context_lines("testsuite.test_html_tag", [2])
@@ -1081,11 +1143,11 @@ class DynamicContextPluginTest(CoverageTest):
             'test:HTML_TAG',
             'test:RENDERERS',
         ]
-        self.assertEqual(expected, sorted(data.measured_contexts()))
+        assert expected == sorted(data.measured_contexts())
 
         def assert_context_lines(context, lines):
             data.set_query_context(context)
-            self.assertEqual(lines, sorted(data.lines(filenames['rendering.py'])))
+            assert lines == sorted(data.lines(filenames['rendering.py']))
 
         assert_context_lines("test:HTML_TAG", [2])
         assert_context_lines("test:RENDERERS", [2, 5, 8, 11])

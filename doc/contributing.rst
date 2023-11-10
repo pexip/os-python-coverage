@@ -37,22 +37,20 @@ The coverage.py code is hosted on a GitHub repository at
 https://github.com/nedbat/coveragepy.  To get a working environment, follow
 these steps:
 
-#.  (Optional, but recommended) Create a Python 3.6 virtualenv to work in,
-    and activate it.
+.. minimum of PYVERSIONS:
 
-.. like this:
- mkvirtualenv -p /usr/local/pythonz/pythons/CPython-2.7.11/bin/python coverage
+#.  Create a Python 3.7 virtualenv to work in, and activate it.
 
 #.  Clone the repository::
 
-        $ git clone https://github.com/nedbat/coveragepy
-        $ cd coveragepy
+    $ git clone https://github.com/nedbat/coveragepy
+    $ cd coveragepy
 
 #.  Install the requirements::
 
-        $ pip install -r requirements/dev.pip
+    $ pip install -r requirements/dev.pip
 
-#.  Install a number of versions of Python.  Coverage.py supports a wide range
+#.  Install a number of versions of Python.  Coverage.py supports a range
     of Python versions.  The more you can test with, the more easily your code
     can be used as-is.  If you only have one version, that's OK too, but may
     mean more work integrating your contribution.
@@ -65,59 +63,38 @@ The tests are written mostly as standard unittest-style tests, and are run with
 pytest running under `tox`_::
 
     $ tox
-    py27 develop-inst-noop: /Users/ned/coverage/trunk
-    py27 installed: DEPRECATION: Python 2.7 will reach the end of its life on January 1st, 2020. Please upgrade your Python as Python 2.7 won't be maintained after that date. A future version of pip will drop support for Python 2.7.,apipkg==1.5,atomicwrites==1.3.0,attrs==19.1.0,-e git+git@github.com:nedbat/coveragepy.git@40ecd174f148219ebd343e1a5bfdf8931f3785e4#egg=coverage,covtestegg1==0.0.0,decorator==4.4.0,dnspython==1.16.0,enum34==1.1.6,eventlet==0.24.1,execnet==1.6.0,flaky==3.5.3,funcsigs==1.0.2,future==0.17.1,gevent==1.2.2,greenlet==0.4.15,mock==3.0.5,monotonic==1.5,more-itertools==5.0.0,pathlib2==2.3.3,pluggy==0.11.0,py==1.8.0,PyContracts==1.8.12,pyparsing==2.4.0,pytest==4.5.0,pytest-forked==1.0.2,pytest-xdist==1.28.0,scandir==1.10.0,six==1.12.0,unittest-mixins==1.6,wcwidth==0.1.7
-    py27 run-test-pre: PYTHONHASHSEED='1375790451'
-    py27 run-test: commands[0] | python setup.py --quiet clean develop
-    warning: no previously-included files matching '*.py[co]' found anywhere in distribution
-    py27 run-test: commands[1] | python igor.py zip_mods install_egg remove_extension
-    py27 run-test: commands[2] | python igor.py test_with_tracer py
-    === CPython 2.7.14 with Python tracer (.tox/py27/bin/python) ===
+    py37 create: /Users/nedbat/coverage/trunk/.tox/py37
+    py37 installdeps: -rrequirements/pip.pip, -rrequirements/pytest.pip, eventlet==0.25.1, greenlet==0.4.15
+    py37 develop-inst: /Users/nedbat/coverage/trunk
+    py37 installed: apipkg==1.5,appdirs==1.4.4,attrs==20.3.0,backports.functools-lru-cache==1.6.4,-e git+git@github.com:nedbat/coveragepy.git@36ef0e03c0439159c2245d38de70734fa08cddb4#egg=coverage,decorator==5.0.7,distlib==0.3.1,dnspython==2.1.0,eventlet==0.25.1,execnet==1.8.0,filelock==3.0.12,flaky==3.7.0,future==0.18.2,greenlet==0.4.15,hypothesis==6.10.1,importlib-metadata==4.0.1,iniconfig==1.1.1,monotonic==1.6,packaging==20.9,pluggy==0.13.1,py==1.10.0,PyContracts @ git+https://github.com/slorg1/contracts@c5a6da27d4dc9985f68e574d20d86000880919c3,pyparsing==2.4.7,pytest==6.2.3,pytest-forked==1.3.0,pytest-xdist==2.2.1,qualname==0.1.0,six==1.15.0,sortedcontainers==2.3.0,toml==0.10.2,typing-extensions==3.10.0.0,virtualenv==20.4.4,zipp==3.4.1
+    py37 run-test-pre: PYTHONHASHSEED='376882681'
+    py37 run-test: commands[0] | python setup.py --quiet clean develop
+    py37 run-test: commands[1] | python igor.py zip_mods remove_extension
+    py37 run-test: commands[2] | python igor.py test_with_tracer py
+    === CPython 3.7.10 with Python tracer (.tox/py37/bin/python) ===
     bringing up nodes...
-    ............................s.....s............................................................................s.....s.................................s.s.........s...................... [ 21%]
-    .............................................................s.........................................s.................................................................................. [ 43%]
-    ..............................s...................................ss..ss.s...................ss.....s.........................................s........................................... [ 64%]
-    ..............................ssssssss.ss..ssss............ssss.ssssss....................................................................s........................................s...... [ 86%]
-    ...s........s............................................................................................................                                                                  [100%]
-    818 passed, 47 skipped in 66.39 seconds
-    py27 run-test: commands[3] | python setup.py --quiet build_ext --inplace
-    py27 run-test: commands[4] | python igor.py test_with_tracer c
-    === CPython 2.7.14 with C tracer (.tox/py27/bin/python) ===
+    ........................................................................................................................................................... [ 15%]
+    ........................................................................................................................................................... [ 31%]
+    ...........................................................................................................................................s............... [ 47%]
+    ...........................................s...................................................................................sss.sssssssssssssssssss..... [ 63%]
+    ........................................................................................................................................................s.. [ 79%]
+    ......................................s..................................s................................................................................. [ 95%]
+    ........................................ss......                                                                                                            [100%]
+    949 passed, 29 skipped in 40.56s
+    py37 run-test: commands[3] | python setup.py --quiet build_ext --inplace
+    py37 run-test: commands[4] | python igor.py test_with_tracer c
+    === CPython 3.7.10 with C tracer (.tox/py37/bin/python) ===
     bringing up nodes...
-    ...........................s.....s.............................................................................s.....s..................................ss.......s......................... [ 21%]
-    ................................................................................s...........ss..s..............ss......s............................................s..................... [ 43%]
-    ....................................................................................s...................s...................s............................................................. [ 64%]
-    .................................s.............................s.......................................................s......................................s....................s...... [ 86%]
-    .........s..............................................................................................................                                                                   [100%]
-    841 passed, 24 skipped in 63.95 seconds
-    py36 develop-inst-noop: /Users/ned/coverage/trunk
-    py36 installed: apipkg==1.5,atomicwrites==1.3.0,attrs==19.1.0,-e git+git@github.com:nedbat/coveragepy.git@40ecd174f148219ebd343e1a5bfdf8931f3785e4#egg=coverage,covtestegg1==0.0.0,decorator==4.4.0,dnspython==1.16.0,eventlet==0.24.1,execnet==1.6.0,flaky==3.5.3,future==0.17.1,gevent==1.2.2,greenlet==0.4.15,mock==3.0.5,monotonic==1.5,more-itertools==7.0.0,pluggy==0.11.0,py==1.8.0,PyContracts==1.8.12,pyparsing==2.4.0,pytest==4.5.0,pytest-forked==1.0.2,pytest-xdist==1.28.0,six==1.12.0,unittest-mixins==1.6,wcwidth==0.1.7
-    py36 run-test-pre: PYTHONHASHSEED='1375790451'
-    py36 run-test: commands[0] | python setup.py --quiet clean develop
-    warning: no previously-included files matching '*.py[co]' found anywhere in distribution
-    py36 run-test: commands[1] | python igor.py zip_mods install_egg remove_extension
-    py36 run-test: commands[2] | python igor.py test_with_tracer py
-    === CPython 3.6.7 with Python tracer (.tox/py36/bin/python) ===
-    bringing up nodes...
-    .......................................................................................................................................................................................... [ 21%]
-    ..............................................................ss.......s...............s.............ss.s...............ss.....s.......................................................... [ 43%]
-    ...............................................s...................................................................................s...s.........s........................................ [ 64%]
-    .................sssssss.ssss..................................................sssssssssssss..........................s........s.......................................................... [ 86%]
-    ......s............s.....................................................................................................                                                                  [100%]
-    823 passed, 42 skipped in 59.05 seconds
-    py36 run-test: commands[3] | python setup.py --quiet build_ext --inplace
-    py36 run-test: commands[4] | python igor.py test_with_tracer c
-    === CPython 3.6.7 with C tracer (.tox/py36/bin/python) ===
-    bringing up nodes...
-    .......................................................................................................................................................................................... [ 21%]
-    ...........................................s..s..........................................................................s.......................................s.........s.............. [ 42%]
-    ...............................s......s.s.s.................ss......s...........................................................................................................s......... [ 64%]
-    ...........................................................s...s..............................................................................................................s........s.. [ 86%]
-    ........................s................................................................................................                                                                  [100%]
-    847 passed, 18 skipped in 60.53 seconds
-    ____________________________________________________________________________________________ summary _____________________________________________________________________________________________
-      py27: commands succeeded
-      py36: commands succeeded
+    ........................................................................................................................................................... [ 15%]
+    ........................................................................................................................................................... [ 31%]
+    ......................................................................s.................................................................................... [ 47%]
+    ........................................................................................................................................................... [ 63%]
+    ..........................s................................................s............................................................................... [ 79%]
+    .................................................................................s......................................................................... [ 95%]
+    ......................................s.........                                                                                                            [100%]
+    973 passed, 5 skipped in 41.36s
+    ____________________________________________________________________________ summary _____________________________________________________________________________
+      py37: commands succeeded
       congratulations :)
 
 Tox runs the complete test suite twice for each version of Python you have
@@ -126,7 +103,7 @@ the second uses the C implementation.
 
 To limit tox to just a few versions of Python, use the ``-e`` switch::
 
-    $ tox -e py27,py37
+    $ tox -e py37,py39
 
 To run just a few tests, you can use `pytest test selectors`_::
 
@@ -140,36 +117,34 @@ respectively.
 You can also affect the test runs with environment variables. Define any of
 these as 1 to use them:
 
-- COVERAGE_NO_PYTRACER: disables the Python tracer if you only want to run the
-  CTracer tests.
+- ``COVERAGE_NO_PYTRACER=1`` disables the Python tracer if you only want to
+  run the CTracer tests.
 
-- COVERAGE_NO_CTRACER: disables the C tracer if you only want to run the
+- ``COVERAGE_NO_CTRACER=1`` disables the C tracer if you only want to run the
   PyTracer tests.
 
-- COVERAGE_AST_DUMP: will dump the AST tree as it is being used during code
-  parsing.
+- ``COVERAGE_ONE_TRACER=1`` will use only one tracer for each Python version.
+  This will use the C tracer if it is available, or the Python tracer if not.
 
-- COVERAGE_KEEP_TMP: keeps the temporary directories in which tests are run.
-  This makes debugging tests easier. The temporary directories are at
-  ``$TMPDIR/coverage_test/*``, and are named for the test that made them.
+- ``COVERAGE_AST_DUMP=1`` will dump the AST tree as it is being used during
+  code parsing.
 
+There are other environment variables that affect tests.  I use `set_env.py`_
+as a simple terminal interface to see and set them.
 
 Of course, run all the tests on every version of Python you have, before
 submitting a change.
 
-.. _pytest test selectors: http://doc.pytest.org/en/latest/usage.html#specifying-tests-selecting-tests
+.. _pytest test selectors: https://doc.pytest.org/en/stable/usage.html#specifying-which-tests-to-run
 
 
 Lint, etc
 ---------
 
-I try to keep the coverage.py as clean as possible.  I use pylint to alert me
-to possible problems::
+I try to keep the coverage.py source as clean as possible.  I use pylint to
+alert me to possible problems::
 
     $ make lint
-    pylint coverage setup.py tests
-    python -m tabnanny coverage setup.py tests
-    python igor.py check_eol
 
 The source is pylint-clean, even if it's because there are pragmas quieting
 some warnings.  Please try to keep it that way, but don't let pylint warnings
@@ -181,6 +156,39 @@ Lines should be kept to a 100-character maximum length.  I recommend an
 Other style questions are best answered by looking at the existing code.
 Formatting of docstrings, comments, long lines, and so on, should match the
 code that already exists.
+
+Many people love `black`_, but I would prefer not to run it on coverage.py.
+
+
+Continuous integration
+----------------------
+
+When you make a pull request, `GitHub actions`__ will run all of the tests and
+quality checks on your changes.  If any fail, either fix them or ask for help.
+
+__ https://github.com/nedbat/coveragepy/actions
+
+
+Dependencies
+------------
+
+Coverage.py has no direct runtime dependencies, and I would like to keep it
+that way.
+
+It has many development dependencies.  These are specified generically in the
+``requirements/*.in`` files.  The .in files should have no versions specified
+in them.  The specific versions to use are pinned in ``requirements/*.pip``
+files.  These are created by running ``make upgrade``.
+
+.. minimum of PYVERSIONS:
+
+It's important to use Python 3.7 to run ``make upgrade`` so that the pinned
+versions will work on all of the Python versions currently supported by
+coverage.py.
+
+If for some reason we need to constrain a version of a dependency, the
+constraint should be specified in the ``requirements/pins.pip`` file, with a
+detailed reason for the pin.
 
 
 Coverage testing coverage.py
@@ -203,6 +211,11 @@ When you are ready to contribute a change, any way you can get it to me is
 probably fine.  A pull request on GitHub is great, but a simple diff or
 patch works too.
 
+All contributions are expected to include tests for new functionality and
+fixes.  If you need help writing tests, please ask.
+
 
 .. _editorconfig.org: http://editorconfig.org
 .. _tox: https://tox.readthedocs.io/
+.. _black: https://pypi.org/project/black/
+.. _set_env.py: https://nedbatchelder.com/blog/201907/set_envpy.html

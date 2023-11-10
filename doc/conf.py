@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
@@ -39,10 +38,9 @@ extensions = [
     'sphinx.ext.ifconfig',
     'sphinxcontrib.spelling',
     'sphinx.ext.intersphinx',
-    'sphinx_rst_builder',
-    'sphinx.ext.extlinks',
+    'sphinxcontrib.restbuilder',
     'sphinx.ext.napoleon',
-    'sphinx_tabs.tabs',
+    #'sphinx_tabs.tabs',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -58,24 +56,24 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = u'Coverage.py'
-copyright = u'2009\N{EN DASH}2020, Ned Batchelder.'     # CHANGEME  # pylint: disable=redefined-builtin
+project = 'Coverage.py'
+copyright = '2009\N{EN DASH}2022, Ned Batchelder'       # CHANGEME  # pylint: disable=redefined-builtin
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 #
-# The short X.Y version.
-version = '5.1'                                 # CHANGEME
-# The full version, including alpha/beta/rc tags.
-release = '5.1'                                 # CHANGEME
-# The date of release, in "monthname day, year" format.
-release_date = 'April 12, 2020'                 # CHANGEME
+# The short X.Y.Z version.                                 # CHANGEME
+version = "6.5.0"
+# The full version, including alpha/beta/rc tags.          # CHANGEME
+release = "6.5.0"
+# The date of release, in "monthname day, year" format.    # CHANGEME
+release_date = "September 29, 2022"
 
 rst_epilog = """
 .. |release_date| replace:: {release_date}
 .. |coverage-equals-release| replace:: coverage=={release}
-.. |doc-url| replace:: https://coverage.readthedocs.io/en/coverage-{release}
+.. |doc-url| replace:: https://coverage.readthedocs.io/en/{release}
 .. |br| raw:: html
 
   <br/>
@@ -97,7 +95,7 @@ rst_epilog = """
 
 # List of directories, relative to source directory, that shouldn't be searched
 # for source files.
-exclude_trees = ['_build']
+exclude_patterns = ["_build", "help/*"]
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -121,7 +119,7 @@ pygments_style = 'sphinx'
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
-    }
+}
 
 # -- Options for HTML output ---------------------------------------------------
 
@@ -217,10 +215,18 @@ if any("spell" in arg for arg in sys.argv):
     spelling_show_suggestions = False
 
 
-extlinks = {
-    # :github:`123` becomes a link to the GitHub issue, with text "issue 123".
-    'github': ('https://github.com/nedbat/coveragepy/issues/%s', 'issue '),
-}
+# Regexes for URLs that linkcheck should skip.
+linkcheck_ignore = [
+    # We have lots of links to GitHub, and they start refusing to serve them to linkcheck,
+    # so don't bother checking them.
+    r"https://github.com/nedbat/coveragepy/(issues|pull)/\d+",
+    # When publishing a new version, the docs will refer to the version before
+    # the docs have been published.  So don't check those links.
+    fr"https://coverage.readthedocs.io/en/{release}$",
+]
+
+# https://github.com/executablebooks/sphinx-tabs/pull/54
+sphinx_tabs_valid_builders = ['linkcheck']
 
 # When auto-doc'ing a class, only write the class' docstring into the class docs,
 # don't automatically include the __init__ docstring.
@@ -230,6 +236,6 @@ prerelease = bool(max(release).isalpha())
 
 def setup(app):
     """Configure Sphinx"""
-    app.add_stylesheet('coverage.css')
+    app.add_css_file('coverage.css')
     app.add_config_value('prerelease', False, 'env')
     print("** Prerelease = %r" % prerelease)
