@@ -3,6 +3,8 @@
 
 """Execute files of Python code."""
 
+import importlib.machinery
+import importlib.util
 import inspect
 import marshal
 import os
@@ -11,17 +13,18 @@ import sys
 import types
 
 from coverage import env
-from coverage.backward import BUILTINS
-from coverage.backward import PYC_MAGIC_NUMBER, imp, importlib_util_find_spec
+from coverage.exceptions import CoverageException, _ExceptionDuringRun, NoCode, NoSource
 from coverage.files import canonical_filename, python_reported_file
-from coverage.misc import CoverageException, ExceptionDuringRun, NoCode, NoSource, isolate_module
+from coverage.misc import isolate_module
 from coverage.phystokens import compile_unicode
 from coverage.python import get_python_source
 
 os = isolate_module(os)
 
 
-class DummyLoader(object):
+PYC_MAGIC_NUMBER = importlib.util.MAGIC_NUMBER
+
+class DummyLoader:
     """A shim for the pep302 __loader__, emulating pkgutil.ImpLoader.
 
     Currently only implements the .fullname attribute
@@ -30,79 +33,35 @@ class DummyLoader(object):
         self.fullname = fullname
 
 
-if importlib_util_find_spec:
-    def find_module(modulename):
-        """Find the module named `modulename`.
+def find_module(modulename):
+    """Find the module named `modulename`.
 
-        Returns the file path of the module, the name of the enclosing
-        package, and the spec.
-        """
-        try:
-            spec = importlib_util_find_spec(modulename)
-        except ImportError as err:
-            raise NoSource(str(err))
+    Returns the file path of the module, the name of the enclosing
+    package, and the spec.
+    """
+    try:
+        spec = importlib.util.find_spec(modulename)
+    except ImportError as err:
+        raise NoSource(str(err)) from err
+    if not spec:
+        raise NoSource(f"No module named {modulename!r}")
+    pathname = spec.origin
+    packagename = spec.name
+    if spec.submodule_search_locations:
+        mod_main = modulename + ".__main__"
+        spec = importlib.util.find_spec(mod_main)
         if not spec:
-            raise NoSource("No module named %r" % (modulename,))
+            raise NoSource(
+                f"No module named {mod_main}; " +
+                f"{modulename!r} is a package and cannot be directly executed"
+            )
         pathname = spec.origin
         packagename = spec.name
-        if spec.submodule_search_locations:
-            mod_main = modulename + ".__main__"
-            spec = importlib_util_find_spec(mod_main)
-            if not spec:
-                raise NoSource(
-                    "No module named %s; "
-                    "%r is a package and cannot be directly executed"
-                    % (mod_main, modulename)
-                )
-            pathname = spec.origin
-            packagename = spec.name
-        packagename = packagename.rpartition(".")[0]
-        return pathname, packagename, spec
-else:
-    def find_module(modulename):
-        """Find the module named `modulename`.
-
-        Returns the file path of the module, the name of the enclosing
-        package, and None (where a spec would have been).
-        """
-        openfile = None
-        glo, loc = globals(), locals()
-        try:
-            # Search for the module - inside its parent package, if any - using
-            # standard import mechanics.
-            if '.' in modulename:
-                packagename, name = modulename.rsplit('.', 1)
-                package = __import__(packagename, glo, loc, ['__path__'])
-                searchpath = package.__path__
-            else:
-                packagename, name = None, modulename
-                searchpath = None  # "top-level search" in imp.find_module()
-            openfile, pathname, _ = imp.find_module(name, searchpath)
-
-            # Complain if this is a magic non-file module.
-            if openfile is None and pathname is None:
-                raise NoSource(
-                    "module does not live in a file: %r" % modulename
-                    )
-
-            # If `modulename` is actually a package, not a mere module, then we
-            # pretend to be Python 2.7 and try running its __main__.py script.
-            if openfile is None:
-                packagename = modulename
-                name = '__main__'
-                package = __import__(packagename, glo, loc, ['__path__'])
-                searchpath = package.__path__
-                openfile, pathname, _ = imp.find_module(name, searchpath)
-        except ImportError as err:
-            raise NoSource(str(err))
-        finally:
-            if openfile:
-                openfile.close()
-
-        return pathname, packagename, None
+    packagename = packagename.rpartition(".")[0]
+    return pathname, packagename, spec
 
 
-class PyRunner(object):
+class PyRunner:
     """Multi-stage execution of Python code.
 
     This is meant to emulate real Python execution as closely as possible.
@@ -121,10 +80,7 @@ class PyRunner(object):
         This needs to happen before any importing, and without importing anything.
         """
         if self.as_module:
-            if env.PYBEHAVIOR.actual_syspath0_dash_m:
-                path0 = os.getcwd()
-            else:
-                path0 = ""
+            path0 = os.getcwd()
         elif os.path.isdir(self.arg0):
             # Running a directory means running the __main__.py file in that
             # directory.
@@ -176,29 +132,25 @@ class PyRunner(object):
             # directory.
             for ext in [".py", ".pyc", ".pyo"]:
                 try_filename = os.path.join(self.arg0, "__main__" + ext)
+                # 3.8.10 changed how files are reported when running a
+                # directory.  But I'm not sure how far this change is going to
+                # spread, so I'll just hard-code it here for now.
+                if env.PYVERSION >= (3, 8, 10):
+                    try_filename = os.path.abspath(try_filename)
                 if os.path.exists(try_filename):
                     self.arg0 = try_filename
                     break
             else:
-                raise NoSource("Can't find '__main__' module in '%s'" % self.arg0)
-
-            if env.PY2:
-                self.arg0 = os.path.abspath(self.arg0)
+                raise NoSource(f"Can't find '__main__' module in '{self.arg0}'")
 
             # Make a spec. I don't know if this is the right way to do it.
-            try:
-                import importlib.machinery
-            except ImportError:
-                pass
-            else:
-                try_filename = python_reported_file(try_filename)
-                self.spec = importlib.machinery.ModuleSpec("__main__", None, origin=try_filename)
-                self.spec.has_location = True
+            try_filename = python_reported_file(try_filename)
+            self.spec = importlib.machinery.ModuleSpec("__main__", None, origin=try_filename)
+            self.spec.has_location = True
             self.package = ""
             self.loader = DummyLoader("__main__")
         else:
-            if env.PY3:
-                self.loader = DummyLoader("__main__")
+            self.loader = DummyLoader("__main__")
 
         self.arg0 = python_reported_file(self.arg0)
 
@@ -220,7 +172,7 @@ class PyRunner(object):
         if self.spec is not None:
             main_mod.__spec__ = self.spec
 
-        main_mod.__builtins__ = BUILTINS
+        main_mod.__builtins__ = sys.modules['builtins']
 
         sys.modules['__main__'] = main_mod
 
@@ -236,8 +188,8 @@ class PyRunner(object):
         except CoverageException:
             raise
         except Exception as exc:
-            msg = "Couldn't run '{filename}' as Python code: {exc.__class__.__name__}: {exc}"
-            raise CoverageException(msg.format(filename=self.arg0, exc=exc))
+            msg = f"Couldn't run '{self.arg0}' as Python code: {exc.__class__.__name__}: {exc}"
+            raise CoverageException(msg) from exc
 
         # Execute the code object.
         # Return to the original directory in case the test code exits in
@@ -265,22 +217,20 @@ class PyRunner(object):
 
             # Call the excepthook.
             try:
-                if hasattr(err, "__traceback__"):
-                    err.__traceback__ = err.__traceback__.tb_next
+                err.__traceback__ = err.__traceback__.tb_next
                 sys.excepthook(typ, err, tb.tb_next)
             except SystemExit:                      # pylint: disable=try-except-raise
                 raise
-            except Exception:
+            except Exception as exc:
                 # Getting the output right in the case of excepthook
                 # shenanigans is kind of involved.
                 sys.stderr.write("Error in sys.excepthook:\n")
                 typ2, err2, tb2 = sys.exc_info()
                 err2.__suppress_context__ = True
-                if hasattr(err2, "__traceback__"):
-                    err2.__traceback__ = err2.__traceback__.tb_next
+                err2.__traceback__ = err2.__traceback__.tb_next
                 sys.__excepthook__(typ2, err2, tb2.tb_next)
                 sys.stderr.write("\nOriginal exception was:\n")
-                raise ExceptionDuringRun(typ, err, tb.tb_next)
+                raise _ExceptionDuringRun(typ, err, tb.tb_next) from exc
             else:
                 sys.exit(1)
         finally:
@@ -321,8 +271,8 @@ def make_code_from_py(filename):
     # Open the source file.
     try:
         source = get_python_source(filename)
-    except (IOError, NoSource):
-        raise NoSource("No file to run: '%s'" % filename)
+    except (OSError, NoSource) as exc:
+        raise NoSource(f"No file to run: '{filename}'") from exc
 
     code = compile_unicode(source, filename, "exec")
     return code
@@ -332,29 +282,24 @@ def make_code_from_pyc(filename):
     """Get a code object from a .pyc file."""
     try:
         fpyc = open(filename, "rb")
-    except IOError:
-        raise NoCode("No file to run: '%s'" % filename)
+    except OSError as exc:
+        raise NoCode(f"No file to run: '{filename}'") from exc
 
     with fpyc:
         # First four bytes are a version-specific magic number.  It has to
         # match or we won't run the file.
         magic = fpyc.read(4)
         if magic != PYC_MAGIC_NUMBER:
-            raise NoCode("Bad magic number in .pyc file: {} != {}".format(magic, PYC_MAGIC_NUMBER))
+            raise NoCode(f"Bad magic number in .pyc file: {magic!r} != {PYC_MAGIC_NUMBER!r}")
 
-        date_based = True
-        if env.PYBEHAVIOR.hashed_pyc_pep552:
-            flags = struct.unpack('<L', fpyc.read(4))[0]
-            hash_based = flags & 0x01
-            if hash_based:
-                fpyc.read(8)    # Skip the hash.
-                date_based = False
-        if date_based:
+        flags = struct.unpack('<L', fpyc.read(4))[0]
+        hash_based = flags & 0x01
+        if hash_based:
+            fpyc.read(8)    # Skip the hash.
+        else:
             # Skip the junk in the header that we don't need.
-            fpyc.read(4)            # Skip the moddate.
-            if env.PYBEHAVIOR.size_in_pyc:
-                # 3.3 added another long to the header (size), skip it.
-                fpyc.read(4)
+            fpyc.read(4)    # Skip the moddate.
+            fpyc.read(4)    # Skip the size.
 
         # The rest of the file is the code object we want.
         code = marshal.load(fpyc)

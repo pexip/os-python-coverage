@@ -6,48 +6,39 @@ Description: Rename public programs to be clear what they're for.
  Created to work with “entry points” feature of Python's Distutils.
 Bug: https://bitbucket.org/ned/coveragepy/issue/272/
 Author: Ben Finney <bignose@debian.org>
-Last-Update: 2020-08-06
+Last-Update: 2022-07-09
 
-diff --git a/setup.py b/setup.py
-index 7962c44d..9ec00c87 100644
---- a/setup.py
-+++ b/setup.py
-@@ -1,3 +1,4 @@
-+# -*- coding: utf-8 -*-
- # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
- # For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
-
-@@ -85,12 +86,14 @@
+diff --git old/setup.py new/setup.py
+--- old/setup.py
++++ new/setup.py
+@@ -97,12 +97,11 @@ setup_args = dict(
      },
-
+ 
      entry_points={
--        # Install a script as "coverage", and as "coverage[23]", and as
--        # "coverage-2.7" (or whatever).
-+        # Install a default ‘python-coverage’ program, and versioned as
-+        # ‘python2.7-coverage’, ‘python3-coverage’, etc.
+-        # Install a script as "coverage", and as "coverage3", and as
+-        # "coverage-3.7" (or whatever).
++        # Install a script as "python-coverage" only.
++        # The per-version scripts will need shebang lines adjusted,
++        # so we will copy and modify those in Debian packaging.
          'console_scripts': [
 -            'coverage = coverage.cmdline:main',
 -            'coverage%d = coverage.cmdline:main' % sys.version_info[:1],
 -            'coverage-%d.%d = coverage.cmdline:main' % sys.version_info[:2],
-+            "python-coverage = {entry}".format(entry="coverage.cmdline:main"),
-+            "python{version[0]}-coverage = {entry}".format(
-+                version=sys.version_info, entry="coverage.cmdline:main"),
-+            "python{version[0]}.{version[1]}-coverage = {entry}".format(
-+                version=sys.version_info, entry="coverage.cmdline:main"),
++            'python-coverage = coverage.cmdline:main',
          ],
      },
+ 
 
-diff --git a/tests/coveragetest.py b/tests/coveragetest.py
-index 4d9540d0..e336f865 100644
---- a/tests/coveragetest.py
-+++ b/tests/coveragetest.py
-@@ -348,7 +348,7 @@
-         ret_actual = command_line(args)
-         self.assertEqual(ret_actual, ret)
-
+diff --git old/tests/coveragetest.py new/tests/coveragetest.py
+--- old/tests/coveragetest.py
++++ new/tests/coveragetest.py
+@@ -323,7 +323,7 @@ class CoverageTest(
+     # their new command name to the tests. This is here for them to override,
+     # for example:
+     # https://salsa.debian.org/debian/pkg-python-coverage/-/blob/master/debian/patches/02.rename-public-programs.patch
 -    coverage_command = "coverage"
 +    coverage_command = "python3-coverage"
-
+ 
      def run_command(self, cmd):
          """Run the command-line `cmd` in a sub-process.
 

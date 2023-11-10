@@ -1,4 +1,3 @@
-# coding: utf-8
 # Licensed under the Apache License: http://www.apache.org/licenses/LICENSE-2.0
 # For details: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
@@ -10,18 +9,31 @@ of in shell scripts, batch files, or Makefiles.
 """
 
 import contextlib
+import datetime
 import fnmatch
 import glob
 import inspect
 import os
 import platform
+import subprocess
 import sys
+import sysconfig
 import textwrap
 import warnings
 import zipfile
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    # We want to be able to run this for some tasks that don't need pytest.
+    pytest = None
 
+# Constants derived the same as in coverage/env.py.  We can't import
+# that file here, it would be evaluated too early and not get the
+# settings we make in this file.
+
+CPYTHON = (platform.python_implementation() == "CPython")
+PYPY = (platform.python_implementation() == "PyPy")
 
 @contextlib.contextmanager
 def ignore_warnings():
@@ -31,6 +43,8 @@ def ignore_warnings():
         yield
 
 
+VERBOSITY = int(os.environ.get("COVERAGE_IGOR_VERBOSE", "0"))
+
 # Functions named do_* are executable from the command line: do_blah is run
 # by "python igor.py blah".
 
@@ -39,10 +53,10 @@ def do_show_env():
     """Show the environment variables."""
     print("Environment:")
     for env in sorted(os.environ):
-        print("  %s = %r" % (env, os.environ[env]))
+        print(f"  {env} = {os.environ[env]!r}")
 
 
-def do_remove_extension():
+def do_remove_extension(*args):
     """Remove the compiled C extension, no matter what its name."""
 
     so_patterns = """
@@ -52,13 +66,31 @@ def do_remove_extension():
         tracer.*.pyd
         """.split()
 
+    if "--from-install" in args:
+        # Get the install location using a subprocess to avoid
+        # locking the file we are about to delete
+        root = os.path.dirname(subprocess.check_output([
+            sys.executable,
+            "-Xutf8",
+            "-c",
+            "import coverage; print(coverage.__file__)"
+        ], encoding="utf-8").strip())
+    else:
+        root = "coverage"
+
     for pattern in so_patterns:
-        pattern = os.path.join("coverage", pattern)
+        pattern = os.path.join(root, pattern.strip())
+        if VERBOSITY:
+            print(f"Searching for {pattern}")
         for filename in glob.glob(pattern):
-            try:
-                os.remove(filename)
-            except OSError:
-                pass
+            if os.path.exists(filename):
+                if VERBOSITY:
+                    print(f"Removing {filename}")
+                try:
+                    os.remove(filename)
+                except OSError as exc:
+                    if VERBOSITY:
+                        print(f"Couldn't remove {filename}: {exc}")
 
 
 def label_for_tracer(tracer):
@@ -73,7 +105,18 @@ def label_for_tracer(tracer):
 
 def should_skip(tracer):
     """Is there a reason to skip these tests?"""
-    if tracer == "py":
+    skipper = ""
+
+    # $set_env.py: COVERAGE_ONE_TRACER - Only run tests for one tracer.
+    only_one = os.environ.get("COVERAGE_ONE_TRACER")
+    if only_one:
+        if CPYTHON:
+            if tracer == "py":
+                skipper = "Only one tracer: no Python tracer for CPython"
+        else:
+            if tracer == "c":
+                skipper = f"No C tracer for {platform.python_implementation()}"
+    elif tracer == "py":
         # $set_env.py: COVERAGE_NO_PYTRACER - Don't run the tests under the Python tracer.
         skipper = os.environ.get("COVERAGE_NO_PYTRACER")
     else:
@@ -94,9 +137,9 @@ def make_env_id(tracer):
     """An environment id that will keep all the test runs distinct."""
     impl = platform.python_implementation().lower()
     version = "%s%s" % sys.version_info[:2]
-    if '__pypy__' in sys.builtin_module_names:
+    if PYPY:
         version += "_%s%s" % sys.pypy_version_info[:2]
-    env_id = "%s%s_%s" % (impl, version, tracer)
+    env_id = f"{impl}{version}_{tracer}"
     return env_id
 
 
@@ -104,10 +147,8 @@ def run_tests(tracer, *runner_args):
     """The actual running of tests."""
     if 'COVERAGE_TESTING' not in os.environ:
         os.environ['COVERAGE_TESTING'] = "True"
-    # $set_env.py: COVERAGE_ENV_ID - Use environment-specific test directories.
-    if 'COVERAGE_ENV_ID' in os.environ:
-        os.environ['COVERAGE_ENV_ID'] = make_env_id(tracer)
     print_banner(label_for_tracer(tracer))
+
     return pytest.main(list(runner_args))
 
 
@@ -117,17 +158,20 @@ def run_tests_with_coverage(tracer, *runner_args):
     os.environ['COVERAGE_TESTING'] = "True"
     os.environ['COVERAGE_PROCESS_START'] = os.path.abspath('metacov.ini')
     os.environ['COVERAGE_HOME'] = os.getcwd()
+    context = os.environ.get('COVERAGE_CONTEXT')
+    if context:
+        os.environ['COVERAGE_CONTEXT'] = context + "." + tracer
 
     # Create the .pth file that will let us measure coverage in sub-processes.
     # The .pth file seems to have to be alphabetically after easy-install.pth
     # or the sys.path entries aren't created right?
     # There's an entry in "make clean" to get rid of this file.
-    pth_dir = os.path.dirname(pytest.__file__)
+    pth_dir = sysconfig.get_path("purelib")
     pth_path = os.path.join(pth_dir, "zzz_metacov.pth")
     with open(pth_path, "w") as pth_file:
         pth_file.write("import coverage; coverage.process_startup()\n")
 
-    suffix = "%s_%s" % (make_env_id(tracer), platform.platform())
+    suffix = f"{make_env_id(tracer)}_{platform.platform()}"
     os.environ['COVERAGE_METAFILE'] = os.path.abspath(".metacov."+suffix)
 
     import coverage
@@ -139,7 +183,7 @@ def run_tests_with_coverage(tracer, *runner_args):
     try:
         # Re-import coverage to get it coverage tested!  I don't understand all
         # the mechanics here, but if I don't carry over the imported modules
-        # (in covmods), then things go haywire (os == None, eventually).
+        # (in covmods), then things go haywire (os is None, eventually).
         covmods = {}
         covdir = os.path.split(coverage.__file__)[0]
         # We have to make a list since we'll be deleting in the loop.
@@ -174,9 +218,10 @@ def do_combine_html():
     cov.load()
     cov.combine()
     cov.save()
-    show_contexts = bool(os.environ.get('COVERAGE_CONTEXT'))
+    show_contexts = bool(os.environ.get('COVERAGE_DYNCTX') or os.environ.get('COVERAGE_CONTEXT'))
     cov.html_report(show_contexts=show_contexts)
     cov.xml_report()
+    cov.json_report(pretty_print=True)
 
 
 def do_test_with_tracer(tracer, *runner_args):
@@ -195,54 +240,41 @@ def do_test_with_tracer(tracer, *runner_args):
 
 
 def do_zip_mods():
-    """Build the zipmods.zip file."""
-    zf = zipfile.ZipFile("tests/zipmods.zip", "w")
+    """Build the zip files needed for tests."""
+    with zipfile.ZipFile("tests/zipmods.zip", "w") as zf:
 
-    # Take one file from disk.
-    zf.write("tests/covmodzip1.py", "covmodzip1.py")
+        # Take some files from disk.
+        zf.write("tests/covmodzip1.py", "covmodzip1.py")
 
-    # The others will be various encodings.
-    source = textwrap.dedent(u"""\
-        # coding: {encoding}
-        text = u"{text}"
-        ords = {ords}
-        assert [ord(c) for c in text] == ords
-        print(u"All OK with {encoding}")
-        """)
-    # These encodings should match the list in tests/test_python.py
-    details = [
-        (u'utf8', u'ⓗⓔⓛⓛⓞ, ⓦⓞⓡⓛⓓ'),
-        (u'gb2312', u'你好，世界'),
-        (u'hebrew', u'שלום, עולם'),
-        (u'shift_jis', u'こんにちは世界'),
-        (u'cp1252', u'“hi”'),
-    ]
-    for encoding, text in details:
-        filename = 'encoded_{}.py'.format(encoding)
-        ords = [ord(c) for c in text]
-        source_text = source.format(encoding=encoding, text=text, ords=ords)
-        zf.writestr(filename, source_text.encode(encoding))
+        # The others will be various encodings.
+        source = textwrap.dedent("""\
+            # coding: {encoding}
+            text = u"{text}"
+            ords = {ords}
+            assert [ord(c) for c in text] == ords
+            print(u"All OK with {encoding}")
+            encoding = "{encoding}"
+            """)
+        # These encodings should match the list in tests/test_python.py
+        details = [
+            ('utf-8', 'ⓗⓔⓛⓛⓞ, ⓦⓞⓡⓛⓓ'),
+            ('gb2312', '你好，世界'),
+            ('hebrew', 'שלום, עולם'),
+            ('shift_jis', 'こんにちは世界'),
+            ('cp1252', '“hi”'),
+        ]
+        for encoding, text in details:
+            filename = f'encoded_{encoding}.py'
+            ords = [ord(c) for c in text]
+            source_text = source.format(encoding=encoding, text=text, ords=ords)
+            zf.writestr(filename, source_text.encode(encoding))
 
-    zf.close()
+    with zipfile.ZipFile("tests/zip1.zip", "w") as zf:
+        zf.write("tests/zipsrc/zip1/__init__.py", "zip1/__init__.py")
+        zf.write("tests/zipsrc/zip1/zip1.py", "zip1/zip1.py")
 
-    zf = zipfile.ZipFile("tests/covmain.zip", "w")
-    zf.write("coverage/__main__.py", "__main__.py")
-    zf.close()
-
-
-def do_install_egg():
-    """Install the egg1 egg for tests."""
-    # I am pretty certain there are easier ways to install eggs...
-    cur_dir = os.getcwd()
-    os.chdir("tests/eggsrc")
-    with ignore_warnings():
-        import distutils.core
-        distutils.core.run_setup("setup.py", ["--quiet", "bdist_egg"])
-        egg = glob.glob("dist/*.egg")[0]
-        distutils.core.run_setup(
-            "setup.py", ["--quiet", "easy_install", "--no-deps", "--zip-ok", egg]
-        )
-    os.chdir(cur_dir)
+    with zipfile.ZipFile("tests/covmain.zip", "w") as zf:
+        zf.write("coverage/__main__.py", "__main__.py")
 
 
 def do_check_eol():
@@ -254,6 +286,8 @@ def do_check_eol():
         '*.egg-info',
         '_build',
         '_spell',
+        'tmp',
+        'help',
     ]
     checked = set()
 
@@ -269,18 +303,18 @@ def do_check_eol():
             for n, line in enumerate(f, start=1):
                 if crlf:
                     if b"\r" in line:
-                        print("%s@%d: CR found" % (fname, n))
+                        print(f"{fname}@{n}: CR found")
                         return
                 if trail_white:
                     line = line[:-1]
                     if not crlf:
                         line = line.rstrip(b'\r')
                     if line.rstrip() != line:
-                        print("%s@%d: trailing whitespace found" % (fname, n))
+                        print(f"{fname}@{n}: trailing whitespace found")
                         return
 
         if line is not None and not line.strip():
-            print("%s: final blank line" % (fname,))
+            print(f"{fname}: final blank line")
 
     def check_files(root, patterns, **kwargs):
         """Check a number of files for whitespace abuse."""
@@ -308,9 +342,10 @@ def do_check_eol():
     check_file("setup.py")
     check_file("igor.py")
     check_file("Makefile")
-    check_file(".travis.yml")
     check_files(".", ["*.rst", "*.txt"])
     check_files(".", ["*.pip"])
+    check_files(".github", ["*"])
+    check_files("ci", ["*"])
 
 
 def print_banner(label):
@@ -322,8 +357,12 @@ def print_banner(label):
 
     version = platform.python_version()
 
-    if '__pypy__' in sys.builtin_module_names:
+    if PYPY:
         version += " (pypy %s)" % ".".join(str(v) for v in sys.pypy_version_info)
+
+    rev = platform.python_revision()
+    if rev:
+        version += f" (rev {rev})"
 
     try:
         which_python = os.path.relpath(sys.executable)
@@ -331,8 +370,66 @@ def print_banner(label):
         # On Windows having a python executable on a different drive
         # than the sources cannot be relative.
         which_python = sys.executable
-    print('=== %s %s %s (%s) ===' % (impl, version, label, which_python))
+    print(f'=== {impl} {version} {label} ({which_python}) ===')
     sys.stdout.flush()
+
+
+def do_quietly(command):
+    """Run a command in a shell, and suppress all output."""
+    proc = subprocess.run(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return proc.returncode
+
+
+def do_cheats():
+    """Show a cheatsheet of useful things during releasing."""
+    import coverage
+    ver = coverage.__version__
+    vi = coverage.version_info
+    shortver = f"{vi[0]}.{vi[1]}.{vi[2]}"
+    anchor = shortver.replace(".", "-")
+    if vi[3] != "final":
+        anchor += f"{vi[3][0]}{vi[4]}"
+    now = datetime.datetime.now()
+    branch = subprocess.getoutput("git rev-parse --abbrev-ref @")
+    print(f"Coverage version is {ver}")
+
+    print(f"pip install git+https://github.com/nedbat/coveragepy@{branch}")
+    print(f"https://coverage.readthedocs.io/en/{ver}/changes.html#changes-{anchor}")
+
+    print("\n## for CHANGES.rst before release:")
+    print(f".. _changes_{anchor}:")
+    print()
+    head = f"Version {ver} — {now:%Y-%m-%d}"
+    print(head)
+    print("-" * len(head))
+
+    print("\n## For doc/conf.py before release:")
+    print("\n".join([
+        '# The short X.Y.Z version.                                 # CHANGEME',
+        f'version = "{shortver}"',
+        '# The full version, including alpha/beta/rc tags.          # CHANGEME',
+        f'release = "{ver}"',
+        '# The date of release, in "monthname day, year" format.    # CHANGEME',
+        f'release_date = "{now:%B %-d, %Y}"',
+    ]))
+
+    print(
+        "\n## For GitHub commenting:\n" +
+        "This is now released as part of " +
+        f"[coverage {ver}](https://pypi.org/project/coverage/{ver})."
+    )
+    print("\n## For version.py next:")
+    next_vi = (vi[0], vi[1], vi[2]+1, "alpha", 0)
+    print(f"version_info = {next_vi}".replace("'", '"'))
+    print("\n## For CHANGES.rst after release:")
+    print(textwrap.dedent("""\
+        Unreleased
+        ----------
+
+        Nothing yet.
+
+
+        """))
 
 
 def do_help():
@@ -341,7 +438,7 @@ def do_help():
     items.sort()
     for name, value in items:
         if name.startswith('do_'):
-            print("%-20s%s" % (name[3:], value.__doc__))
+            print(f"{name[3:]:<20}{value.__doc__}")
 
 
 def analyze_args(function):
@@ -352,14 +449,8 @@ def analyze_args(function):
             star(boolean): Does `function` accept *args?
             num_args(int): How many positional arguments does `function` have?
     """
-    try:
-        getargspec = inspect.getfullargspec
-    except AttributeError:
-        getargspec = inspect.getargspec
-    with ignore_warnings():
-        # DeprecationWarning: Use inspect.signature() instead of inspect.getfullargspec()
-        argspec = getargspec(function)
-    return bool(argspec[1]), len(argspec[0])
+    argspec = inspect.getfullargspec(function)
+    return bool(argspec.varargs), len(argspec.args)
 
 
 def main(args):
@@ -373,7 +464,7 @@ def main(args):
         verb = args.pop(0)
         handler = globals().get('do_'+verb)
         if handler is None:
-            print("*** No handler for %r" % verb)
+            print(f"*** No handler for {verb!r}")
             return 1
         star, num_args = analyze_args(handler)
         if star:

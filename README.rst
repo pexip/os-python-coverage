@@ -7,21 +7,29 @@ Coverage.py
 
 Code coverage testing for Python.
 
+.. image:: https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg
+    :target: https://vshymanskyy.github.io/StandWithUkraine
+    :alt: Stand with Ukraine
+
+-------------
+
 |  |license| |versions| |status|
-|  |ci-status| |win-ci-status| |docs| |codecov|
-|  |kit| |format| |repos|
+|  |test-status| |quality-status| |docs| |metacov|
+|  |kit| |downloads| |format| |repos|
 |  |stars| |forks| |contributors|
-|  |tidelift| |twitter-coveragepy| |twitter-nedbat|
+|  |tidelift| |core-infrastructure| |open-ssf|
+|  |sponsor| |twitter-coveragepy| |twitter-nedbat|
 
 Coverage.py measures code coverage, typically during test execution. It uses
 the code analysis tools and tracing hooks provided in the Python standard
 library to determine which lines are executable, and which have been executed.
 
-Coverage.py runs on many versions of Python:
+Coverage.py runs on these versions of Python:
 
-* CPython 2.7.
-* CPython 3.5 through 3.9 alpha 4.
-* PyPy2 7.3.0 and PyPy3 7.3.0.
+.. PYVERSIONS
+
+* CPython 3.7 through 3.11.0 rc2.
+* PyPy3 7.3.8.
 
 Documentation is on `Read the Docs`_.  Code repository and issue tracker are on
 `GitHub`_.
@@ -30,15 +38,15 @@ Documentation is on `Read the Docs`_.  Code repository and issue tracker are on
 .. _GitHub: https://github.com/nedbat/coveragepy
 
 
-**New in 5.0:** SQLite data storage, JSON report, contexts, relative filenames,
-dropped support for Python 2.6, 3.3 and 3.4.
+**New in 6.x:** dropped support for Python 2.7, 3.5, and 3.6;
+write data on SIGTERM;
+added support for 3.10 match/case statements.
 
 
 For Enterprise
 --------------
 
 .. |tideliftlogo| image:: https://nedbatchelder.com/pix/Tidelift_Logo_small.png
-   :width: 75
    :alt: Tidelift
    :target: https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=readme
 
@@ -70,6 +78,16 @@ The complete history of changes is on the `change history page`_.
 .. _change history page: https://coverage.readthedocs.io/en/latest/changes.html
 
 
+Code of Conduct
+---------------
+
+Everyone participating in the coverage.py project is expected to treat other
+people with respect and to follow the guidelines articulated in the `Python
+Community Code of Conduct`_.
+
+.. _Python Community Code of Conduct: https://www.python.org/psf/codeofconduct/
+
+
 Contributing
 ------------
 
@@ -96,18 +114,15 @@ Licensed under the `Apache 2.0 License`_.  For details, see `NOTICE.txt`_.
 .. _NOTICE.txt: https://github.com/nedbat/coveragepy/blob/master/NOTICE.txt
 
 
-.. |ci-status| image:: https://travis-ci.com/nedbat/coveragepy.svg?branch=master
-    :target: https://travis-ci.com/nedbat/coveragepy
-    :alt: Build status
-.. |win-ci-status| image:: https://ci.appveyor.com/api/projects/status/kmeqpdje7h9r6vsf/branch/master?svg=true
-    :target: https://ci.appveyor.com/project/nedbat/coveragepy
-    :alt: Windows build status
+.. |test-status| image:: https://github.com/nedbat/coveragepy/actions/workflows/testsuite.yml/badge.svg?branch=master&event=push
+    :target: https://github.com/nedbat/coveragepy/actions/workflows/testsuite.yml
+    :alt: Test suite status
+.. |quality-status| image:: https://github.com/nedbat/coveragepy/actions/workflows/quality.yml/badge.svg?branch=master&event=push
+    :target: https://github.com/nedbat/coveragepy/actions/workflows/quality.yml
+    :alt: Quality check status
 .. |docs| image:: https://readthedocs.org/projects/coverage/badge/?version=latest&style=flat
     :target: https://coverage.readthedocs.io/
     :alt: Documentation
-.. |reqs| image:: https://requires.io/github/nedbat/coveragepy/requirements.svg?branch=master
-    :target: https://requires.io/github/nedbat/coveragepy/requirements/?branch=master
-    :alt: Requirements status
 .. |kit| image:: https://badge.fury.io/py/coverage.svg
     :target: https://pypi.org/project/coverage/
     :alt: PyPI status
@@ -126,11 +141,11 @@ Licensed under the `Apache 2.0 License`_.  For details, see `NOTICE.txt`_.
 .. |license| image:: https://img.shields.io/pypi/l/coverage.svg
     :target: https://pypi.org/project/coverage/
     :alt: License
-.. |codecov| image:: https://codecov.io/github/nedbat/coveragepy/coverage.svg?branch=master&precision=2
-    :target: https://codecov.io/github/nedbat/coveragepy?branch=master
-    :alt: Coverage!
+.. |metacov| image:: https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/nedbat/8c6980f77988a327348f9b02bbaf67f5/raw/metacov.json
+    :target: https://nedbat.github.io/coverage-reports/latest.html
+    :alt: Coverage reports
 .. |repos| image:: https://repology.org/badge/tiny-repos/python:coverage.svg
-    :target: https://repology.org/metapackage/python:coverage/versions
+    :target: https://repology.org/project/python:coverage/versions
     :alt: Packaging status
 .. |tidelift| image:: https://tidelift.com/badges/package/pypi/coverage
     :target: https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=readme
@@ -150,3 +165,12 @@ Licensed under the `Apache 2.0 License`_.  For details, see `NOTICE.txt`_.
 .. |twitter-nedbat| image:: https://img.shields.io/twitter/follow/nedbat.svg?label=nedbat&style=flat&logo=twitter&logoColor=4FADFF
     :target: https://twitter.com/nedbat
     :alt: nedbat on Twitter
+.. |sponsor| image:: https://img.shields.io/badge/%E2%9D%A4-Sponsor%20me-brightgreen?style=flat&logo=GitHub
+    :target: https://github.com/sponsors/nedbat
+    :alt: Sponsor me on GitHub
+.. |core-infrastructure| image:: https://bestpractices.coreinfrastructure.org/projects/6412/badge
+    :target: https://bestpractices.coreinfrastructure.org/projects/6412
+    :alt: Core Infrastructure Initiative: passing
+.. |open-ssf| image:: https://api.securityscorecards.dev/projects/github.com/nedbat/coveragepy/badge
+    :target: https://deps.dev/pypi/coverage
+    :alt: OpenSSF Scorecard

@@ -7,6 +7,8 @@
 Excluding code from coverage.py
 ===============================
 
+.. highlight:: python
+
 You may have code in your project that you know won't be executed, and you want
 to tell coverage.py to ignore it.  For example, you may have debugging-only
 code that won't be executed during your unit tests. You can tell coverage.py to
@@ -17,7 +19,7 @@ Coverage.py will look for comments marking clauses for exclusion.  In this
 code, the "if debug" clause is excluded from reporting::
 
     a = my_function1()
-    if debug:   # pragma: no cover
+    if debug:  # pragma: no cover
         msg = "blah blah"
         log_message(msg, a)
     b = my_function2()
@@ -32,7 +34,7 @@ function is not reported as missing::
             blah1()
             blah2()
 
-        def __repr__(self): # pragma: no cover
+        def __repr__(self):  # pragma: no cover
             return "<MyObject>"
 
 Excluded code is executed as usual, and its execution is recorded in the
@@ -50,7 +52,7 @@ counted as a branch if one of its choices is excluded::
         if x:
             blah1()
             blah2()
-        else:       # pragma: no cover
+        else:  # pragma: no cover
             # x is always true.
             blah3()
 
@@ -67,12 +69,19 @@ expressions. Using :ref:`configuration files <config>` or the coverage
 often-used constructs to exclude that can be matched with a regex. You can
 exclude them all at once without littering your code with exclusion pragmas.
 
+If the matched line introduces a block, the entire block is excluded from
+reporting.  Matching a ``def`` line or decorator line will exclude an entire
+function.
+
+.. highlight:: ini
+
 For example, you might decide that __repr__ functions are usually only used in
 debugging code, and are uninteresting to test themselves.  You could exclude
 all of them by adding a regex to the exclusion list::
 
     [report]
-    exclude_lines = def __repr__
+    exclude_lines =
+        def __repr__
 
 For example, here's a list of exclusions I've used::
 
@@ -86,10 +95,15 @@ For example, here's a list of exclusions I've used::
         raise NotImplementedError
         if 0:
         if __name__ == .__main__.:
+        class .*\bProtocol\):
+        @(abc\.)?abstractmethod
 
 Note that when using the ``exclude_lines`` option in a configuration file, you
 are taking control of the entire list of regexes, so you need to re-specify the
 default "pragma: no cover" match if you still want it to apply.
+
+The regexes only have to match part of a line. Be careful not to over-match.  A
+value of ``...`` will match any line with more than three characters in it.
 
 A similar pragma, "no branch", can be used to tailor branch coverage
 measurement.  See :ref:`branch` for details.

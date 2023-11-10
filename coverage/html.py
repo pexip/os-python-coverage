@@ -8,13 +8,14 @@ import json
 import os
 import re
 import shutil
+import types
 
 import coverage
-from coverage import env
-from coverage.backward import iitems, SimpleNamespace
 from coverage.data import add_data_to_hash
+from coverage.exceptions import NoDataError
 from coverage.files import flat_rootname
-from coverage.misc import CoverageException, ensure_dir, file_be_gone, Hasher, isolate_module
+from coverage.misc import ensure_dir, file_be_gone, Hasher, isolate_module, format_local_datetime
+from coverage.misc import human_sorted, plural
 from coverage.report import get_analysis_to_report
 from coverage.results import Numbers
 from coverage.templite import Templite
@@ -22,42 +23,12 @@ from coverage.templite import Templite
 os = isolate_module(os)
 
 
-# Static files are looked for in a list of places.
-STATIC_PATH = [
-    # The place Debian puts system Javascript libraries.
-    "/usr/share/javascript",
-
-    # Our htmlfiles directory.
-    os.path.join(os.path.dirname(__file__), "htmlfiles"),
-]
-
-
-def data_filename(fname, pkgdir=""):
-    """Return the path to a data file of ours.
-
-    The file is searched for on `STATIC_PATH`, and the first place it's found,
-    is returned.
-
-    Each directory in `STATIC_PATH` is searched as-is, and also, if `pkgdir`
-    is provided, at that sub-directory.
-
+def data_filename(fname):
+    """Return the path to an "htmlfiles" data file of ours.
     """
-    tried = []
-    for static_dir in STATIC_PATH:
-        static_filename = os.path.join(static_dir, fname)
-        if os.path.exists(static_filename):
-            return static_filename
-        else:
-            tried.append(static_filename)
-        if pkgdir:
-            static_filename = os.path.join(static_dir, pkgdir, fname)
-            if os.path.exists(static_filename):
-                return static_filename
-            else:
-                tried.append(static_filename)
-    raise CoverageException(
-        "Couldn't find static file %r from %r, tried: %r" % (fname, os.getcwd(), tried)
-    )
+    static_dir = os.path.join(os.path.dirname(__file__), "htmlfiles")
+    static_filename = os.path.join(static_dir, fname)
+    return static_filename
 
 
 def read_data(fname):
@@ -73,7 +44,7 @@ def write_html(fname, html):
         fout.write(html.encode('ascii', 'xmlcharrefreplace'))
 
 
-class HtmlDataGeneration(object):
+class HtmlDataGeneration:
     """Generate structured data to be turned into HTML reports."""
 
     EMPTY = "(empty)"
@@ -84,7 +55,7 @@ class HtmlDataGeneration(object):
         data = self.coverage.get_data()
         self.has_arcs = data.has_arcs()
         if self.config.show_contexts:
-            if data.measured_contexts() == set([""]):
+            if data.measured_contexts() == {""}:
                 self.coverage._warn("No contexts were measured")
         data.set_query_contexts(self.config.report_contexts)
 
@@ -123,14 +94,14 @@ class HtmlDataGeneration(object):
             contexts = contexts_label = None
             context_list = None
             if category and self.config.show_contexts:
-                contexts = sorted(c or self.EMPTY for c in contexts_by_lineno[lineno])
+                contexts = human_sorted(c or self.EMPTY for c in contexts_by_lineno.get(lineno, ()))
                 if contexts == [self.EMPTY]:
                     contexts_label = self.EMPTY
                 else:
-                    contexts_label = "{} ctx".format(len(contexts))
+                    contexts_label = f"{len(contexts)} ctx"
                     context_list = contexts
 
-            lines.append(SimpleNamespace(
+            lines.append(types.SimpleNamespace(
                 tokens=tokens,
                 number=lineno,
                 category=category,
@@ -142,7 +113,7 @@ class HtmlDataGeneration(object):
                 long_annotations=long_annotations,
             ))
 
-        file_data = SimpleNamespace(
+        file_data = types.SimpleNamespace(
             relative_filename=fr.relative_filename(),
             nums=analysis.numbers,
             lines=lines,
@@ -151,30 +122,43 @@ class HtmlDataGeneration(object):
         return file_data
 
 
-class HtmlReporter(object):
+class FileToReport:
+    """A file we're considering reporting."""
+    def __init__(self, fr, analysis):
+        self.fr = fr
+        self.analysis = analysis
+        self.rootname = flat_rootname(fr.relative_filename())
+        self.html_filename = self.rootname + ".html"
+
+
+class HtmlReporter:
     """HTML reporting."""
 
     # These files will be copied from the htmlfiles directory to the output
     # directory.
     STATIC_FILES = [
-        ("style.css", ""),
-        ("jquery.min.js", "jquery"),
-        ("jquery.ba-throttle-debounce.min.js", "jquery-throttle-debounce"),
-        ("jquery.hotkeys.js", "jquery-hotkeys"),
-        ("jquery.isonscreen.js", "jquery-isonscreen"),
-        ("jquery.tablesorter.min.js", "jquery-tablesorter"),
-        ("coverage_html.js", ""),
-        ("keybd_closed.png", ""),
-        ("keybd_open.png", ""),
+        "style.css",
+        "coverage_html.js",
+        "keybd_closed.png",
+        "keybd_open.png",
+        "favicon_32.png",
     ]
 
     def __init__(self, cov):
         self.coverage = cov
         self.config = self.coverage.config
         self.directory = self.config.html_dir
+
+        self.skip_covered = self.config.html_skip_covered
+        if self.skip_covered is None:
+            self.skip_covered = self.config.skip_covered
+        self.skip_empty = self.config.html_skip_empty
+        if self.skip_empty is None:
+            self.skip_empty = self.config.skip_empty
+        self.skipped_covered_count = 0
+        self.skipped_empty_count = 0
+
         title = self.config.html_title
-        if env.PY2:
-            title = title.decode("utf8")
 
         if self.config.extra_css:
             self.extra_css = os.path.basename(self.config.extra_css)
@@ -188,7 +172,10 @@ class HtmlReporter(object):
         self.all_files_nums = []
         self.incr = IncrementalChecker(self.directory)
         self.datagen = HtmlDataGeneration(self.coverage)
-        self.totals = Numbers()
+        self.totals = Numbers(precision=self.config.precision)
+        self.directory_was_empty = False
+        self.first_fr = None
+        self.final_fr = None
 
         self.template_globals = {
             # Functions available in the templates.
@@ -200,7 +187,7 @@ class HtmlReporter(object):
             '__url__': coverage.__url__,
             '__version__': coverage.__version__,
             'title': title,
-            'time_stamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'time_stamp': format_local_datetime(datetime.datetime.now()),
             'extra_css': self.extra_css,
             'has_arcs': self.has_arcs,
             'show_contexts': self.config.show_contexts,
@@ -212,7 +199,7 @@ class HtmlReporter(object):
                 'mis': 'mis show_mis',
                 'par': 'par run show_par',
                 'run': 'run',
-            }
+            },
         }
         self.pyfile_html_source = read_data("pyfile.html")
         self.source_tmpl = Templite(self.pyfile_html_source, self.template_globals)
@@ -228,70 +215,102 @@ class HtmlReporter(object):
         self.incr.read()
         self.incr.check_global_data(self.config, self.pyfile_html_source)
 
-        # Process all the files.
+        # Process all the files. For each page we need to supply a link
+        # to the next and previous page.
+        files_to_report = []
+
         for fr, analysis in get_analysis_to_report(self.coverage, morfs):
-            self.html_file(fr, analysis)
+            ftr = FileToReport(fr, analysis)
+            should = self.should_report_file(ftr)
+            if should:
+                files_to_report.append(ftr)
+            else:
+                file_be_gone(os.path.join(self.directory, ftr.html_filename))
+
+        for i, ftr in enumerate(files_to_report):
+            if i == 0:
+                prev_html = "index.html"
+            else:
+                prev_html = files_to_report[i - 1].html_filename
+            if i == len(files_to_report) - 1:
+                next_html = "index.html"
+            else:
+                next_html = files_to_report[i + 1].html_filename
+            self.write_html_file(ftr, prev_html, next_html)
 
         if not self.all_files_nums:
-            raise CoverageException("No data to report.")
+            raise NoDataError("No data to report.")
 
         self.totals = sum(self.all_files_nums)
 
         # Write the index file.
-        self.index_file()
+        if files_to_report:
+            first_html = files_to_report[0].html_filename
+            final_html = files_to_report[-1].html_filename
+        else:
+            first_html = final_html = "index.html"
+        self.index_file(first_html, final_html)
 
         self.make_local_static_report_files()
         return self.totals.n_statements and self.totals.pc_covered
 
+    def make_directory(self):
+        """Make sure our htmlcov directory exists."""
+        ensure_dir(self.directory)
+        if not os.listdir(self.directory):
+            self.directory_was_empty = True
+
     def make_local_static_report_files(self):
         """Make local instances of static files for HTML report."""
         # The files we provide must always be copied.
-        for static, pkgdir in self.STATIC_FILES:
-            shutil.copyfile(
-                data_filename(static, pkgdir),
-                os.path.join(self.directory, static)
-            )
+        for static in self.STATIC_FILES:
+            shutil.copyfile(data_filename(static), os.path.join(self.directory, static))
+
+        # Only write the .gitignore file if the directory was originally empty.
+        # .gitignore can't be copied from the source tree because it would
+        # prevent the static files from being checked in.
+        if self.directory_was_empty:
+            with open(os.path.join(self.directory, ".gitignore"), "w") as fgi:
+                fgi.write("# Created by coverage.py\n*\n")
 
         # The user may have extra CSS they want copied.
         if self.extra_css:
-            shutil.copyfile(
-                self.config.extra_css,
-                os.path.join(self.directory, self.extra_css)
-            )
+            shutil.copyfile(self.config.extra_css, os.path.join(self.directory, self.extra_css))
 
-    def html_file(self, fr, analysis):
-        """Generate an HTML file for one source file."""
-        rootname = flat_rootname(fr.relative_filename())
-        html_filename = rootname + ".html"
-        ensure_dir(self.directory)
-        html_path = os.path.join(self.directory, html_filename)
-
+    def should_report_file(self, ftr):
+        """Determine if we'll report this file."""
         # Get the numbers for this file.
-        nums = analysis.numbers
+        nums = ftr.analysis.numbers
         self.all_files_nums.append(nums)
 
-        if self.config.skip_covered:
+        if self.skip_covered:
             # Don't report on 100% files.
             no_missing_lines = (nums.n_missing == 0)
             no_missing_branches = (nums.n_partial_branches == 0)
             if no_missing_lines and no_missing_branches:
                 # If there's an existing file, remove it.
-                file_be_gone(html_path)
-                return
+                self.skipped_covered_count += 1
+                return False
 
-        if self.config.skip_empty:
+        if self.skip_empty:
             # Don't report on empty files.
             if nums.n_statements == 0:
-                file_be_gone(html_path)
-                return
+                self.skipped_empty_count += 1
+                return False
+
+        return True
+
+    def write_html_file(self, ftr, prev_html, next_html):
+        """Generate an HTML file for one source file."""
+        self.make_directory()
 
         # Find out if the file on disk is already correct.
-        if self.incr.can_skip_file(self.data, fr, rootname):
-            self.file_summaries.append(self.incr.index_info(rootname))
+        if self.incr.can_skip_file(self.data, ftr.fr, ftr.rootname):
+            self.file_summaries.append(self.incr.index_info(ftr.rootname))
             return
 
         # Write the HTML page for this file.
-        file_data = self.datagen.data_for_file(fr, analysis)
+        file_data = self.datagen.data_for_file(ftr.fr, ftr.analysis)
         for ldata in file_data.lines:
             # Build the HTML for the line.
             html = []
@@ -301,17 +320,17 @@ class HtmlReporter(object):
                 else:
                     tok_html = escape(tok_text) or '&nbsp;'
                     html.append(
-                        u'<span class="{}">{}</span>'.format(tok_type, tok_html)
+                        f'<span class="{tok_type}">{tok_html}</span>'
                     )
             ldata.html = ''.join(html)
 
             if ldata.short_annotations:
                 # 202F is NARROW NO-BREAK SPACE.
                 # 219B is RIGHTWARDS ARROW WITH STROKE.
-                ldata.annotate = u",&nbsp;&nbsp; ".join(
-                    u"{}&#x202F;&#x219B;&#x202F;{}".format(ldata.number, d)
+                ldata.annotate = ",&nbsp;&nbsp; ".join(
+                    f"{ldata.number}&#x202F;&#x219B;&#x202F;{d}"
                     for d in ldata.short_annotations
-                    )
+                )
             else:
                 ldata.annotate = None
 
@@ -320,12 +339,12 @@ class HtmlReporter(object):
                 if len(longs) == 1:
                     ldata.annotate_long = longs[0]
                 else:
-                    ldata.annotate_long = u"{:d} missed branches: {}".format(
+                    ldata.annotate_long = "{:d} missed branches: {}".format(
                         len(longs),
-                        u", ".join(
-                            u"{:d}) {}".format(num, ann_long)
+                        ", ".join(
+                            f"{num:d}) {ann_long}"
                             for num, ann_long in enumerate(longs, start=1)
-                            ),
+                        ),
                     )
             else:
                 ldata.annotate_long = None
@@ -335,34 +354,54 @@ class HtmlReporter(object):
                 css_classes.append(self.template_globals['category'][ldata.category])
             ldata.css_class = ' '.join(css_classes) or "pln"
 
-        html = self.source_tmpl.render(file_data.__dict__)
+        html_path = os.path.join(self.directory, ftr.html_filename)
+        html = self.source_tmpl.render({
+            **file_data.__dict__,
+            'prev_html': prev_html,
+            'next_html': next_html,
+        })
         write_html(html_path, html)
 
         # Save this file's information for the index file.
         index_info = {
-            'nums': nums,
-            'html_filename': html_filename,
-            'relative_filename': fr.relative_filename(),
+            'nums': ftr.analysis.numbers,
+            'html_filename': ftr.html_filename,
+            'relative_filename': ftr.fr.relative_filename(),
         }
         self.file_summaries.append(index_info)
-        self.incr.set_index_info(rootname, index_info)
+        self.incr.set_index_info(ftr.rootname, index_info)
 
-    def index_file(self):
+    def index_file(self, first_html, final_html):
         """Write the index.html file for this report."""
+        self.make_directory()
         index_tmpl = Templite(read_data("index.html"), self.template_globals)
+
+        skipped_covered_msg = skipped_empty_msg = ""
+        if self.skipped_covered_count:
+            n = self.skipped_covered_count
+            skipped_covered_msg = f"{n} file{plural(n)} skipped due to complete coverage."
+        if self.skipped_empty_count:
+            n = self.skipped_empty_count
+            skipped_empty_msg = f"{n} empty file{plural(n)} skipped."
 
         html = index_tmpl.render({
             'files': self.file_summaries,
             'totals': self.totals,
+            'skipped_covered_msg': skipped_covered_msg,
+            'skipped_empty_msg': skipped_empty_msg,
+            'first_html': first_html,
+            'final_html': final_html,
         })
 
-        write_html(os.path.join(self.directory, "index.html"), html)
+        index_file = os.path.join(self.directory, "index.html")
+        write_html(index_file, html)
+        self.coverage._message(f"Wrote HTML report to {index_file}")
 
         # Write the latest hashes for next time.
         self.incr.write()
 
 
-class IncrementalChecker(object):
+class IncrementalChecker:
     """Logic and data to support incremental reporting."""
 
     STATUS_FILE = "status.json"
@@ -412,7 +451,7 @@ class IncrementalChecker(object):
             status_file = os.path.join(self.directory, self.STATUS_FILE)
             with open(status_file) as fstatus:
                 status = json.load(fstatus)
-        except (IOError, ValueError):
+        except (OSError, ValueError):
             usable = False
         else:
             usable = True
@@ -423,7 +462,7 @@ class IncrementalChecker(object):
 
         if usable:
             self.files = {}
-            for filename, fileinfo in iitems(status['files']):
+            for filename, fileinfo in status['files'].items():
                 fileinfo['index']['nums'] = Numbers(*fileinfo['index']['nums'])
                 self.files[filename] = fileinfo
             self.globals = status['globals']
@@ -434,7 +473,7 @@ class IncrementalChecker(object):
         """Write the current status."""
         status_file = os.path.join(self.directory, self.STATUS_FILE)
         files = {}
-        for filename, fileinfo in iitems(self.files):
+        for filename, fileinfo in self.files.items():
             fileinfo['index']['nums'] = fileinfo['index']['nums'].init_args()
             files[filename] = fileinfo
 

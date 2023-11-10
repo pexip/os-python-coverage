@@ -6,16 +6,15 @@
 import contextlib
 import functools
 import inspect
+import io
 import itertools
 import os
 import pprint
+import reprlib
 import sys
-try:
-    import _thread
-except ImportError:
-    import thread as _thread
+import types
+import _thread
 
-from coverage.backward import reprlib, StringIO
 from coverage.misc import isolate_module
 
 os = isolate_module(os)
@@ -28,7 +27,7 @@ FORCED_DEBUG = []
 FORCED_DEBUG_FILE = None
 
 
-class DebugControl(object):
+class DebugControl:
     """Control and output for debugging."""
 
     show_repr_attr = False      # For SimpleReprMixin
@@ -49,7 +48,7 @@ class DebugControl(object):
         self.raw_output = self.output.outfile
 
     def __repr__(self):
-        return "<DebugControl options=%r raw_output=%r>" % (self.options, self.raw_output)
+        return f"<DebugControl options={self.options!r} raw_output={self.raw_output!r}>"
 
     def should(self, option):
         """Decide whether to output debug information in category `option`."""
@@ -77,7 +76,7 @@ class DebugControl(object):
         if self.should('self'):
             caller_self = inspect.stack()[1][0].f_locals.get('self')
             if caller_self is not None:
-                self.output.write("self: {!r}\n".format(caller_self))
+                self.output.write(f"self: {caller_self!r}\n")
         if self.should('callers'):
             dump_stack_frames(out=self.output, skip=1)
         self.output.flush()
@@ -86,14 +85,14 @@ class DebugControl(object):
 class DebugControlString(DebugControl):
     """A `DebugControl` that writes to a StringIO, for testing."""
     def __init__(self, options):
-        super(DebugControlString, self).__init__(options, StringIO())
+        super().__init__(options, io.StringIO())
 
     def get_output(self):
         """Get the output text from the `DebugControl`."""
         return self.raw_output.getvalue()
 
 
-class NoDebugging(object):
+class NoDebugging:
     """A replacement for DebugControl that will never try to do anything."""
     def should(self, option):               # pylint: disable=unused-argument
         """Should we write debug messages?  Never."""
@@ -120,7 +119,10 @@ def info_formatter(info):
     for label, data in info:
         if data == []:
             data = "-none-"
-        if isinstance(data, (list, set, tuple)):
+        if isinstance(data, tuple) and len(repr(tuple(data))) < 30:
+            # Convert to tuple to scrub namedtuples.
+            yield "%*s: %r" % (label_len, label, tuple(data))
+        elif isinstance(data, (list, set, tuple)):
             prefix = "%*s:" % (label_len, label)
             for e in data:
                 yield "%*s %s" % (label_len+1, prefix, e)
@@ -129,11 +131,18 @@ def info_formatter(info):
             yield "%*s: %s" % (label_len, label, data)
 
 
-def write_formatted_info(writer, header, info):
-    """Write a sequence of (label,data) pairs nicely."""
-    writer.write(info_header(header))
+def write_formatted_info(write, header, info):
+    """Write a sequence of (label,data) pairs nicely.
+
+    `write` is a function write(str) that accepts each line of output.
+    `header` is a string to start the section.  `info` is a sequence of
+    (label, data) pairs, where label is a str, and data can be a single
+    value, or a list/set/tuple.
+
+    """
+    write(info_header(header))
     for line in info_formatter(info):
-        writer.write(" %s" % line)
+        write(f" {line}")
 
 
 def short_stack(limit=None, skip=0):
@@ -183,12 +192,12 @@ def short_id(id64):
 def add_pid_and_tid(text):
     """A filter to add pid and tid to debug messages."""
     # Thread ids are useful, but too long. Make a shorter one.
-    tid = "{:04x}".format(short_id(_thread.get_ident()))
-    text = "{:5d}.{}: {}".format(os.getpid(), tid, text)
+    tid = f"{short_id(_thread.get_ident()):04x}"
+    text = f"{os.getpid():5d}.{tid}: {text}"
     return text
 
 
-class SimpleReprMixin(object):
+class SimpleReprMixin:
     """A mixin implementing a simple __repr__."""
     simple_repr_ignore = ['simple_repr_ignore', '$coverage.object_id']
 
@@ -202,8 +211,8 @@ class SimpleReprMixin(object):
         return "<{klass} @0x{id:x} {attrs}>".format(
             klass=self.__class__.__name__,
             id=id(self),
-            attrs=" ".join("{}={!r}".format(k, v) for k, v in show_attrs),
-            )
+            attrs=" ".join(f"{k}={v!r}" for k, v in show_attrs),
+        )
 
 
 def simplify(v):                                            # pragma: debugging
@@ -245,7 +254,7 @@ def filter_text(text, filters):
     return text + ending
 
 
-class CwdTracker(object):                                   # pragma: debugging
+class CwdTracker:                                   # pragma: debugging
     """A class to add cwd info to debug messages."""
     def __init__(self):
         self.cwd = None
@@ -254,12 +263,12 @@ class CwdTracker(object):                                   # pragma: debugging
         """Add a cwd message for each new cwd."""
         cwd = os.getcwd()
         if cwd != self.cwd:
-            text = "cwd is now {!r}\n".format(cwd) + text
+            text = f"cwd is now {cwd!r}\n" + text
             self.cwd = cwd
         return text
 
 
-class DebugOutputFile(object):                              # pragma: debugging
+class DebugOutputFile:                              # pragma: debugging
     """A file-like object that includes pid and cwd information."""
     def __init__(self, outfile, show_process, filters):
         self.outfile = outfile
@@ -268,12 +277,13 @@ class DebugOutputFile(object):                              # pragma: debugging
 
         if self.show_process:
             self.filters.insert(0, CwdTracker().filter)
-            self.write("New process: executable: %r\n" % (sys.executable,))
-            self.write("New process: cmd: %r\n" % (getattr(sys, 'argv', None),))
+            self.write(f"New process: executable: {sys.executable!r}\n")
+            self.write("New process: cmd: {!r}\n".format(getattr(sys, 'argv', None)))
             if hasattr(os, 'getppid'):
-                self.write("New process: pid: %r, parent pid: %r\n" % (os.getpid(), os.getppid()))
+                self.write(f"New process: pid: {os.getpid()!r}, parent pid: {os.getppid()!r}\n")
 
     SYS_MOD_NAME = '$coverage.debug.DebugOutputFile.the_one'
+    SINGLETON_ATTR = 'the_one_and_is_interim'
 
     @classmethod
     def get_one(cls, fileobj=None, show_process=True, filters=(), interim=False):
@@ -302,16 +312,21 @@ class DebugOutputFile(object):                              # pragma: debugging
         # this class can be defined more than once. But we really want
         # a process-wide singleton. So stash it in sys.modules instead of
         # on a class attribute. Yes, this is aggressively gross.
-        the_one, is_interim = sys.modules.get(cls.SYS_MOD_NAME, (None, True))
+        singleton_module = sys.modules.get(cls.SYS_MOD_NAME)
+        the_one, is_interim = getattr(singleton_module, cls.SINGLETON_ATTR, (None, True))
         if the_one is None or is_interim:
             if fileobj is None:
                 debug_file_name = os.environ.get("COVERAGE_DEBUG_FILE", FORCED_DEBUG_FILE)
-                if debug_file_name:
+                if debug_file_name in ("stdout", "stderr"):
+                    fileobj = getattr(sys, debug_file_name)
+                elif debug_file_name:
                     fileobj = open(debug_file_name, "a")
                 else:
                     fileobj = sys.stderr
             the_one = cls(fileobj, show_process, filters)
-            sys.modules[cls.SYS_MOD_NAME] = (the_one, interim)
+            singleton_module = types.ModuleType(cls.SYS_MOD_NAME)
+            setattr(singleton_module, cls.SINGLETON_ATTR, (the_one, interim))
+            sys.modules[cls.SYS_MOD_NAME] = singleton_module
         return the_one
 
     def write(self, text):
@@ -370,7 +385,7 @@ def show_calls(show_args=True, show_stack=False, show_return=False):    # pragma
         def _wrapper(self, *args, **kwargs):
             oid = getattr(self, OBJ_ID_ATTR, None)
             if oid is None:
-                oid = "{:08d} {:04d}".format(os.getpid(), next(OBJ_IDS))
+                oid = f"{os.getpid():08d} {next(OBJ_IDS):04d}"
                 setattr(self, OBJ_ID_ATTR, oid)
             extra = ""
             if show_args:
@@ -386,11 +401,11 @@ def show_calls(show_args=True, show_stack=False, show_return=False):    # pragma
                 extra += " @ "
                 extra += "; ".join(_clean_stack_line(l) for l in short_stack().splitlines())
             callid = next(CALLS)
-            msg = "{} {:04d} {}{}\n".format(oid, callid, func.__name__, extra)
+            msg = f"{oid} {callid:04d} {func.__name__}{extra}\n"
             DebugOutputFile.get_one(interim=True).write(msg)
             ret = func(self, *args, **kwargs)
             if show_return:
-                msg = "{} {:04d} {} return {!r}\n".format(oid, callid, func.__name__, ret)
+                msg = f"{oid} {callid:04d} {func.__name__} return {ret!r}\n"
                 DebugOutputFile.get_one(interim=True).write(msg)
             return ret
         return _wrapper

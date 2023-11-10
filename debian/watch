@@ -6,7 +6,7 @@
 version = 4
 
 # Source tarball from Python Package Index.
-opts = "uversionmangle=s/(\d)((?:a|b|c|rc)\d*)$/$1~$2/,repack,repacksuffix=+dfsg.1,dversionmangle=s/\+dfsg\.\d+$//" \
+opts = "uversionmangle=s/(\d)((?:a|b|c|rc)\d*)$/$1~$2/,repack,repacksuffix=+dfsg1,dversionmangle=s/\+dfsg\d+$//" \
     https://pypi.debian.net/coverage/ \
     /coverage/coverage-@ANY_VERSION@@ARCHIVE_EXT@ \
     debian uupdate

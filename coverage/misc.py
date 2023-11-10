@@ -3,20 +3,26 @@
 
 """Miscellaneous stuff for coverage.py."""
 
+import contextlib
 import errno
 import hashlib
+import importlib
+import importlib.util
 import inspect
 import locale
 import os
 import os.path
-import random
 import re
-import socket
 import sys
 import types
 
 from coverage import env
-from coverage.backward import to_bytes, unicode_class
+from coverage.exceptions import CoverageException
+
+# In 6.0, the exceptions moved from misc.py to exceptions.py.  But a number of
+# other packages were importing the exceptions from misc, so import them here.
+# pylint: disable=unused-wildcard-import
+from coverage.exceptions import *   # pylint: disable=wildcard-import
 
 ISOLATED_MODULES = {}
 
@@ -42,6 +48,49 @@ def isolate_module(mod):
 os = isolate_module(os)
 
 
+class SysModuleSaver:
+    """Saves the contents of sys.modules, and removes new modules later."""
+    def __init__(self):
+        self.old_modules = set(sys.modules)
+
+    def restore(self):
+        """Remove any modules imported since this object started."""
+        new_modules = set(sys.modules) - self.old_modules
+        for m in new_modules:
+            del sys.modules[m]
+
+
+@contextlib.contextmanager
+def sys_modules_saved():
+    """A context manager to remove any modules imported during a block."""
+    saver = SysModuleSaver()
+    try:
+        yield
+    finally:
+        saver.restore()
+
+
+def import_third_party(modname):
+    """Import a third-party module we need, but might not be installed.
+
+    This also cleans out the module after the import, so that coverage won't
+    appear to have imported it.  This lets the third party use coverage for
+    their own tests.
+
+    Arguments:
+        modname (str): the name of the module to import.
+
+    Returns:
+        The imported module, or None if the module couldn't be imported.
+
+    """
+    with sys_modules_saved():
+        try:
+            return importlib.import_module(modname)
+        except ImportError:
+            return None
+
+
 def dummy_decorator_with_args(*args_unused, **kwargs_unused):
     """Dummy no-op implementation of a decorator with arguments."""
     def _decorator(func):
@@ -49,21 +98,16 @@ def dummy_decorator_with_args(*args_unused, **kwargs_unused):
     return _decorator
 
 
-# Environment COVERAGE_NO_CONTRACTS=1 can turn off contracts while debugging
-# tests to remove noise from stack traces.
-# $set_env.py: COVERAGE_NO_CONTRACTS - Disable PyContracts to simplify stack traces.
-USE_CONTRACTS = env.TESTING and not bool(int(os.environ.get("COVERAGE_NO_CONTRACTS", 0)))
-
 # Use PyContracts for assertion testing on parameters and returns, but only if
 # we are running our own test suite.
-if USE_CONTRACTS:
+if env.USE_CONTRACTS:
     from contracts import contract              # pylint: disable=unused-import
     from contracts import new_contract as raw_new_contract
 
     def new_contract(*args, **kwargs):
         """A proxy for contracts.new_contract that doesn't mind happening twice."""
         try:
-            return raw_new_contract(*args, **kwargs)
+            raw_new_contract(*args, **kwargs)
         except ValueError:
             # During meta-coverage, this module is imported twice, and
             # PyContracts doesn't like redefining contracts. It's OK.
@@ -71,13 +115,12 @@ if USE_CONTRACTS:
 
     # Define contract words that PyContract doesn't have.
     new_contract('bytes', lambda v: isinstance(v, bytes))
-    if env.PY3:
-        new_contract('unicode', lambda v: isinstance(v, unicode_class))
+    new_contract('unicode', lambda v: isinstance(v, str))
 
     def one_of(argnames):
         """Ensure that only one of the argnames is non-None."""
         def _decorator(func):
-            argnameset = set(name.strip() for name in argnames.split(","))
+            argnameset = {name.strip() for name in argnames.split(",")}
             def _wrapper(*args, **kwargs):
                 vals = [kwargs.get(name) for name in argnameset]
                 assert sum(val is not None for val in vals) == 1
@@ -121,7 +164,7 @@ def expensive(fn):
 
         def _wrapper(self):
             if hasattr(self, attr):
-                raise AssertionError("Shouldn't have called %s more than once" % fn.__name__)
+                raise AssertionError(f"Shouldn't have called {fn.__name__} more than once")
             setattr(self, attr, True)
             return fn(self)
         return _wrapper
@@ -139,7 +182,7 @@ def bool_or_none(b):
 
 def join_regex(regexes):
     """Combine a list of regexes into one that matches any of them."""
-    return "|".join("(?:%s)" % r for r in regexes)
+    return "|".join(f"(?:{r})" for r in regexes)
 
 
 def file_be_gone(path):
@@ -156,8 +199,8 @@ def ensure_dir(directory):
 
     If `directory` is None or empty, do nothing.
     """
-    if directory and not os.path.isdir(directory):
-        os.makedirs(directory)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
 
 
 def ensure_dir_for_file(path):
@@ -177,42 +220,22 @@ def output_encoding(outfile=None):
     return encoding
 
 
-def filename_suffix(suffix):
-    """Compute a filename suffix for a data file.
-
-    If `suffix` is a string or None, simply return it. If `suffix` is True,
-    then build a suffix incorporating the hostname, process id, and a random
-    number.
-
-    Returns a string or None.
-
-    """
-    if suffix is True:
-        # If data_suffix was a simple true value, then make a suffix with
-        # plenty of distinguishing information.  We do this here in
-        # `save()` at the last minute so that the pid will be correct even
-        # if the process forks.
-        dice = random.Random(os.urandom(8)).randint(0, 999999)
-        suffix = "%s.%s.%06d" % (socket.gethostname(), os.getpid(), dice)
-    return suffix
-
-
-class Hasher(object):
-    """Hashes Python data into md5."""
+class Hasher:
+    """Hashes Python data for fingerprinting."""
     def __init__(self):
-        self.md5 = hashlib.md5()
+        self.hash = hashlib.new("sha3_256")
 
     def update(self, v):
         """Add `v` to the hash, recursively if needed."""
-        self.md5.update(to_bytes(str(type(v))))
-        if isinstance(v, unicode_class):
-            self.md5.update(v.encode('utf8'))
+        self.hash.update(str(type(v)).encode("utf-8"))
+        if isinstance(v, str):
+            self.hash.update(v.encode("utf-8"))
         elif isinstance(v, bytes):
-            self.md5.update(v)
+            self.hash.update(v)
         elif v is None:
             pass
         elif isinstance(v, (int, float)):
-            self.md5.update(to_bytes(str(v)))
+            self.hash.update(str(v).encode("utf-8"))
         elif isinstance(v, (tuple, list)):
             for e in v:
                 self.update(e)
@@ -230,11 +253,11 @@ class Hasher(object):
                     continue
                 self.update(k)
                 self.update(a)
-        self.md5.update(b'.')
+        self.hash.update(b'.')
 
     def hexdigest(self):
         """Retrieve the hex digest of the hash."""
-        return self.md5.hexdigest()
+        return self.hash.hexdigest()[:32]
 
 
 def _needs_to_implement(that, func_name):
@@ -245,16 +268,14 @@ def _needs_to_implement(that, func_name):
     else:
         thing = "Class"
         klass = that.__class__
-        name = "{klass.__module__}.{klass.__name__}".format(klass=klass)
+        name = f"{klass.__module__}.{klass.__name__}"
 
     raise NotImplementedError(
-        "{thing} {name!r} needs to implement {func_name}()".format(
-            thing=thing, name=name, func_name=func_name
-            )
-        )
+        f"{thing} {name!r} needs to implement {func_name}()"
+    )
 
 
-class DefaultValue(object):
+class DefaultValue:
     """A sentinel object to use for unusual default-value needs.
 
     Construct with a string that will be used as the repr, for display in help
@@ -299,63 +320,87 @@ def substitute_variables(text, variables):
         )
         """
 
+    dollar_groups = ('dollar', 'word1', 'word2')
+
     def dollar_replace(match):
         """Called for each $replacement."""
-        # Only one of the groups will have matched, just get its text.
-        word = next(g for g in match.group('dollar', 'word1', 'word2') if g)
+        # Only one of the dollar_groups will have matched, just get its text.
+        word = next(g for g in match.group(*dollar_groups) if g)    # pragma: always breaks
         if word == "$":
             return "$"
         elif word in variables:
             return variables[word]
-        elif match.group('strict'):
-            msg = "Variable {} is undefined: {!r}".format(word, text)
+        elif match['strict']:
+            msg = f"Variable {word} is undefined: {text!r}"
             raise CoverageException(msg)
         else:
-            return match.group('defval')
+            return match['defval']
 
     text = re.sub(dollar_pattern, dollar_replace, text)
     return text
 
 
-class BaseCoverageException(Exception):
-    """The base of all Coverage exceptions."""
-    pass
+def format_local_datetime(dt):
+    """Return a string with local timezone representing the date.
+    """
+    return dt.astimezone().strftime('%Y-%m-%d %H:%M %z')
 
 
-class CoverageException(BaseCoverageException):
-    """An exception raised by a coverage.py function."""
-    pass
+def import_local_file(modname, modfile=None):
+    """Import a local file as a module.
 
-
-class NoSource(CoverageException):
-    """We couldn't find the source for a module."""
-    pass
-
-
-class NoCode(NoSource):
-    """We couldn't find any code at all."""
-    pass
-
-
-class NotPython(CoverageException):
-    """A source file turned out not to be parsable Python."""
-    pass
-
-
-class ExceptionDuringRun(CoverageException):
-    """An exception happened while running customer code.
-
-    Construct it with three arguments, the values from `sys.exc_info`.
+    Opens a file in the current directory named `modname`.py, imports it
+    as `modname`, and returns the module object.  `modfile` is the file to
+    import if it isn't in the current directory.
 
     """
-    pass
+    if modfile is None:
+        modfile = modname + '.py'
+    spec = importlib.util.spec_from_file_location(modname, modfile)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[modname] = mod
+    spec.loader.exec_module(mod)
+
+    return mod
 
 
-class StopEverything(BaseCoverageException):
-    """An exception that means everything should stop.
+def human_key(s):
+    """Turn a string into a list of string and number chunks.
+        "z23a" -> ["z", 23, "a"]
+    """
+    def tryint(s):
+        """If `s` is a number, return an int, else `s` unchanged."""
+        try:
+            return int(s)
+        except ValueError:
+            return s
 
-    The CoverageTest class converts these to SkipTest, so that when running
-    tests, raising this exception will automatically skip the test.
+    return [tryint(c) for c in re.split(r"(\d+)", s)]
+
+def human_sorted(strings):
+    """Sort the given iterable of strings the way that humans expect.
+
+    Numeric components in the strings are sorted as numbers.
+
+    Returns the sorted list.
 
     """
-    pass
+    return sorted(strings, key=human_key)
+
+def human_sorted_items(items, reverse=False):
+    """Sort the (string, value) items the way humans expect.
+
+    Returns the sorted list of items.
+    """
+    return sorted(items, key=lambda pair: (human_key(pair[0]), pair[1]), reverse=reverse)
+
+
+def plural(n, thing="", things=""):
+    """Pluralize a word.
+
+    If n is 1, return thing.  Otherwise return things, or thing+s.
+    """
+    if n == 1:
+        return thing
+    else:
+        return things or (thing + "s")

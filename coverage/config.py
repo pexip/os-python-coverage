@@ -4,15 +4,14 @@
 """Config file for coverage.py"""
 
 import collections
+import configparser
 import copy
 import os
 import os.path
 import re
 
-from coverage import env
-from coverage.backward import configparser, iitems, string_class
-from coverage.misc import contract, CoverageException, isolate_module
-from coverage.misc import substitute_variables
+from coverage.exceptions import ConfigError
+from coverage.misc import contract, isolate_module, human_sorted_items, substitute_variables
 
 from coverage.tomlconfig import TomlConfigParser, TomlDecodeError
 
@@ -35,12 +34,9 @@ class HandyConfigParser(configparser.RawConfigParser):
         if our_file:
             self.section_prefixes.append("")
 
-    def read(self, filenames, encoding=None):
+    def read(self, filenames, encoding_unused=None):
         """Read a file name as UTF-8 configuration data."""
-        kwargs = {}
-        if env.PYVERSION >= (3, 2):
-            kwargs['encoding'] = encoding or "utf-8"
-        return configparser.RawConfigParser.read(self, filenames, **kwargs)
+        return configparser.RawConfigParser.read(self, filenames, encoding="utf-8")
 
     def has_option(self, section, option):
         for section_prefix in self.section_prefixes:
@@ -63,7 +59,7 @@ class HandyConfigParser(configparser.RawConfigParser):
             real_section = section_prefix + section
             if configparser.RawConfigParser.has_section(self, real_section):
                 return configparser.RawConfigParser.options(self, real_section)
-        raise configparser.NoSectionError
+        raise ConfigError(f"No section: {section!r}")
 
     def get_section(self, section):
         """Get the contents of a section, as a dictionary."""
@@ -72,7 +68,7 @@ class HandyConfigParser(configparser.RawConfigParser):
             d[opt] = self.get(section, opt)
         return d
 
-    def get(self, section, option, *args, **kwargs):        # pylint: disable=arguments-differ
+    def get(self, section, option, *args, **kwargs):
         """Get a value, replacing environment variables also.
 
         The arguments are the same as `RawConfigParser.get`, but in the found
@@ -87,7 +83,7 @@ class HandyConfigParser(configparser.RawConfigParser):
             if configparser.RawConfigParser.has_option(self, real_section, option):
                 break
         else:
-            raise configparser.NoOptionError
+            raise ConfigError(f"No option {option!r} in section: {section!r}")
 
         v = configparser.RawConfigParser.get(self, real_section, option, *args, **kwargs)
         v = substitute_variables(v, os.environ)
@@ -127,9 +123,9 @@ class HandyConfigParser(configparser.RawConfigParser):
             try:
                 re.compile(value)
             except re.error as e:
-                raise CoverageException(
-                    "Invalid [%s].%s value %r: %s" % (section, option, value, e)
-                )
+                raise ConfigError(
+                    f"Invalid [{section}].{option} value {value!r}: {e}"
+                ) from e
             if value:
                 value_list.append(value)
         return value_list
@@ -154,7 +150,7 @@ DEFAULT_PARTIAL_ALWAYS = [
 ]
 
 
-class CoverageConfig(object):
+class CoverageConfig:
     """Coverage.py configuration.
 
     The attributes of this class are the various settings that control the
@@ -194,7 +190,9 @@ class CoverageConfig(object):
         self.relative_files = False
         self.run_include = None
         self.run_omit = None
+        self.sigterm = False
         self.source = None
+        self.source_pkgs = []
         self.timid = False
         self._crash = None
 
@@ -211,10 +209,13 @@ class CoverageConfig(object):
         self.show_missing = False
         self.skip_covered = False
         self.skip_empty = False
+        self.sort = None
 
         # Defaults for [html]
         self.extra_css = None
         self.html_dir = "htmlcov"
+        self.html_skip_covered = None
+        self.html_skip_empty = None
         self.html_title = "Coverage report"
         self.show_contexts = False
 
@@ -227,28 +228,31 @@ class CoverageConfig(object):
         self.json_pretty_print = False
         self.json_show_contexts = False
 
+        # Defaults for [lcov]
+        self.lcov_output = "coverage.lcov"
+
         # Defaults for [paths]
         self.paths = collections.OrderedDict()
 
         # Options for plugins
         self.plugin_options = {}
 
-    MUST_BE_LIST = [
+    MUST_BE_LIST = {
         "debug", "concurrency", "plugins",
         "report_omit", "report_include",
         "run_omit", "run_include",
-    ]
+    }
 
     def from_args(self, **kwargs):
         """Read config values from `kwargs`."""
-        for k, v in iitems(kwargs):
+        for k, v in kwargs.items():
             if v is not None:
-                if k in self.MUST_BE_LIST and isinstance(v, string_class):
+                if k in self.MUST_BE_LIST and isinstance(v, str):
                     v = [v]
                 setattr(self, k, v)
 
     @contract(filename=str)
-    def from_file(self, filename, our_file):
+    def from_file(self, filename, warn, our_file):
         """Read configuration from a .rc file.
 
         `filename` is a file name to read.
@@ -272,7 +276,7 @@ class CoverageConfig(object):
         try:
             files_read = cp.read(filename)
         except (configparser.Error, TomlDecodeError) as err:
-            raise CoverageException("Couldn't read config file %s: %s" % (filename, err))
+            raise ConfigError(f"Couldn't read config file {filename}: {err}") from err
         if not files_read:
             return False
 
@@ -285,7 +289,7 @@ class CoverageConfig(object):
                 if was_set:
                     any_set = True
         except ValueError as err:
-            raise CoverageException("Couldn't read config file %s: %s" % (filename, err))
+            raise ConfigError(f"Couldn't read config file {filename}: {err}") from err
 
         # Check that there are no unrecognized options.
         all_options = collections.defaultdict(set)
@@ -293,12 +297,12 @@ class CoverageConfig(object):
             section, option = option_spec[1].split(":")
             all_options[section].add(option)
 
-        for section, options in iitems(all_options):
+        for section, options in all_options.items():
             real_section = cp.has_section(section)
             if real_section:
                 for unknown in set(cp.options(section)) - options:
-                    raise CoverageException(
-                        "Unrecognized option '[%s] %s=' in config file %s" % (
+                    warn(
+                        "Unrecognized option '[{}] {}=' in config file {}".format(
                             real_section, unknown, filename
                         )
                     )
@@ -325,7 +329,7 @@ class CoverageConfig(object):
 
         if used:
             self.config_file = os.path.abspath(filename)
-            with open(filename) as f:
+            with open(filename, "rb") as f:
                 self._config_contents = f.read()
 
         return used
@@ -333,6 +337,8 @@ class CoverageConfig(object):
     def copy(self):
         """Return a copy of the configuration."""
         return copy.deepcopy(self)
+
+    CONCURRENCY_CHOICES = {"thread", "gevent", "greenlet", "eventlet", "multiprocessing"}
 
     CONFIG_FILE_OPTIONS = [
         # These are *args for _set_attr_from_config_option:
@@ -359,7 +365,9 @@ class CoverageConfig(object):
         ('relative_files', 'run:relative_files', 'boolean'),
         ('run_include', 'run:include', 'list'),
         ('run_omit', 'run:omit', 'list'),
+        ('sigterm', 'run:sigterm', 'boolean'),
         ('source', 'run:source', 'list'),
+        ('source_pkgs', 'run:source_pkgs', 'list'),
         ('timid', 'run:timid', 'boolean'),
         ('_crash', 'run:_crash'),
 
@@ -381,6 +389,8 @@ class CoverageConfig(object):
         # [html]
         ('extra_css', 'html:extra_css'),
         ('html_dir', 'html:directory'),
+        ('html_skip_covered', 'html:skip_covered', 'boolean'),
+        ('html_skip_empty', 'html:skip_empty', 'boolean'),
         ('html_title', 'html:title'),
         ('show_contexts', 'html:show_contexts', 'boolean'),
 
@@ -392,6 +402,9 @@ class CoverageConfig(object):
         ('json_output', 'json:output'),
         ('json_pretty_print', 'json:pretty_print', 'boolean'),
         ('json_show_contexts', 'json:show_contexts', 'boolean'),
+
+        # [lcov]
+        ('lcov_output', 'lcov:output'),
     ]
 
     def _set_attr_from_config_option(self, cp, attr, where, type_=''):
@@ -440,7 +453,7 @@ class CoverageConfig(object):
             return
 
         # If we get here, we didn't find the option.
-        raise CoverageException("No such option: %r" % option_name)
+        raise ConfigError(f"No such option: {option_name!r}")
 
     def get_option(self, option_name):
         """Get an option from the configuration.
@@ -468,7 +481,27 @@ class CoverageConfig(object):
             return self.plugin_options.get(plugin_name, {}).get(key)
 
         # If we get here, we didn't find the option.
-        raise CoverageException("No such option: %r" % option_name)
+        raise ConfigError(f"No such option: {option_name!r}")
+
+    def post_process_file(self, path):
+        """Make final adjustments to a file path to make it usable."""
+        return os.path.expanduser(path)
+
+    def post_process(self):
+        """Make final adjustments to settings to make them usable."""
+        self.data_file = self.post_process_file(self.data_file)
+        self.html_dir = self.post_process_file(self.html_dir)
+        self.xml_output = self.post_process_file(self.xml_output)
+        self.paths = collections.OrderedDict(
+            (k, [self.post_process_file(f) for f in v])
+            for k, v in self.paths.items()
+        )
+
+    def debug_info(self):
+        """Make a list of (name, value) pairs for writing debug info."""
+        return human_sorted_items(
+            (k, v) for k, v in self.__dict__.items() if not k.startswith("_")
+        )
 
 
 def config_files_to_try(config_file):
@@ -500,12 +533,13 @@ def config_files_to_try(config_file):
     return files_to_try
 
 
-def read_coverage_config(config_file, **kwargs):
+def read_coverage_config(config_file, warn, **kwargs):
     """Read the coverage.py configuration.
 
     Arguments:
         config_file: a boolean or string, see the `Coverage` class for the
             tricky details.
+        warn: a function to issue warnings.
         all others: keyword arguments from the `Coverage` class, used for
             setting values in the configuration.
 
@@ -524,11 +558,11 @@ def read_coverage_config(config_file, **kwargs):
         files_to_try = config_files_to_try(config_file)
 
         for fname, our_file, specified_file in files_to_try:
-            config_read = config.from_file(fname, our_file=our_file)
+            config_read = config.from_file(fname, warn, our_file=our_file)
             if config_read:
                 break
             if specified_file:
-                raise CoverageException("Couldn't read '%s' as a config file" % fname)
+                raise ConfigError(f"Couldn't read {fname!r} as a config file")
 
     # $set_env.py: COVERAGE_DEBUG - Options for --debug.
     # 3) from environment variables:
@@ -544,12 +578,6 @@ def read_coverage_config(config_file, **kwargs):
 
     # Once all the config has been collected, there's a little post-processing
     # to do.
-    config.data_file = os.path.expanduser(config.data_file)
-    config.html_dir = os.path.expanduser(config.html_dir)
-    config.xml_output = os.path.expanduser(config.xml_output)
-    config.paths = collections.OrderedDict(
-        (k, [os.path.expanduser(f) for f in v])
-        for k, v in config.paths.items()
-    )
+    config.post_process()
 
     return config

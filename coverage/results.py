@@ -5,15 +5,15 @@
 
 import collections
 
-from coverage.backward import iitems
 from coverage.debug import SimpleReprMixin
-from coverage.misc import contract, CoverageException, nice_pair
+from coverage.exceptions import ConfigError
+from coverage.misc import contract, nice_pair
 
 
-class Analysis(object):
+class Analysis:
     """The results of analyzing a FileReporter."""
 
-    def __init__(self, data, file_reporter, file_mapper):
+    def __init__(self, data, precision, file_reporter, file_mapper):
         self.data = data
         self.file_reporter = file_reporter
         self.filename = file_mapper(self.file_reporter.filename)
@@ -32,8 +32,8 @@ class Analysis(object):
             self.no_branch = self.file_reporter.no_branch_lines()
             n_branches = self._total_branches()
             mba = self.missing_branch_arcs()
-            n_partial_branches = sum(len(v) for k,v in iitems(mba) if k not in self.missing)
-            n_missing_branches = sum(len(v) for k,v in iitems(mba))
+            n_partial_branches = sum(len(v) for k,v in mba.items() if k not in self.missing)
+            n_missing_branches = sum(len(v) for k,v in mba.items())
         else:
             self._arc_possibilities = []
             self.exit_counts = {}
@@ -41,6 +41,7 @@ class Analysis(object):
             n_branches = n_partial_branches = n_missing_branches = 0
 
         self.numbers = Numbers(
+            precision=precision,
             n_files=1,
             n_statements=len(self.statements),
             n_excluded=len(self.excluded),
@@ -59,7 +60,7 @@ class Analysis(object):
 
         """
         if branches and self.has_arcs():
-            arcs = iitems(self.missing_branch_arcs())
+            arcs = self.missing_branch_arcs().items()
         else:
             arcs = None
 
@@ -83,13 +84,14 @@ class Analysis(object):
 
     @contract(returns='list(tuple(int, int))')
     def arcs_missing(self):
-        """Returns a sorted list of the arcs in the code not executed."""
+        """Returns a sorted list of the unexecuted arcs in the code."""
         possible = self.arc_possibilities()
         executed = self.arcs_executed()
         missing = (
             p for p in possible
                 if p not in executed
                     and p[0] not in self.no_branch
+                    and p[1] not in self.excluded
         )
         return sorted(missing)
 
@@ -113,7 +115,7 @@ class Analysis(object):
 
     def _branch_lines(self):
         """Returns a list of line numbers that have more than one exit."""
-        return [l1 for l1,count in iitems(self.exit_counts) if count > 1]
+        return [l1 for l1,count in self.exit_counts.items() if count > 1]
 
     def _total_branches(self):
         """How many total branches are there?"""
@@ -134,6 +136,21 @@ class Analysis(object):
                 mba[l1].append(l2)
         return mba
 
+    @contract(returns='dict(int: list(int))')
+    def executed_branch_arcs(self):
+        """Return arcs that were executed from branch lines.
+
+        Returns {l1:[l2a,l2b,...], ...}
+
+        """
+        executed = self.arcs_executed()
+        branch_lines = set(self._branch_lines())
+        eba = collections.defaultdict(list)
+        for l1, l2 in executed:
+            if l1 in branch_lines:
+                eba[l1].append(l2)
+        return eba
+
     @contract(returns='dict(int: tuple(int, int))')
     def branch_stats(self):
         """Get stats about branches.
@@ -146,10 +163,7 @@ class Analysis(object):
         stats = {}
         for lnum in self._branch_lines():
             exits = self.exit_counts[lnum]
-            try:
-                missing = len(missing_arcs[lnum])
-            except KeyError:
-                missing = 0
+            missing = len(missing_arcs[lnum])
             stats[lnum] = (exits, exits - missing)
         return stats
 
@@ -161,15 +175,16 @@ class Numbers(SimpleReprMixin):
     up statistics across files.
 
     """
-    # A global to determine the precision on coverage percentages, the number
-    # of decimal places.
-    _precision = 0
-    _near0 = 1.0              # These will change when _precision is changed.
-    _near100 = 99.0
 
-    def __init__(self, n_files=0, n_statements=0, n_excluded=0, n_missing=0,
-                    n_branches=0, n_partial_branches=0, n_missing_branches=0
-                    ):
+    def __init__(self,
+            precision=0,
+            n_files=0, n_statements=0, n_excluded=0, n_missing=0,
+            n_branches=0, n_partial_branches=0, n_missing_branches=0
+            ):
+        assert 0 <= precision < 10
+        self._precision = precision
+        self._near0 = 1.0 / 10**precision
+        self._near100 = 100.0 - self._near0
         self.n_files = n_files
         self.n_statements = n_statements
         self.n_excluded = n_excluded
@@ -181,17 +196,10 @@ class Numbers(SimpleReprMixin):
     def init_args(self):
         """Return a list for __init__(*args) to recreate this object."""
         return [
+            self._precision,
             self.n_files, self.n_statements, self.n_excluded, self.n_missing,
             self.n_branches, self.n_partial_branches, self.n_missing_branches,
         ]
-
-    @classmethod
-    def set_precision(cls, precision):
-        """Set the number of decimal places used to report percentages."""
-        assert 0 <= precision < 10
-        cls._precision = precision
-        cls._near0 = 1.0 / 10**precision
-        cls._near100 = 100.0 - cls._near0
 
     @property
     def n_executed(self):
@@ -222,7 +230,16 @@ class Numbers(SimpleReprMixin):
         result in either "0" or "100".
 
         """
-        pc = self.pc_covered
+        return self.display_covered(self.pc_covered)
+
+    def display_covered(self, pc):
+        """Return a displayable total percentage, as a string.
+
+        Note that "0" is only returned when the value is truly zero, and "100"
+        is only returned when the value is truly 100.  Rounding can never
+        result in either "0" or "100".
+
+        """
         if 0 < pc < self._near0:
             pc = self._near0
         elif self._near100 < pc < 100:
@@ -231,12 +248,11 @@ class Numbers(SimpleReprMixin):
             pc = round(pc, self._precision)
         return "%.*f" % (self._precision, pc)
 
-    @classmethod
-    def pc_str_width(cls):
+    def pc_str_width(self):
         """How many characters wide can pc_covered_str be?"""
         width = 3   # "100"
-        if cls._precision > 0:
-            width += 1 + cls._precision
+        if self._precision > 0:
+            width += 1 + self._precision
         return width
 
     @property
@@ -247,7 +263,7 @@ class Numbers(SimpleReprMixin):
         return numerator, denominator
 
     def __add__(self, other):
-        nums = Numbers()
+        nums = Numbers(precision=self._precision)
         nums.n_files = self.n_files + other.n_files
         nums.n_statements = self.n_statements + other.n_statements
         nums.n_excluded = self.n_excluded + other.n_excluded
@@ -255,17 +271,16 @@ class Numbers(SimpleReprMixin):
         nums.n_branches = self.n_branches + other.n_branches
         nums.n_partial_branches = (
             self.n_partial_branches + other.n_partial_branches
-            )
+        )
         nums.n_missing_branches = (
             self.n_missing_branches + other.n_missing_branches
-            )
+        )
         return nums
 
     def __radd__(self, other):
         # Implementing 0+Numbers allows us to sum() a list of Numbers.
-        if other == 0:
-            return self
-        return NotImplemented
+        assert other == 0   # we only ever call it this way.
+        return self
 
 
 def _line_ranges(statements, lines):
@@ -315,9 +330,9 @@ def format_lines(statements, lines, arcs=None):
         line_exits = sorted(arcs)
         for line, exits in line_exits:
             for ex in sorted(exits):
-                if line not in lines:
+                if line not in lines and ex not in lines:
                     dest = (ex if ex > 0 else "exit")
-                    line_items.append((line, "%d->%s" % (line, dest)))
+                    line_items.append((line, f"{line}->{dest}"))
 
     ret = ', '.join(t[-1] for t in sorted(line_items))
     return ret
@@ -336,8 +351,8 @@ def should_fail_under(total, fail_under, precision):
     """
     # We can never achieve higher than 100% coverage, or less than zero.
     if not (0 <= fail_under <= 100.0):
-        msg = "fail_under={} is invalid. Must be between 0 and 100.".format(fail_under)
-        raise CoverageException(msg)
+        msg = f"fail_under={fail_under} is invalid. Must be between 0 and 100."
+        raise ConfigError(msg)
 
     # Special case for fail_under=100, it must really be 100.
     if fail_under == 100.0 and total != 100.0:

@@ -50,6 +50,20 @@ reported.  If you collect execution data on Python 3.7, and then run coverage
 reports on Python 3.8, there will be a discrepancy.
 
 
+Q: Can I find out which tests ran which lines?
+..............................................
+
+Yes! Coverage.py has a feature called :ref:`dynamic_contexts` which can collect
+this information.  Add this to your .coveragerc file:
+
+.. code-block:: ini
+
+    [run]
+    dynamic_context = test_function
+
+and then use the ``--contexts`` option when generating an HTML report.
+
+
 Q: How is the total percentage calculated?
 ..........................................
 
@@ -78,8 +92,8 @@ Make sure you are using the C trace function.  Coverage.py provides two
 implementations of the trace function.  The C implementation runs much faster.
 To see what you are running, use ``coverage debug sys``.  The output contains
 details of the environment, including a line that says either
-``tracer: CTracer`` or ``tracer: PyTracer``.  If it says ``PyTracer`` then you
-are using the slow Python implementation.
+``CTrace: available`` or ``CTracer: unavailable``.  If it says unavailable,
+then you are using the slow Python implementation.
 
 Try re-installing coverage.py to see what happened and if you get the CTracer
 as you should.

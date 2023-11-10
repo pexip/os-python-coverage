@@ -16,34 +16,30 @@ include Makefile
 include NOTICE.txt
 include README.rst
 include __main__.py
-include .travis.yml
-include appveyor.yml
 include howto.txt
 include igor.py
 include metacov.ini
 include pylintrc
 include setup.py
 include tox.ini
-include tox_wheels.ini
 include .editorconfig
 include .readthedocs.yml
 
 recursive-include ci *
-exclude ci/*.token
+recursive-include lab *
+recursive-include .github *
 
 recursive-include coverage/fullcoverage *.py
 recursive-include coverage/ctracer *.c *.h
 
-recursive-include doc *.py *.pip *.rst *.txt *.png
+recursive-include doc *.py *.in *.pip *.rst *.txt *.png
 recursive-include doc/_static *
 prune doc/_build
 prune doc/_spell
 
-recursive-include requirements *.pip
+recursive-include requirements *.in *.pip
 
 recursive-include tests *.py *.tok
 recursive-include tests/gold *
 recursive-include tests js/* qunit/*
 prune tests/eggsrc/build
-
-global-exclude *.py[co]

@@ -10,7 +10,6 @@ import os.path
 import sys
 import traceback
 
-from coverage import env
 from coverage.misc import contract
 
 # An attribute that will be set on the module to indicate that it has been
@@ -18,21 +17,17 @@ from coverage.misc import contract
 PATCHED_MARKER = "_coverage$patched"
 
 
-if env.PYVERSION >= (3, 4):
-    OriginalProcess = multiprocessing.process.BaseProcess
-else:
-    OriginalProcess = multiprocessing.Process
-
+OriginalProcess = multiprocessing.process.BaseProcess
 original_bootstrap = OriginalProcess._bootstrap
 
 class ProcessWithCoverage(OriginalProcess):         # pylint: disable=abstract-method
     """A replacement for multiprocess.Process that starts coverage."""
 
-    def _bootstrap(self, *args, **kwargs):          # pylint: disable=arguments-differ
+    def _bootstrap(self, *args, **kwargs):
         """Wrapper around _bootstrap to start coverage."""
         try:
             from coverage import Coverage       # avoid circular import
-            cov = Coverage(data_suffix=True)
+            cov = Coverage(data_suffix=True, auto_data=True)
             cov._warn_preimported_source = False
             cov.start()
             debug = cov._debug
@@ -53,7 +48,7 @@ class ProcessWithCoverage(OriginalProcess):         # pylint: disable=abstract-m
             if debug.should("multiproc"):
                 debug.write("Saved multiprocessing data")
 
-class Stowaway(object):
+class Stowaway:
     """An object to pickle, so when it is unpickled, it can apply the monkey-patch."""
     def __init__(self, rcfile):
         self.rcfile = rcfile
@@ -79,10 +74,7 @@ def patch_multiprocessing(rcfile):
     if hasattr(multiprocessing, PATCHED_MARKER):
         return
 
-    if env.PYVERSION >= (3, 4):
-        OriginalProcess._bootstrap = ProcessWithCoverage._bootstrap
-    else:
-        multiprocessing.Process = ProcessWithCoverage
+    OriginalProcess._bootstrap = ProcessWithCoverage._bootstrap
 
     # Set the value in ProcessWithCoverage that will be pickled into the child
     # process.

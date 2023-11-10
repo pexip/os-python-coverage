@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-#
 # debian/tests/smoke_test.py
 #
 # This is free software, and you are welcome to redistribute it under
@@ -8,8 +6,7 @@
 
 """ Post-install Python smoke test for use in Debian autopkgtest.
 
-    Written for both Python 2 and Python 3, to test all installed
-    versions of a package.
+    Written to test all installed versions of a package.
 
     Smoke test the distribution::
         --distribution=DISTRIBUTION
@@ -18,9 +15,12 @@
         --module=MODULE_FOO --module=MODULE_BAR --module=MODULE_BAZ
     """
 
-import sys
 import argparse
 import importlib
+import importlib.metadata
+import sys
+import textwrap
+
 import pkg_resources
 
 
@@ -29,21 +29,23 @@ def emit_implementation():
 
         :return: ``None``.
         """
-    sys.stdout.write(
-            "Interpreter: {command}\n{version}\n".format(
-                command=sys.executable, version=sys.version))
+    sys.stdout.write(textwrap.dedent("""\
+            Interpreter: {command}
+            \t{version}
+            """).format(command=sys.executable, version=sys.version))
 
 
-def emit_distribution(name):
-    """ Get the distribution `name` and emit its representation.
+def emit_distribution_metadata(name):
+    """ Get the distribution `name` and emit some metadata.
 
         :param name: Name of the distribution to retrieve.
         :return: ``None``.
         """
-    distribution = pkg_resources.get_distribution(name)
-    sys.stdout.write(
-            "Distribution ‘{name}’:\n\t{distribution!r}\n".format(
-                name=name, distribution=distribution))
+    metadata = importlib.metadata.metadata(name)
+    sys.stdout.write(textwrap.dedent("""\
+            Distribution ‘{name}’:
+            \t{metadata[Name]} {metadata[Version]}
+            """).format(name=name, metadata=metadata))
 
 
 def emit_module(name):
@@ -53,9 +55,10 @@ def emit_module(name):
         :return: ``None``.
         """
     module = importlib.import_module(name)
-    sys.stdout.write(
-            "Package ‘{name}’:\n\t{module!r}\n".format(
-                name=name, module=module))
+    sys.stdout.write(textwrap.dedent("""\
+            Package ‘{name}’:
+            \t{module!r}
+            """).format(name=name, module=module))
 
 
 def suite(args):
@@ -67,10 +70,11 @@ def suite(args):
     emit_implementation()
 
     if args.distribution_name:
-        emit_distribution(args.distribution_name)
+        emit_distribution_metadata(args.distribution_name)
 
-    for module_name in args.module_names:
-        emit_module(module_name)
+    if args.module_names:
+        for module_name in args.module_names:
+            emit_module(module_name)
 
 
 class SmokeTestArgumentParser(argparse.ArgumentParser):
@@ -89,6 +93,14 @@ class SmokeTestArgumentParser(argparse.ArgumentParser):
                 dest='module_names', type=str, nargs='+',
                 metavar="MODULE", help=(
                     "Test the Python module named MODULE."))
+
+    def parse_args(self, *args, **kwargs):
+        args = super().parse_args(*args, **kwargs)
+
+        if (not any([args.distribution_name, args.module_names])):
+            self.error("one of DISTRIBUTION or MODULE is required")
+
+        return args
 
 
 def main(argv=None):
@@ -121,7 +133,7 @@ if __name__ == "__main__":
     sys.exit(exit_status)
 
 
-# Copyright © 2016–2020 Ben Finney <bignose@debian.org>
+# Copyright © 2016–2022 Ben Finney <bignose@debian.org>
 # This is free software: you may copy, modify, and/or distribute this work
 # under the terms of the GNU General Public License as published by the
 # Free Software Foundation; version 3 of that license or any later version.
