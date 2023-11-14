@@ -1,11 +1,8 @@
 # debian/patches/series
 # Patch file names to be applied when extracting Debian source package.
 # Manual page: ‘dpkg-source(1)’, ‘quilt(1)’.
-
 01.omit-resource-files-from-distutils-setup.patch
 02.rename-public-programs.patch
-
-
 # Local variables:
 # coding: utf-8
 # mode: conf
