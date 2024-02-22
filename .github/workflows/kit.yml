@@ -142,7 +142,7 @@ jobs:
           platforms: arm64
 
       - name: "Check out the repo"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: "Install Python 3.8"
         uses: actions/setup-python@v4
@@ -179,7 +179,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Check out the repo"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: "Install Python 3.8"
         uses: actions/setup-python@v4
@@ -211,7 +211,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Check out the repo"
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: "Install PyPy"
         uses: actions/setup-python@v4
