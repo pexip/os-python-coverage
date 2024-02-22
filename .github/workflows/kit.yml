@@ -137,7 +137,7 @@ jobs:
       - name: "Setup QEMU"
         if: matrix.os == 'ubuntu'
         # uses: docker/setup-qemu-action@v2
-        uses: docker/setup-qemu-action@8b122486cedac8393e77aa9734c3528886e4a1a8
+        uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3
         with:
           platforms: arm64
 
