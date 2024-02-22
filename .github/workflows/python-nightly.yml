@@ -56,7 +56,7 @@ jobs:
 
       - name: "Install ${{ matrix.python-version }} with deadsnakes"
         # uses: deadsnakes/action@v2.1.1
-        uses: deadsnakes/action@7ab8819e223c70d2bdedd692dfcea75824e0a617
+        uses: deadsnakes/action@6c8b9b82fe0b4344f4b98f2775fcc395df45e494
         if: "!startsWith(matrix.python-version, 'pypy-')"
         with:
           python-version: "${{ matrix.python-version }}"
